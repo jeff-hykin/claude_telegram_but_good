@@ -78,6 +78,9 @@ type SessionInfo = {
   pid: number
   cwd: string
   connectedAt: number
+  title?: string
+  lastActive?: number
+  gitBranch?: string
 }
 
 type IpcMessage =
@@ -87,14 +90,26 @@ type IpcMessage =
   | { type: 'permission_request'; request_id: string; tool_name: string; description: string; input_preview: string }
   | { type: 'permission_reply'; request_id: string; behavior: string }
   | { type: 'session_list'; sessions: SessionInfo[]; focusedId: string; primaryId: string }
+  | { type: 'set_title'; sessionId: string; title: string }
 
 // Primary state — only used when this instance is the primary
 const secondaries = new Map<string, { socket: Socket; info: SessionInfo }>()
 let focusedSessionId = SESSION_ID // default: self (the primary)
 let isPrimary = false
+let primarySocket: Socket | null = null // set when running as secondary
+
+function getGitBranch(cwd: string): string | undefined {
+  try {
+    return execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined
+  } catch { return undefined }
+}
+
+let ownTitle: string | undefined
+let ownLastActive: number | undefined
+const ownGitBranch = getGitBranch(SESSION_CWD)
 
 function ownSessionInfo(): SessionInfo {
-  return { id: SESSION_ID, pid: SESSION_PID, cwd: SESSION_CWD, connectedAt: SESSION_START }
+  return { id: SESSION_ID, pid: SESSION_PID, cwd: SESSION_CWD, connectedAt: SESSION_START, title: ownTitle, lastActive: ownLastActive, gitBranch: ownGitBranch }
 }
 
 function allSessions(): SessionInfo[] {
@@ -112,13 +127,18 @@ function sendIpc(socket: Socket, msg: IpcMessage): void {
 // Deliver a channel event to the focused session.
 // Returns true if handled (forwarded to secondary), false if primary should handle locally.
 function deliverToFocused(content: string, meta: Record<string, string>): boolean {
-  if (focusedSessionId === SESSION_ID) return false // primary handles locally
+  if (focusedSessionId === SESSION_ID) {
+    ownLastActive = Date.now()
+    return false // primary handles locally
+  }
   const secondary = secondaries.get(focusedSessionId)
   if (!secondary) {
     // focused session gone, fall back to primary
     focusedSessionId = SESSION_ID
+    ownLastActive = Date.now()
     return false
   }
+  secondary.info.lastActive = Date.now()
   sendIpc(secondary.socket, { type: 'channel_event', content, meta })
   return true
 }
@@ -185,10 +205,25 @@ async function loadCommands(): Promise<{ loaded: number; errors: string[] }> {
   return { loaded: newCommands.size, errors }
 }
 
+function setSessionTitle(sessionId: string, title: string): boolean {
+  if (sessionId === SESSION_ID) {
+    ownTitle = title
+    return true
+  }
+  const secondary = secondaries.get(sessionId)
+  if (secondary) {
+    secondary.info.title = title
+    sendIpc(secondary.socket, { type: 'set_title', sessionId, title })
+    return true
+  }
+  return false
+}
+
 function getCommandState() {
   return {
     allSessions, get focusedSessionId() { return focusedSessionId },
     setFocusedSession(id: string) { focusedSessionId = id },
+    setSessionTitle,
     SESSION_ID, get isPrimary() { return isPrimary },
     loadAccess, secondaries, SESSION_PID, SESSION_CWD,
     deliverToFocused, sendIpc, bot, mcp, dbg,
@@ -634,6 +669,17 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'set_title',
+      description: 'Set a display title for this session in the Telegram /list view. Use a short descriptive label like "denix refactor" or "debug auth bug".',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Short title for this session' },
+        },
+        required: ['title'],
+      },
+    },
+    {
       name: 'reload',
       description: 'Hot-reload command handlers from the commands/ directory. Use after editing command files so changes take effect without restarting the server.',
       inputSchema: {
@@ -739,6 +785,15 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         mkdirSync(INBOX_DIR, { recursive: true })
         writeFileSync(path, buf)
         return { content: [{ type: 'text', text: path }] }
+      }
+      case 'set_title': {
+        const title = (args.title as string).trim()
+        ownTitle = title
+        if (!isPrimary && primarySocket) {
+          sendIpc(primarySocket, { type: 'set_title', sessionId: SESSION_ID, title })
+        }
+        dbg('TITLE', 'set own title:', title)
+        return { content: [{ type: 'text', text: `title set: ${title}` }] }
       }
       case 'reload': {
         const { loaded, errors } = await loadCommands()
@@ -1193,6 +1248,13 @@ function startPrimary(): void {
               sessions: allSessions(),
               focusedId: focusedSessionId,
             })
+          } else if (msg.type === 'set_title') {
+            // Secondary updating its title
+            const secondary = secondaries.get(msg.sessionId)
+            if (secondary) {
+              secondary.info.title = msg.title
+              dbg('IPC', 'secondary title updated:', msg.sessionId, msg.title)
+            }
           } else if (msg.type === 'permission_reply') {
             // Secondary forwarding a permission reply
             void mcp.notification({
@@ -1285,6 +1347,7 @@ function startPrimary(): void {
 
 function startSecondary(socket: Socket): void {
   isPrimary = false
+  primarySocket = socket
   dbg('IPC', 'starting as secondary, session:', SESSION_ID)
   process.stderr.write(`telegram channel: connected as secondary (session ${SESSION_ID})\n`)
 

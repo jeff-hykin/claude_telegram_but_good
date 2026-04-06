@@ -7,6 +7,7 @@ export const commands = {
       `/start — pairing instructions\n` +
       `/status — check your pairing state\n` +
       `/list — show connected sessions (tap an ID to switch)\n` +
+      `/title <name> — label the focused session\n` +
       `/spawn_d — launch a new Claude Code session\n` +
       `/reload — hot-reload command handlers\n` +
       `/ping — test if the bot is alive`

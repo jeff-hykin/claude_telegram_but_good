@@ -1,6 +1,27 @@
-// HTML entities escape for Telegram HTML parse_mode
 function esc(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function timeAgo(ts) {
+  if (!ts) return null
+  const secs = Math.floor((Date.now() - ts) / 1000)
+  if (secs < 60) return `${secs}s ago`
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  return `${hrs}h ago`
+}
+
+function sessionLine(s, { shortPath }) {
+  const parts = []
+  if (s.title) parts.push(`<b>${esc(s.title)}</b>`)
+  parts.push(`<pre>${esc(shortPath(s.cwd))}</pre>`)
+  const details = []
+  if (s.gitBranch) details.push(esc(s.gitBranch))
+  const active = timeAgo(s.lastActive)
+  if (active) details.push(`active ${active}`)
+  if (details.length) parts.push(details.join(' · '))
+  return parts.join('\n')
 }
 
 export const commands = {
@@ -21,15 +42,20 @@ export const commands = {
       return true
     }
 
-    const lines = sessions.map(s => {
-      const focused = s.id === state.focusedSessionId
-      const marker = focused ? '▶ ' : '   '
-      const label = s.id === state.SESSION_ID ? ' (primary)' : ''
-      // Use the last directory name as a short title
-      const title = s.cwd.split('/').filter(Boolean).pop() || s.cwd
-      return `${marker}/switch_${s.id}${label}\n      <b>${esc(title)}</b>  <code>${esc(s.cwd)}</code>`
-    })
-    await ctx.reply(`Sessions (${sessions.length}):\n\n${lines.join('\n\n')}`, { parse_mode: 'HTML' })
+    const home = state.homedir()
+    const shortPath = (p) => p.startsWith(home) ? '~' + p.slice(home.length) : p
+
+    const active = sessions.find(s => s.id === state.focusedSessionId)
+    const others = sessions.filter(s => s.id !== state.focusedSessionId)
+
+    const parts = []
+    if (active) {
+      parts.push(`▶ <b>Active</b>\n${sessionLine(active, { shortPath })}`)
+    }
+    for (const s of others) {
+      parts.push(`/switch_${s.id}\n${sessionLine(s, { shortPath })}`)
+    }
+    await ctx.reply(parts.join('\n\n'), { parse_mode: 'HTML' })
     return true
   },
 }
