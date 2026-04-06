@@ -70,7 +70,7 @@ const IPC_SOCK = join(STATE_DIR, 'ipc.sock')
 
 // === MULTI-SESSION IPC ===
 const SESSION_ID = randomBytes(3).toString('hex') // 6 hex chars
-const SESSION_CWD = process.cwd()
+const SESSION_CWD = process.env.SESSION_CWD ?? process.cwd()
 const SESSION_PID = process.pid
 const SESSION_START = Date.now()
 

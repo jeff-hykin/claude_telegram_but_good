@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "telegram": {
-      "command": "npm",
-      "args": ["run", "--prefix", "${CLAUDE_PLUGIN_ROOT}", "--silent", "start"]
+      "command": "sh",
+      "args": ["-c", "SESSION_CWD=\"$PWD\" npm run --prefix \"${CLAUDE_PLUGIN_ROOT}\" --silent start"]
     }
   }
 }
