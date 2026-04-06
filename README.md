@@ -74,11 +74,13 @@ Paste that into the claude-code session you just started.
 
 ### 4. Start claude-ing
 
-Every claude code session you want to control via telegram must be started with:
+By default every claude code session you want to control via telegram must be started with:
 
 ```sh
 claude --channels plugin:telegram@claude-plugins-official
 ```
+
+However, there's a enable_telegram_by_default skill you can tell claude to invoke if you want all claude sessions to be accessible through telegram. It makes a wapper around the claude command (just FYI).
 
 > **Why the official name?** Claude Code has a hardcoded channels allowlist that only permits `telegram@claude-plugins-official`. The install script symlinks the fork's code into the official plugin location so it passes the allowlist while running the improved code.
 
@@ -105,7 +107,7 @@ These commands are sent as messages to your bot in Telegram.
 
 ## Custom Commands
 
-Note custom commands can be pure code (ex: make a cowsay command) or interact with claude. Custom commands live in `~/.claude/telegram/custom_commands/` and survive plugin updates. You can create them two ways:
+Note custom commands can be pure code (ex: make a cowsay command, no tokens burned by calling it) or interact with claude. Custom commands live in `~/.claude/telegram/custom_commands/` and survive plugin updates. You can create them two ways:
 
 1. **From Telegram:** Send `/new_command <description>` — Claude will write and hot-reload the command for you.
 2. **Manually:** Create a `.js` file in the custom commands directory. Each file exports `{ commands: { name: async (ctx, bot, state) => bool } }`. Use `state.letClaudeHandle(ctx, text?)` to forward messages to Claude while still returning `true`.
