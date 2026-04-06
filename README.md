@@ -30,14 +30,30 @@ BOT_TOKEN=<YOUR_TOKEN_HERE>
 curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 source ~/.nvm/nvm.sh && nvm install --lts
 
-# install the plugin
+# install the plugin from the fork's marketplace
 claude plugin marketplace add jeff-hykin/claude_telegram_but_good
 claude plugin install telegram@jeff-hykin-claude-telegram-but-good
+
+# register under the official plugin name (required for the --channels allowlist)
+claude plugin install telegram@claude-plugins-official
+mkdir -p ~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins
+CACHE_DIR=$(ls -d ~/.claude/plugins/cache/jeff-hykin-claude-telegram-but-good/telegram/*/ | tail -1)
+ln -sf "$CACHE_DIR" ~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins/telegram
 
 # save the bot token
 mkdir -p ~/.claude/channels/telegram
 echo "TELEGRAM_BOT_TOKEN=$BOT_TOKEN" > ~/.claude/channels/telegram/.env
 chmod 600 ~/.claude/channels/telegram/.env
+
+# enable channels and the plugin
+node -e "
+  const fs = require('fs');
+  const f = process.env.HOME + '/.claude/settings.json';
+  const s = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
+  s.channelsEnabled = true;
+  s.enabledPlugins = { ...s.enabledPlugins, 'telegram@claude-plugins-official': true };
+  fs.writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
+"
 ```
 
 ### 3. Approve yourself
@@ -45,7 +61,7 @@ chmod 600 ~/.claude/channels/telegram/.env
 Start the telegram server by opening a connected claude session:
 
 ```sh
-claude --channels plugin:telegram@jeff-hykin-claude-telegram-but-good
+claude --channels plugin:telegram@claude-plugins-official
 ```
 
 DM your bot on Telegram.<br>
@@ -58,11 +74,13 @@ Paste that into the claude-code session you just started.
 
 ### 4. Start claude-ing
 
-IMPORTANT: If you want to control a claude code session to be controllable by telegram it must be started with:
+Every claude code session you want to control via telegram must be started with:
 
 ```sh
-claude --channels plugin:telegram@jeff-hykin-claude-telegram-but-good
+claude --channels plugin:telegram@claude-plugins-official
 ```
+
+> **Why the official name?** Claude Code has a hardcoded channels allowlist that only permits `telegram@claude-plugins-official`. The install script symlinks the fork's code into the official plugin location so it passes the allowlist while running the improved code.
 
 ## Telegram Commands
 
@@ -81,7 +99,7 @@ These commands are sent as messages to your bot in Telegram.
 | `/fkill_all` | Force kill **all** connected Claude Code sessions. You'll need to restart them manually. |
 | `/cron` | List scheduled tasks (desktop scheduled tasks and in-session cron jobs). |
 | `/status` | Show your pairing status and all running Claude Code processes. |
-| `/new_command` | Show how to create custom commands. Includes the file format, available state APIs, and tells you to ask Claude in your session to create one. |
+| `/new_command` | Describe a command and Claude will create it using the `new_command` MCP tool. E.g. `/new_command add a /weather command that shows the forecast`. |
 | `/start` | Show pairing instructions for new users. |
 | `/help` | Show the full command list. |
 
@@ -94,6 +112,15 @@ You can run multiple Claude Code sessions simultaneously, each started with `--c
 - `/list` shows all sessions — tap `/switch_<id>` to change which one gets your messages
 - `/title` lets you label sessions so you can tell them apart (e.g. "backend (feature-x)")
 - If the primary dies, a secondary auto-promotes to keep the bot online
+
+## Custom Commands
+
+Custom commands live in `~/.claude/telegram/custom_commands/` and survive plugin updates. You can create them two ways:
+
+1. **From Telegram:** Send `/new_command <description>` — Claude will write and hot-reload the command for you.
+2. **Manually:** Create a `.js` file in the custom commands directory. Each file exports `{ commands: { name: async (ctx, bot, state) => bool } }`. Use `state.letClaudeHandle(ctx, text?)` to forward messages to Claude while still returning `true`.
+
+If a command throws an error, the bot shows the error message with a "🔧 Ask Claude to fix" button that sends the error details to Claude for debugging.
 
 ## Photos
 
