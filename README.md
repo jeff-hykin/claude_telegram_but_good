@@ -1,14 +1,15 @@
-# Telegram
+# Claude Telegram But Good
 
-Connect a Telegram bot to your Claude Code with an MCP server.
+The claude telegram plugin is kinda bad, this one just adds a few things like:
+- Listing all claude sessions and choosing which one telegram is connected to
+- Cancelling a request (ctrl+c) from telegram
+- Killing, force killing, pausing, resuming claude sessions
+- Starting new claude sessions from telegram
+- etc
 
-The MCP server logs into Telegram as a bot and provides tools to Claude to reply, react, or edit messages. When you message the bot, the server forwards the message to your Claude Code session.
-
-## Prerequisites
-
-- [Bun](https://bun.sh) — the MCP server runs on Bun. Install with `curl -fsSL https://bun.sh/install | bash`.
 
 ## Quick Setup
+
 > Default pairing flow for a single-user DM bot. See [ACCESS.md](./ACCESS.md) for groups and multi-user setups.
 
 **1. Create a bot with BotFather.**
