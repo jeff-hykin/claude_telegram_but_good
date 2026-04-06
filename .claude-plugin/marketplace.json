@@ -9,7 +9,7 @@
       "name": "telegram",
       "description": "Telegram channel for Claude Code — messaging bridge with session management, kill/pause/cancel, and built-in access control.",
       "category": "productivity",
-      "source": "."
+      "source": "./"
     }
   ]
 }
