@@ -633,6 +633,14 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['chat_id', 'message_id', 'text'],
       },
     },
+    {
+      name: 'reload',
+      description: 'Hot-reload command handlers from the commands/ directory. Use after editing command files so changes take effect without restarting the server.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      },
+    },
   ],
 }))
 
@@ -731,6 +739,14 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         mkdirSync(INBOX_DIR, { recursive: true })
         writeFileSync(path, buf)
         return { content: [{ type: 'text', text: path }] }
+      }
+      case 'reload': {
+        const { loaded, errors } = await loadCommands()
+        const parts = [`Reloaded: ${loaded} command(s)`]
+        if (errors.length > 0) {
+          parts.push(`\nErrors:\n${errors.join('\n')}`)
+        }
+        return { content: [{ type: 'text', text: parts.join('') }] }
       }
       case 'edit_message': {
         assertAllowedChat(args.chat_id as string)
