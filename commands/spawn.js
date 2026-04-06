@@ -1,7 +1,7 @@
 import { execSync } from 'child_process'
 
 export const commands = {
-  spawn_d: async (ctx, bot, state) => {
+  spawn: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true
     const access = state.loadAccess()
     const senderId = String(ctx.from?.id)
@@ -20,7 +20,7 @@ export const commands = {
     }
 
     if (!launcher) {
-      await ctx.reply('Neither zellij nor tmux found. Install one to use /spawn_d.')
+      await ctx.reply('Neither zellij nor tmux found. Install one to use /spawn.')
       return true
     }
 

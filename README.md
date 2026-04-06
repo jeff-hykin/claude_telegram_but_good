@@ -99,7 +99,7 @@ These commands are sent as messages to your bot in Telegram.
 | `/list` | Show all connected Claude Code sessions with working directory, git branch, start time, and last active time. The active session is marked with ▶. Tap `/switch_<id>` to change which session receives your messages. |
 | `/cancel` | Send Ctrl+C (SIGINT) to the active session — gracefully interrupts whatever Claude is doing. |
 | `/title <name>` | Set a custom display name for the active session (shown in `/list`). With no argument, auto-generates a name from the directory and git branch. |
-| `/spawn_d` | Launch a new Claude Code session in a new terminal pane (uses zellij or tmux). It appears in `/list` once it connects. |
+| `/spawn` | Launch a new Claude Code session in a new terminal pane (uses zellij or tmux). It appears in `/list` once it connects. |
 | `/ping` | Health check — replies "pong" if the bot is alive. |
 | `/pause` | Suspend the active session (SIGTSTP, like Ctrl+Z). Claude stops working but stays in memory. |
 | `/resume` | Resume a paused session (SIGCONT). |
