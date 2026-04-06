@@ -134,6 +134,71 @@ function deliverPermissionToFocused(params: { request_id: string; tool_name: str
   return true
 }
 
+// === HOT-RELOADABLE COMMAND HANDLERS ===
+// Commands in the commands/ directory are loaded as JS modules.
+// Each exports { commands: { name: async (ctx, bot, state) => bool } }
+// Send /reload on Telegram to pick up changes without restarting.
+
+import { pathToFileURL } from 'url'
+
+const COMMANDS_DIR = join(import.meta.dirname ?? new URL('.', import.meta.url).pathname, 'commands')
+type CommandHandler = (ctx: Context, bot: Bot, state: Record<string, unknown>) => Promise<boolean | void>
+let hotCommands = new Map<string, CommandHandler>()
+let commandLoadCount = 0
+
+async function loadCommands(): Promise<{ loaded: number; errors: string[] }> {
+  const newCommands = new Map<string, CommandHandler>()
+  const errors: string[] = []
+  commandLoadCount++
+
+  let files: string[]
+  try {
+    files = readdirSync(COMMANDS_DIR).filter(f => f.endsWith('.js'))
+  } catch {
+    dbg('HOT', 'no commands/ directory found')
+    return { loaded: 0, errors: [] }
+  }
+
+  for (const file of files) {
+    const filePath = join(COMMANDS_DIR, file)
+    // Cache-bust by appending a unique query param
+    const url = pathToFileURL(filePath).href + `?v=${commandLoadCount}-${Date.now()}`
+    try {
+      const mod = await import(url)
+      if (mod.commands && typeof mod.commands === 'object') {
+        for (const [name, handler] of Object.entries(mod.commands)) {
+          if (typeof handler === 'function') {
+            newCommands.set(name, handler as CommandHandler)
+          }
+        }
+      }
+      dbg('HOT', `loaded ${file}: ${Object.keys(mod.commands || {}).join(', ')}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      dbg('HOT', `failed to load ${file}: ${msg}`)
+      errors.push(`${file}: ${msg}`)
+    }
+  }
+
+  hotCommands = newCommands
+  dbg('HOT', `loaded ${newCommands.size} commands from ${files.length} files`)
+  return { loaded: newCommands.size, errors }
+}
+
+function getCommandState() {
+  return {
+    allSessions, get focusedSessionId() { return focusedSessionId },
+    setFocusedSession(id: string) { focusedSessionId = id },
+    SESSION_ID, get isPrimary() { return isPrimary },
+    loadAccess, secondaries, SESSION_PID, SESSION_CWD,
+    deliverToFocused, sendIpc, bot, mcp, dbg,
+    execSync, randomBytes, homedir,
+  }
+}
+
+// Initial load
+loadCommands().catch(() => {})
+
 // Last-resort safety net — without these the process dies silently on any
 // unhandled promise rejection. With them it logs and keeps serving tools.
 process.on('unhandledRejection', err => {
@@ -722,170 +787,21 @@ process.on('SIGINT', () => shutdown())
 // groups, (3) spam channels the operator never approved. Silent drop matches
 // the gate's behavior for unrecognized groups.
 
-bot.command('start', async ctx => {
-  if (ctx.chat?.type !== 'private') return
-  const access = loadAccess()
-  if (access.dmPolicy === 'disabled') {
-    await ctx.reply(`This bot isn't accepting new connections.`)
-    return
-  }
-  await ctx.reply(
-    `This bot bridges Telegram to a Claude Code session.\n\n` +
-    `To pair:\n` +
-    `1. DM me anything — you'll get a 6-char code\n` +
-    `2. In Claude Code: /telegram:access pair <code>\n\n` +
-    `After that, DMs here reach that session.`
-  )
-})
+// All commands except /reload are in commands/*.js (hot-reloadable).
+// /reload stays here as a built-in so it always works even if command files are broken.
 
-bot.command('help', async ctx => {
-  if (ctx.chat?.type !== 'private') return
-  await ctx.reply(
-    `Messages you send here route to a paired Claude Code session. ` +
-    `Text and photos are forwarded; replies and reactions come back.\n\n` +
-    `/start — pairing instructions\n` +
-    `/status — check your pairing state\n` +
-    `/list — show connected sessions (tap an ID to switch)\n` +
-    `/spawn_d — launch a new Claude Code session`
-  )
-})
-
-function listClaudeSessions(): string[] {
-  try {
-    const raw = execSync('ps aux', { encoding: 'utf8', timeout: 5000 })
-    const lines = raw.split('\n')
-    const sessions: string[] = []
-    for (const line of lines) {
-      // Match claude processes but skip this telegram channel server itself
-      // and skip grep/ps artifacts
-      if (
-        (/\bclaude\b/i.test(line)) &&
-        !line.includes('telegram') &&
-        !line.includes('ps aux') &&
-        !line.includes('grep')
-      ) {
-        // Extract PID (second column) and the command (from column 11 onward)
-        const cols = line.trim().split(/\s+/)
-        const pid = cols[1]
-        const cmd = cols.slice(10).join(' ')
-        if (pid && cmd) {
-          sessions.push(`PID ${pid}: ${cmd}`)
-        }
-      }
-    }
-    return sessions
-  } catch {
-    return []
-  }
-}
-
-bot.command('status', async ctx => {
-  if (ctx.chat?.type !== 'private') return
-  const from = ctx.from
-  if (!from) return
-  const senderId = String(from.id)
-  const access = loadAccess()
-
-  const parts: string[] = []
-
-  // Pairing status
-  if (access.allowFrom.includes(senderId)) {
-    const name = from.username ? `@${from.username}` : senderId
-    parts.push(`Paired as ${name}.`)
-  } else {
-    let found = false
-    for (const [code, p] of Object.entries(access.pending)) {
-      if (p.senderId === senderId) {
-        parts.push(`Pending pairing — run in Claude Code:\n/telegram:access pair ${code}`)
-        found = true
-        break
-      }
-    }
-    if (!found) {
-      parts.push(`Not paired. Send me a message to get a pairing code.`)
-    }
-  }
-
-  // Running Claude Code sessions
-  const sessions = listClaudeSessions()
-  if (sessions.length > 0) {
-    parts.push(`\nRunning Claude Code sessions (${sessions.length}):`)
-    for (const s of sessions) {
-      parts.push(s)
-    }
-  } else {
-    parts.push(`\nNo Claude Code sessions detected.`)
-  }
-
-  await ctx.reply(parts.join('\n'))
-})
-
-bot.command('list', async ctx => {
-  dbg('CMD', '/list from:', ctx.from?.id, 'chat:', ctx.chat?.type, 'isPrimary:', isPrimary)
-  if (ctx.chat?.type !== 'private') return
-  const access = loadAccess()
-  const senderId = String(ctx.from?.id)
-  dbg('CMD', '/list senderId:', senderId, 'allowFrom:', access.allowFrom)
-  if (!access.allowFrom.includes(senderId)) return
-
-  if (!isPrimary) {
-    await ctx.reply('This session is a secondary — /list is only available on the primary.')
-    return
-  }
-
-  const sessions = allSessions()
-  if (sessions.length === 0) {
-    await ctx.reply('No sessions connected.')
-    return
-  }
-
-  const lines = sessions.map(s => {
-    const marker = s.id === focusedSessionId ? '>> ' : '   '
-    const label = s.id === SESSION_ID ? ' (primary)' : ''
-    return `${marker}/switch_${s.id}${label}\n      ${s.cwd}`
-  })
-  await ctx.reply(`Sessions (${sessions.length}):\n\n${lines.join('\n\n')}`)
-})
-
-bot.command('spawn_d', async ctx => {
+bot.command('reload', async ctx => {
   if (ctx.chat?.type !== 'private') return
   const access = loadAccess()
   const senderId = String(ctx.from?.id)
   if (!access.allowFrom.includes(senderId)) return
 
-  if (!isPrimary) {
-    await ctx.reply('Only available on the primary.')
-    return
+  const { loaded, errors } = await loadCommands()
+  const parts = [`Reloaded: ${loaded} command(s)`]
+  if (errors.length > 0) {
+    parts.push(`\nErrors:\n${errors.join('\n')}`)
   }
-
-  // Prefer zellij, fall back to tmux
-  let launcher: 'zellij' | 'tmux' | null = null
-  try { execSync('which zellij', { stdio: 'ignore' }); launcher = 'zellij' } catch {}
-  if (!launcher) {
-    try { execSync('which tmux', { stdio: 'ignore' }); launcher = 'tmux' } catch {}
-  }
-
-  if (!launcher) {
-    await ctx.reply('Neither zellij nor tmux found. Install one to use /spawn_d.')
-    return
-  }
-
-  const sessionName = `claude-${randomBytes(3).toString('hex')}`
-  const claudeCmd = 'claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official'
-  const home = homedir()
-
-  try {
-    if (launcher === 'zellij') {
-      execSync(`zellij action new-tab --name "${sessionName}" -- bash -c 'cd ${home} && ${claudeCmd}'`, { stdio: 'ignore', timeout: 5000 })
-    } else {
-      execSync(`tmux new-session -d -s "${sessionName}" -c "${home}" '${claudeCmd}'`, { stdio: 'ignore', timeout: 5000 })
-    }
-    await ctx.reply(`Spawned new session via ${launcher}: ${sessionName}\nIt should appear in /list shortly.`)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    dbg('SPAWN', 'failed:', msg)
-    await ctx.reply(`Failed to spawn: ${msg}`)
-  }
+  await ctx.reply(parts.join(''))
 })
 
 // Inline-button handler for permission requests. Callback data is
@@ -979,8 +895,23 @@ bot.on('message:text', async ctx => {
       return
     }
     focusedSessionId = targetId
-    await ctx.reply(`Switched to session ${targetId}\n${target.cwd}`)
+    await ctx.reply(`Switched to session ${targetId}\n\`${target.cwd}\``)
     return
+  }
+
+  // Check hot-reloadable commands: /commandname
+  const cmdMatch = /^\/(\w+)/.exec(text)
+  if (cmdMatch) {
+    const cmdName = cmdMatch[1].toLowerCase()
+    const handler = hotCommands.get(cmdName)
+    if (handler) {
+      try {
+        const handled = await handler(ctx, bot, getCommandState())
+        if (handled) return
+      } catch (err) {
+        dbg('HOT', `command ${cmdName} error:`, err)
+      }
+    }
   }
 
   await handleInbound(ctx, text, undefined)
@@ -1290,16 +1221,21 @@ function startPrimary(): void {
             botUsername = info.username
             dbg('POLL', 'bot started, polling as @' + info.username)
             process.stderr.write(`telegram channel: polling as @${info.username} (primary, session ${SESSION_ID})\n`)
-            void bot.api.setMyCommands(
+            bot.api.setMyCommands(
               [
                 { command: 'start', description: 'Welcome and setup guide' },
                 { command: 'help', description: 'What this bot can do' },
                 { command: 'status', description: 'Check your pairing status' },
                 { command: 'list', description: 'Show connected sessions' },
                 { command: 'spawn_d', description: 'Launch a new Claude Code session' },
+                { command: 'reload', description: 'Hot-reload command handlers' },
               ],
               { scope: { type: 'all_private_chats' } },
-            ).catch(() => {})
+            ).then(() => {
+              dbg('COMMANDS', 'setMyCommands succeeded')
+            }).catch(e => {
+              dbg('COMMANDS', 'setMyCommands failed:', e)
+            })
           },
         })
         return
