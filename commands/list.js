@@ -14,10 +14,12 @@ function timeAgo(ts) {
   return `${hrs}h ago`
 }
 
-function sessionLine(s, { shortPath }) {
+function sessionLine(s, { shortPath, skipTitle }) {
   const parts = []
-  const title = shared.titles.get(s.id) || s.title
-  if (title) parts.push(`<b>${esc(title)}</b>`)
+  if (!skipTitle) {
+    const title = shared.titles.get(s.id) || s.title
+    if (title) parts.push(`<b>${esc(title)}</b>`)
+  }
   parts.push(`<pre>${esc(shortPath(s.cwd))}</pre>`)
   const details = []
   if (s.gitBranch) details.push(esc(s.gitBranch))
@@ -54,10 +56,14 @@ export const commands = {
 
     const parts = []
     if (active) {
-      parts.push(`▶ /switch_${active.id} (active)\n${sessionLine(active, { shortPath })}`)
+      const title = shared.titles.get(active.id) || active.title
+      const header = title ? `<b>${esc(title)}</b>\n` : ''
+      parts.push(`${header}▶ /switch_${active.id} (active)\n${sessionLine(active, { shortPath, skipTitle: true })}`)
     }
     for (const s of others) {
-      parts.push(`/switch_${s.id}\n${sessionLine(s, { shortPath })}`)
+      const title = shared.titles.get(s.id) || s.title
+      const header = title ? `<b>${esc(title)}</b>\n` : ''
+      parts.push(`${header}/switch_${s.id}\n${sessionLine(s, { shortPath, skipTitle: true })}`)
     }
     await ctx.reply(parts.join('\n\n'), { parse_mode: 'HTML' })
     return true
