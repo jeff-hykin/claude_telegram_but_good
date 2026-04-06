@@ -9,6 +9,11 @@ export const commands = {
       `/list — show connected sessions (tap an ID to switch)\n` +
       `/title <name> — label the focused session\n` +
       `/spawn_d — launch a new Claude Code session\n` +
+      `/cancel — send Ctrl+C to the focused session\n` +
+      `/pause — suspend the focused session (Ctrl+Z)\n` +
+      `/resume — resume a paused session\n` +
+      `/fkill — force kill the focused session\n` +
+      `/fkill_all — force kill all sessions\n` +
       `/reload — hot-reload command handlers\n` +
       `/ping — test if the bot is alive`
     )

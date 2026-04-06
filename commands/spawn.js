@@ -35,20 +35,37 @@ export const commands = {
         delete cleanEnv[key]
       }
     }
+    // Also remove ZELLIJ so nested zellij commands don't conflict
+    delete cleanEnv.ZELLIJ
+    delete cleanEnv.ZELLIJ_SESSION_NAME
 
     try {
       if (launcher === 'zellij') {
-        execSync(
-          `zellij action new-tab --name "${sessionName}" -- bash -c 'cd ${home} && ${claudeCmd}'`,
-          { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
-        )
+        const insideZellij = !!process.env.ZELLIJ
+        if (insideZellij) {
+          // Already inside a zellij session — open a new pane
+          execSync(
+            `zellij run --cwd "${home}" -n "${sessionName}" -- bash -c '${claudeCmd}'`,
+            { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
+          )
+        } else {
+          // Not inside zellij — create a background session then run in it
+          execSync(
+            `zellij attach -b --create "${sessionName}"`,
+            { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
+          )
+          execSync(
+            `ZELLIJ_SESSION_NAME="${sessionName}" zellij run --cwd "${home}" -n "${sessionName}" -- bash -c '${claudeCmd}'`,
+            { env: cleanEnv, timeout: 5000, encoding: 'utf8', shell: true }
+          )
+        }
       } else {
         execSync(
           `tmux new-session -d -s "${sessionName}" -c "${home}" '${claudeCmd}'`,
           { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
         )
       }
-      await ctx.reply(`Spawned new session via ${launcher}: ${sessionName}\nIt should appear in /list shortly.`)
+      await ctx.reply(`Spawned via ${launcher}: ${sessionName}\nIt should appear in /list shortly.`)
     } catch (err) {
       let detail = ''
       if (err instanceof Error) {

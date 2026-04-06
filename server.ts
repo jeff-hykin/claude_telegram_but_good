@@ -1174,12 +1174,18 @@ async function handleInbound(
 
   const imagePath = downloadImage ? await downloadImage() : undefined
 
+  const replyTo = ctx.message?.reply_to_message
   const meta: Record<string, string> = {
     chat_id,
     ...(msgId != null ? { message_id: String(msgId) } : {}),
     user: from.username ?? String(from.id),
     user_id: String(from.id),
     ts: new Date((ctx.message?.date ?? 0) * 1000).toISOString(),
+    ...(replyTo ? {
+      reply_to_message_id: String(replyTo.message_id),
+      ...(replyTo.text ? { reply_to_text: replyTo.text } : {}),
+      ...(replyTo.from ? { reply_to_user: replyTo.from.username ?? String(replyTo.from.id) } : {}),
+    } : {}),
     ...(imagePath ? { image_path: imagePath } : {}),
     ...(attachment ? {
       attachment_kind: attachment.kind,

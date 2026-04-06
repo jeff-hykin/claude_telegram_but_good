@@ -1,3 +1,5 @@
+import { shared } from './_shared.js'
+
 function esc(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
@@ -14,7 +16,8 @@ function timeAgo(ts) {
 
 function sessionLine(s, { shortPath }) {
   const parts = []
-  if (s.title) parts.push(`<b>${esc(s.title)}</b>`)
+  const title = shared.titles.get(s.id) || s.title
+  if (title) parts.push(`<b>${esc(title)}</b>`)
   parts.push(`<pre>${esc(shortPath(s.cwd))}</pre>`)
   const details = []
   if (s.gitBranch) details.push(esc(s.gitBranch))
@@ -50,7 +53,7 @@ export const commands = {
 
     const parts = []
     if (active) {
-      parts.push(`▶ <b>Active</b>\n${sessionLine(active, { shortPath })}`)
+      parts.push(`▶ /switch_${active.id} (active)\n${sessionLine(active, { shortPath })}`)
     }
     for (const s of others) {
       parts.push(`/switch_${s.id}\n${sessionLine(s, { shortPath })}`)
