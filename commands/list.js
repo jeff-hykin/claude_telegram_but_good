@@ -21,6 +21,7 @@ function sessionLine(s, { shortPath }) {
   parts.push(`<pre>${esc(shortPath(s.cwd))}</pre>`)
   const details = []
   if (s.gitBranch) details.push(esc(s.gitBranch))
+  if (s.connectedAt) details.push(`started ${timeAgo(s.connectedAt)}`)
   const active = timeAgo(s.lastActive)
   if (active) details.push(`active ${active}`)
   if (details.length) parts.push(details.join(' · '))
