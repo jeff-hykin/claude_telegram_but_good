@@ -41,6 +41,7 @@ try {
   }
 } catch {}
 
+const PLUGIN_VERSION = JSON.parse(readFileSync(join(import.meta.dirname ?? new URL('.', import.meta.url).pathname, '.claude-plugin', 'plugin.json'), 'utf8')).version as string
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const STATIC = process.env.TELEGRAM_ACCESS_MODE === 'static'
 
@@ -265,7 +266,7 @@ function getCommandState() {
     loadAccess, secondaries, SESSION_PID, SESSION_CWD,
     deliverToFocused, sendIpc, bot, mcp, dbg,
     letClaudeHandle,
-    execSync, randomBytes, homedir,
+    execSync, randomBytes, homedir, PLUGIN_VERSION,
   }
 }
 
