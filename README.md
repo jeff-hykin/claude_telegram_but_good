@@ -99,9 +99,18 @@ These commands are sent as messages to your bot in Telegram.
 | `/fkill_all` | Force kill **all** connected Claude Code sessions. You'll need to restart them manually. |
 | `/cron` | List scheduled tasks (desktop scheduled tasks and in-session cron jobs). |
 | `/status` | Show your pairing status and all running Claude Code processes. |
-| `/new_command` | Describe a command and Claude will create it using the `new_command` MCP tool. E.g. `/new_command add a /weather command that shows the forecast`. |
+| `/new_command` | Describe a new telegram command and Claude will create it and hot-reload the bot to have it immediately |
 | `/start` | Show pairing instructions for new users. |
 | `/help` | Show the full command list. |
+
+## Custom Commands
+
+Note custom commands can be pure code (ex: make a cowsay command) or interact with claude. Custom commands live in `~/.claude/telegram/custom_commands/` and survive plugin updates. You can create them two ways:
+
+1. **From Telegram:** Send `/new_command <description>` — Claude will write and hot-reload the command for you.
+2. **Manually:** Create a `.js` file in the custom commands directory. Each file exports `{ commands: { name: async (ctx, bot, state) => bool } }`. Use `state.letClaudeHandle(ctx, text?)` to forward messages to Claude while still returning `true`.
+
+If a command throws an error, the bot shows the error message with a "🔧 Ask Claude to fix" button that sends the error details to Claude for debugging.
 
 ## Multi-Session Support
 
@@ -113,14 +122,6 @@ You can run multiple Claude Code sessions simultaneously, each started with `--c
 - `/title` lets you label sessions so you can tell them apart (e.g. "backend (feature-x)")
 - If the primary dies, a secondary auto-promotes to keep the bot online
 
-## Custom Commands
-
-Custom commands live in `~/.claude/telegram/custom_commands/` and survive plugin updates. You can create them two ways:
-
-1. **From Telegram:** Send `/new_command <description>` — Claude will write and hot-reload the command for you.
-2. **Manually:** Create a `.js` file in the custom commands directory. Each file exports `{ commands: { name: async (ctx, bot, state) => bool } }`. Use `state.letClaudeHandle(ctx, text?)` to forward messages to Claude while still returning `true`.
-
-If a command throws an error, the bot shows the error message with a "🔧 Ask Claude to fix" button that sends the error details to Claude for debugging.
 
 ## Photos
 
