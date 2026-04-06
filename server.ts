@@ -1140,8 +1140,9 @@ async function handleInbound(
 
   if (result.action === 'pair') {
     const lead = result.isResend ? 'Still pending' : 'Pairing required'
+    const userId = String(ctx.from!.id)
     await ctx.reply(
-      `${lead} — run in Claude Code:\n\n/telegram:access pair ${result.code}`,
+      `${lead} — your user ID is ${userId}\n\nRun in Claude Code:\n/telegram:access pair ${result.code}\n\nOr add directly to access.json:\n"allowFrom": ["${userId}"]`,
     )
     return
   }
