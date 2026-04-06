@@ -18,8 +18,10 @@ import {
 import { z } from 'zod'
 import { Bot, GrammyError, InlineKeyboard, InputFile, type Context } from 'grammy'
 import type { ReactionTypeEmoji } from 'grammy/types'
+import { execSync } from 'child_process'
 import { randomBytes } from 'crypto'
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, statSync, renameSync, realpathSync, chmodSync } from 'fs'
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, readdirSync, rmSync, statSync, renameSync, realpathSync, chmodSync, unlinkSync, existsSync } from 'fs'
+import { createServer, createConnection, type Socket } from 'net'
 import { homedir } from 'os'
 import { join, extname, sep } from 'path'
 
@@ -44,10 +46,13 @@ const STATIC = process.env.TELEGRAM_ACCESS_MODE === 'static'
 
 // === DEBUG LOGGING ===
 const DEBUG = true
+const LOG_FILE = join(homedir(), 'claud_telegram.log')
 function dbg(label: string, ...args: unknown[]): void {
   if (!DEBUG) return
   const ts = new Date().toISOString()
-  process.stderr.write(`[TG-DBG ${ts}] ${label}: ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}\n`)
+  const line = `[TG-DBG ${ts}] ${label}: ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}\n`
+  process.stderr.write(line)
+  try { appendFileSync(LOG_FILE, line) } catch {}
 }
 dbg('INIT', 'TOKEN set:', !!TOKEN, 'STATIC:', STATIC, 'STATE_DIR:', STATE_DIR)
 
@@ -60,6 +65,74 @@ if (!TOKEN) {
   process.exit(1)
 }
 const INBOX_DIR = join(STATE_DIR, 'inbox')
+const IPC_SOCK = join(STATE_DIR, 'ipc.sock')
+
+// === MULTI-SESSION IPC ===
+const SESSION_ID = randomBytes(3).toString('hex') // 6 hex chars
+const SESSION_CWD = process.cwd()
+const SESSION_PID = process.pid
+const SESSION_START = Date.now()
+
+type SessionInfo = {
+  id: string
+  pid: number
+  cwd: string
+  connectedAt: number
+}
+
+type IpcMessage =
+  | { type: 'register'; session: SessionInfo }
+  | { type: 'registered'; sessions: SessionInfo[]; focusedId: string }
+  | { type: 'channel_event'; content: string; meta: Record<string, string> }
+  | { type: 'permission_request'; request_id: string; tool_name: string; description: string; input_preview: string }
+  | { type: 'permission_reply'; request_id: string; behavior: string }
+  | { type: 'session_list'; sessions: SessionInfo[]; focusedId: string; primaryId: string }
+
+// Primary state — only used when this instance is the primary
+const secondaries = new Map<string, { socket: Socket; info: SessionInfo }>()
+let focusedSessionId = SESSION_ID // default: self (the primary)
+let isPrimary = false
+
+function ownSessionInfo(): SessionInfo {
+  return { id: SESSION_ID, pid: SESSION_PID, cwd: SESSION_CWD, connectedAt: SESSION_START }
+}
+
+function allSessions(): SessionInfo[] {
+  const list = [ownSessionInfo()]
+  for (const s of secondaries.values()) list.push(s.info)
+  return list
+}
+
+function sendIpc(socket: Socket, msg: IpcMessage): void {
+  try {
+    socket.write(JSON.stringify(msg) + '\n')
+  } catch {}
+}
+
+// Deliver a channel event to the focused session.
+// Returns true if handled (forwarded to secondary), false if primary should handle locally.
+function deliverToFocused(content: string, meta: Record<string, string>): boolean {
+  if (focusedSessionId === SESSION_ID) return false // primary handles locally
+  const secondary = secondaries.get(focusedSessionId)
+  if (!secondary) {
+    // focused session gone, fall back to primary
+    focusedSessionId = SESSION_ID
+    return false
+  }
+  sendIpc(secondary.socket, { type: 'channel_event', content, meta })
+  return true
+}
+
+function deliverPermissionToFocused(params: { request_id: string; tool_name: string; description: string; input_preview: string }): boolean {
+  if (focusedSessionId === SESSION_ID) return false
+  const secondary = secondaries.get(focusedSessionId)
+  if (!secondary) {
+    focusedSessionId = SESSION_ID
+    return false
+  }
+  sendIpc(secondary.socket, { type: 'permission_request', ...params })
+  return true
+}
 
 // Last-resort safety net — without these the process dies silently on any
 // unhandled promise rejection. With them it logs and keeps serving tools.
@@ -630,7 +703,7 @@ dbg('MCP', 'connected to stdio transport')
 // the bot keeps polling forever as a zombie, holding the token and blocking
 // the next session with 409 Conflict.
 let shuttingDown = false
-function shutdown(): void {
+let shutdown = (): void => {
   if (shuttingDown) return
   shuttingDown = true
   process.stderr.write('telegram channel: shutting down\n')
@@ -639,10 +712,10 @@ function shutdown(): void {
   setTimeout(() => process.exit(0), 2000)
   void Promise.resolve(bot.stop()).finally(() => process.exit(0))
 }
-process.stdin.on('end', shutdown)
-process.stdin.on('close', shutdown)
-process.on('SIGTERM', shutdown)
-process.on('SIGINT', shutdown)
+process.stdin.on('end', () => shutdown())
+process.stdin.on('close', () => shutdown())
+process.on('SIGTERM', () => shutdown())
+process.on('SIGINT', () => shutdown())
 
 // Commands are DM-only. Responding in groups would: (1) leak pairing codes via
 // /status to other group members, (2) confirm bot presence in non-allowlisted
@@ -671,9 +744,40 @@ bot.command('help', async ctx => {
     `Messages you send here route to a paired Claude Code session. ` +
     `Text and photos are forwarded; replies and reactions come back.\n\n` +
     `/start — pairing instructions\n` +
-    `/status — check your pairing state`
+    `/status — check your pairing state\n` +
+    `/list — show connected sessions (tap an ID to switch)\n` +
+    `/spawn_d — launch a new Claude Code session`
   )
 })
+
+function listClaudeSessions(): string[] {
+  try {
+    const raw = execSync('ps aux', { encoding: 'utf8', timeout: 5000 })
+    const lines = raw.split('\n')
+    const sessions: string[] = []
+    for (const line of lines) {
+      // Match claude processes but skip this telegram channel server itself
+      // and skip grep/ps artifacts
+      if (
+        (/\bclaude\b/i.test(line)) &&
+        !line.includes('telegram') &&
+        !line.includes('ps aux') &&
+        !line.includes('grep')
+      ) {
+        // Extract PID (second column) and the command (from column 11 onward)
+        const cols = line.trim().split(/\s+/)
+        const pid = cols[1]
+        const cmd = cols.slice(10).join(' ')
+        if (pid && cmd) {
+          sessions.push(`PID ${pid}: ${cmd}`)
+        }
+      }
+    }
+    return sessions
+  } catch {
+    return []
+  }
+}
 
 bot.command('status', async ctx => {
   if (ctx.chat?.type !== 'private') return
@@ -682,22 +786,106 @@ bot.command('status', async ctx => {
   const senderId = String(from.id)
   const access = loadAccess()
 
+  const parts: string[] = []
+
+  // Pairing status
   if (access.allowFrom.includes(senderId)) {
     const name = from.username ? `@${from.username}` : senderId
-    await ctx.reply(`Paired as ${name}.`)
-    return
-  }
-
-  for (const [code, p] of Object.entries(access.pending)) {
-    if (p.senderId === senderId) {
-      await ctx.reply(
-        `Pending pairing — run in Claude Code:\n\n/telegram:access pair ${code}`
-      )
-      return
+    parts.push(`Paired as ${name}.`)
+  } else {
+    let found = false
+    for (const [code, p] of Object.entries(access.pending)) {
+      if (p.senderId === senderId) {
+        parts.push(`Pending pairing — run in Claude Code:\n/telegram:access pair ${code}`)
+        found = true
+        break
+      }
+    }
+    if (!found) {
+      parts.push(`Not paired. Send me a message to get a pairing code.`)
     }
   }
 
-  await ctx.reply(`Not paired. Send me a message to get a pairing code.`)
+  // Running Claude Code sessions
+  const sessions = listClaudeSessions()
+  if (sessions.length > 0) {
+    parts.push(`\nRunning Claude Code sessions (${sessions.length}):`)
+    for (const s of sessions) {
+      parts.push(s)
+    }
+  } else {
+    parts.push(`\nNo Claude Code sessions detected.`)
+  }
+
+  await ctx.reply(parts.join('\n'))
+})
+
+bot.command('list', async ctx => {
+  dbg('CMD', '/list from:', ctx.from?.id, 'chat:', ctx.chat?.type, 'isPrimary:', isPrimary)
+  if (ctx.chat?.type !== 'private') return
+  const access = loadAccess()
+  const senderId = String(ctx.from?.id)
+  dbg('CMD', '/list senderId:', senderId, 'allowFrom:', access.allowFrom)
+  if (!access.allowFrom.includes(senderId)) return
+
+  if (!isPrimary) {
+    await ctx.reply('This session is a secondary — /list is only available on the primary.')
+    return
+  }
+
+  const sessions = allSessions()
+  if (sessions.length === 0) {
+    await ctx.reply('No sessions connected.')
+    return
+  }
+
+  const lines = sessions.map(s => {
+    const marker = s.id === focusedSessionId ? '>> ' : '   '
+    const label = s.id === SESSION_ID ? ' (primary)' : ''
+    return `${marker}/switch_${s.id}${label}\n      ${s.cwd}`
+  })
+  await ctx.reply(`Sessions (${sessions.length}):\n\n${lines.join('\n\n')}`)
+})
+
+bot.command('spawn_d', async ctx => {
+  if (ctx.chat?.type !== 'private') return
+  const access = loadAccess()
+  const senderId = String(ctx.from?.id)
+  if (!access.allowFrom.includes(senderId)) return
+
+  if (!isPrimary) {
+    await ctx.reply('Only available on the primary.')
+    return
+  }
+
+  // Prefer zellij, fall back to tmux
+  let launcher: 'zellij' | 'tmux' | null = null
+  try { execSync('which zellij', { stdio: 'ignore' }); launcher = 'zellij' } catch {}
+  if (!launcher) {
+    try { execSync('which tmux', { stdio: 'ignore' }); launcher = 'tmux' } catch {}
+  }
+
+  if (!launcher) {
+    await ctx.reply('Neither zellij nor tmux found. Install one to use /spawn_d.')
+    return
+  }
+
+  const sessionName = `claude-${randomBytes(3).toString('hex')}`
+  const claudeCmd = 'claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official'
+  const home = homedir()
+
+  try {
+    if (launcher === 'zellij') {
+      execSync(`zellij action new-tab --name "${sessionName}" -- bash -c 'cd ${home} && ${claudeCmd}'`, { stdio: 'ignore', timeout: 5000 })
+    } else {
+      execSync(`tmux new-session -d -s "${sessionName}" -c "${home}" '${claudeCmd}'`, { stdio: 'ignore', timeout: 5000 })
+    }
+    await ctx.reply(`Spawned new session via ${launcher}: ${sessionName}\nIt should appear in /list shortly.`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    dbg('SPAWN', 'failed:', msg)
+    await ctx.reply(`Failed to spawn: ${msg}`)
+  }
 })
 
 // Inline-button handler for permission requests. Callback data is
@@ -744,11 +932,24 @@ bot.on('callback_query:data', async ctx => {
     return
   }
 
-  void mcp.notification({
-    method: 'notifications/claude/channel/permission',
-    params: { request_id, behavior },
-  })
-  pendingPermissions.delete(request_id)
+  // Route to focused session
+  if (isPrimary) {
+    const secondary = secondaries.get(focusedSessionId)
+    if (secondary) {
+      sendIpc(secondary.socket, { type: 'permission_reply', request_id: request_id!, behavior: behavior! })
+    } else {
+      void mcp.notification({
+        method: 'notifications/claude/channel/permission',
+        params: { request_id, behavior },
+      })
+    }
+  } else {
+    void mcp.notification({
+      method: 'notifications/claude/channel/permission',
+      params: { request_id, behavior },
+    })
+  }
+  pendingPermissions.delete(request_id!)
   const label = behavior === 'allow' ? '✅ Allowed' : '❌ Denied'
   await ctx.answerCallbackQuery({ text: label }).catch(() => {})
   // Replace buttons with the outcome so the same request can't be answered
@@ -760,8 +961,29 @@ bot.on('callback_query:data', async ctx => {
 })
 
 bot.on('message:text', async ctx => {
-  dbg('EVENT', 'message:text received:', ctx.message.text, 'from:', ctx.from?.id)
-  await handleInbound(ctx, ctx.message.text, undefined)
+  const text = ctx.message.text
+  dbg('EVENT', 'message:text received:', text, 'from:', ctx.from?.id)
+
+  // Handle /switch_<id> as a clickable session switcher
+  const switchMatch = /^\/switch_([a-f0-9]+)$/i.exec(text)
+  if (switchMatch && isPrimary) {
+    const access = loadAccess()
+    const senderId = String(ctx.from?.id)
+    if (!access.allowFrom.includes(senderId)) return
+
+    const targetId = switchMatch[1].toLowerCase()
+    const sessions = allSessions()
+    const target = sessions.find(s => s.id === targetId)
+    if (!target) {
+      await ctx.reply(`Session "${targetId}" not found. Use /list to see available sessions.`)
+      return
+    }
+    focusedSessionId = targetId
+    await ctx.reply(`Switched to session ${targetId}\n${target.cwd}`)
+    return
+  }
+
+  await handleInbound(ctx, text, undefined)
 })
 
 bot.on('message:photo', async ctx => {
@@ -904,15 +1126,29 @@ async function handleInbound(
   // (non-allowlisted senders were dropped above), so we trust the reply.
   const permMatch = PERMISSION_REPLY_RE.exec(text)
   if (permMatch) {
-    void mcp.notification({
-      method: 'notifications/claude/channel/permission',
-      params: {
-        request_id: permMatch[2]!.toLowerCase(),
-        behavior: permMatch[1]!.toLowerCase().startsWith('y') ? 'allow' : 'deny',
-      },
-    })
+    const request_id = permMatch[2]!.toLowerCase()
+    const behavior = permMatch[1]!.toLowerCase().startsWith('y') ? 'allow' : 'deny'
+
+    // Route permission reply to focused session
+    if (isPrimary) {
+      const secondary = secondaries.get(focusedSessionId)
+      if (secondary) {
+        sendIpc(secondary.socket, { type: 'permission_reply', request_id, behavior })
+      } else {
+        void mcp.notification({
+          method: 'notifications/claude/channel/permission',
+          params: { request_id, behavior },
+        })
+      }
+    } else {
+      void mcp.notification({
+        method: 'notifications/claude/channel/permission',
+        params: { request_id, behavior },
+      })
+    }
+
     if (msgId != null) {
-      const emoji = permMatch[1]!.toLowerCase().startsWith('y') ? '✅' : '❌'
+      const emoji = behavior === 'allow' ? '✅' : '❌'
       void bot.api.setMessageReaction(chat_id, msgId, [
         { type: 'emoji', emoji: emoji as ReactionTypeEmoji['emoji'] },
       ]).catch(() => {})
@@ -936,29 +1172,32 @@ async function handleInbound(
 
   const imagePath = downloadImage ? await downloadImage() : undefined
 
-  // image_path goes in meta only — an in-content "[image attached — read: PATH]"
-  // annotation is forgeable by any allowlisted sender typing that string.
-  dbg('NOTIFY', 'about to send notifications/claude/channel, text:', text, 'chat_id:', chat_id)
+  const meta: Record<string, string> = {
+    chat_id,
+    ...(msgId != null ? { message_id: String(msgId) } : {}),
+    user: from.username ?? String(from.id),
+    user_id: String(from.id),
+    ts: new Date((ctx.message?.date ?? 0) * 1000).toISOString(),
+    ...(imagePath ? { image_path: imagePath } : {}),
+    ...(attachment ? {
+      attachment_kind: attachment.kind,
+      attachment_file_id: attachment.file_id,
+      ...(attachment.size != null ? { attachment_size: String(attachment.size) } : {}),
+      ...(attachment.mime ? { attachment_mime: attachment.mime } : {}),
+      ...(attachment.name ? { attachment_name: attachment.name } : {}),
+    } : {}),
+  }
+
+  // Route to focused session — if it's a secondary, forward over IPC
+  dbg('NOTIFY', 'about to send notifications/claude/channel, text:', text, 'chat_id:', chat_id, 'focused:', focusedSessionId)
+  if (isPrimary && deliverToFocused(text, meta)) {
+    dbg('NOTIFY', 'forwarded to secondary', focusedSessionId)
+    return
+  }
+
   mcp.notification({
     method: 'notifications/claude/channel',
-    params: {
-      content: text,
-      meta: {
-        chat_id,
-        ...(msgId != null ? { message_id: String(msgId) } : {}),
-        user: from.username ?? String(from.id),
-        user_id: String(from.id),
-        ts: new Date((ctx.message?.date ?? 0) * 1000).toISOString(),
-        ...(imagePath ? { image_path: imagePath } : {}),
-        ...(attachment ? {
-          attachment_kind: attachment.kind,
-          attachment_file_id: attachment.file_id,
-          ...(attachment.size != null ? { attachment_size: String(attachment.size) } : {}),
-          ...(attachment.mime ? { attachment_mime: attachment.mime } : {}),
-          ...(attachment.name ? { attachment_name: attachment.name } : {}),
-        } : {}),
-      },
-    },
+    params: { content: text, meta },
   }).then(() => {
     dbg('NOTIFY', 'notification sent successfully')
   }).catch(err => {
@@ -974,45 +1213,190 @@ bot.catch(err => {
   process.stderr.write(`telegram channel: handler error (polling continues): ${err.error}\n`)
 })
 
-// 409 Conflict = another getUpdates consumer is still active (zombie from a
-// previous session, or a second Claude Code instance). Retry with backoff
-// until the slot frees up instead of crashing on the first rejection.
-void (async () => {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      dbg('POLL', 'calling bot.start(), attempt:', attempt)
-      await bot.start({
-        onStart: info => {
-          botUsername = info.username
-          dbg('POLL', 'bot started, polling as @' + info.username)
-          process.stderr.write(`telegram channel: polling as @${info.username}\n`)
-          void bot.api.setMyCommands(
-            [
-              { command: 'start', description: 'Welcome and setup guide' },
-              { command: 'help', description: 'What this bot can do' },
-              { command: 'status', description: 'Check your pairing status' },
-            ],
-            { scope: { type: 'all_private_chats' } },
-          ).catch(() => {})
-        },
-      })
-      return // bot.stop() was called — clean exit from the loop
-    } catch (err) {
-      if (err instanceof GrammyError && err.error_code === 409) {
-        const delay = Math.min(1000 * attempt, 15000)
-        const detail = attempt === 1
-          ? ' — another instance is polling (zombie session, or a second Claude Code running?)'
-          : ''
-        process.stderr.write(
-          `telegram channel: 409 Conflict${detail}, retrying in ${delay / 1000}s\n`,
-        )
-        await new Promise(r => setTimeout(r, delay))
-        continue
+// === MULTI-SESSION STARTUP ===
+// Try to connect to existing primary via IPC socket.
+// If connected → secondary mode. If not → become primary.
+
+function startPrimary(): void {
+  isPrimary = true
+  focusedSessionId = SESSION_ID
+  dbg('IPC', 'starting as primary, session:', SESSION_ID)
+
+  // Clean up stale socket
+  try { unlinkSync(IPC_SOCK) } catch {}
+
+  const ipcServer = createServer(socket => {
+    let buf = ''
+    socket.on('data', chunk => {
+      buf += chunk.toString()
+      let nl: number
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl)
+        buf = buf.slice(nl + 1)
+        try {
+          const msg = JSON.parse(line) as IpcMessage
+          if (msg.type === 'register') {
+            const info = msg.session
+            dbg('IPC', 'secondary registered:', info.id, 'pid:', info.pid, 'cwd:', info.cwd)
+            secondaries.set(info.id, { socket, info })
+            process.stderr.write(`telegram channel: session ${info.id} connected (PID ${info.pid}, ${info.cwd})\n`)
+            // Send back confirmation with session list
+            sendIpc(socket, {
+              type: 'registered',
+              sessions: allSessions(),
+              focusedId: focusedSessionId,
+            })
+          } else if (msg.type === 'permission_reply') {
+            // Secondary forwarding a permission reply
+            void mcp.notification({
+              method: 'notifications/claude/channel/permission',
+              params: { request_id: msg.request_id, behavior: msg.behavior },
+            })
+          }
+        } catch {}
       }
-      // bot.stop() mid-setup rejects with grammy's "Aborted delay" — expected, not an error.
-      if (err instanceof Error && err.message === 'Aborted delay') return
-      process.stderr.write(`telegram channel: polling failed: ${err}\n`)
-      return
+    })
+
+    socket.on('close', () => {
+      // Find and remove disconnected secondary
+      for (const [id, s] of secondaries) {
+        if (s.socket === socket) {
+          dbg('IPC', 'secondary disconnected:', id)
+          process.stderr.write(`telegram channel: session ${id} disconnected\n`)
+          secondaries.delete(id)
+          if (focusedSessionId === id) {
+            focusedSessionId = SESSION_ID
+            process.stderr.write(`telegram channel: focus returned to primary (${SESSION_ID})\n`)
+          }
+          break
+        }
+      }
+    })
+
+    socket.on('error', () => {})
+  })
+
+  ipcServer.listen(IPC_SOCK, () => {
+    dbg('IPC', 'listening on', IPC_SOCK)
+  })
+
+  // Start Telegram polling
+  void (async () => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        dbg('POLL', 'calling bot.start(), attempt:', attempt)
+        await bot.start({
+          onStart: info => {
+            botUsername = info.username
+            dbg('POLL', 'bot started, polling as @' + info.username)
+            process.stderr.write(`telegram channel: polling as @${info.username} (primary, session ${SESSION_ID})\n`)
+            void bot.api.setMyCommands(
+              [
+                { command: 'start', description: 'Welcome and setup guide' },
+                { command: 'help', description: 'What this bot can do' },
+                { command: 'status', description: 'Check your pairing status' },
+                { command: 'list', description: 'Show connected sessions' },
+                { command: 'spawn_d', description: 'Launch a new Claude Code session' },
+              ],
+              { scope: { type: 'all_private_chats' } },
+            ).catch(() => {})
+          },
+        })
+        return
+      } catch (err) {
+        if (err instanceof GrammyError && err.error_code === 409) {
+          const delay = Math.min(1000 * attempt, 15000)
+          process.stderr.write(`telegram channel: 409 Conflict, retrying in ${delay / 1000}s\n`)
+          await new Promise(r => setTimeout(r, delay))
+          continue
+        }
+        if (err instanceof Error && err.message === 'Aborted delay') return
+        process.stderr.write(`telegram channel: polling failed: ${err}\n`)
+        return
+      }
     }
+  })()
+
+  // Cleanup on shutdown
+  const origShutdown = shutdown
+  shutdown = function primaryShutdown() {
+    // Close all secondary sockets
+    for (const [id, s] of secondaries) {
+      s.socket.destroy()
+    }
+    secondaries.clear()
+    ipcServer.close()
+    try { unlinkSync(IPC_SOCK) } catch {}
+    origShutdown()
+  }
+}
+
+function startSecondary(socket: Socket): void {
+  isPrimary = false
+  dbg('IPC', 'starting as secondary, session:', SESSION_ID)
+  process.stderr.write(`telegram channel: connected as secondary (session ${SESSION_ID})\n`)
+
+  // Register with primary
+  sendIpc(socket, { type: 'register', session: ownSessionInfo() })
+
+  // Listen for forwarded messages from primary
+  let buf = ''
+  socket.on('data', chunk => {
+    buf += chunk.toString()
+    let nl: number
+    while ((nl = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, nl)
+      buf = buf.slice(nl + 1)
+      try {
+        const msg = JSON.parse(line) as IpcMessage
+        if (msg.type === 'channel_event') {
+          dbg('IPC', 'received forwarded event:', msg.content)
+          void mcp.notification({
+            method: 'notifications/claude/channel',
+            params: { content: msg.content, meta: msg.meta },
+          })
+        } else if (msg.type === 'permission_request') {
+          dbg('IPC', 'received forwarded permission request:', msg.request_id)
+          void mcp.notification({
+            method: 'notifications/claude/channel/permission_request',
+            params: {
+              request_id: msg.request_id,
+              tool_name: msg.tool_name,
+              description: msg.description,
+              input_preview: msg.input_preview,
+            },
+          })
+        } else if (msg.type === 'permission_reply') {
+          void mcp.notification({
+            method: 'notifications/claude/channel/permission',
+            params: { request_id: msg.request_id, behavior: msg.behavior },
+          })
+        } else if (msg.type === 'registered') {
+          dbg('IPC', 'registration confirmed, sessions:', msg.sessions.length, 'focused:', msg.focusedId)
+        }
+      } catch {}
+    }
+  })
+
+  // If primary dies, promote to primary
+  socket.on('close', () => {
+    process.stderr.write(`telegram channel: primary disconnected, promoting to primary\n`)
+    startPrimary()
+  })
+
+  socket.on('error', () => {})
+}
+
+// Try to connect to existing primary
+void (async () => {
+  try {
+    const socket = await new Promise<Socket>((resolve, reject) => {
+      const s = createConnection(IPC_SOCK, () => resolve(s))
+      s.on('error', reject)
+    })
+    startSecondary(socket)
+  } catch {
+    // No primary running — become one
+    startPrimary()
   }
 })()
