@@ -9,57 +9,27 @@ The claude telegram plugin is kinda bad, this one just adds a few things like:
 
 ## Quick Setup
 
-**1. Get a bot token** — message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, and copy the token (looks like `123456789:AAHfiqksKZ8...`).
+Before starting, get two things from Telegram:
+1. **Bot token** — message [@BotFather](https://t.me/BotFather), send `/newbot`, copy the token (`123456789:AAHfiqksKZ8...`)
+2. **Your user ID** — message [@userinfobot](https://t.me/userinfobot), it replies with your numeric ID
 
-**2. Get your Telegram user ID** — message [@userinfobot](https://t.me/userinfobot) and it replies with your numeric ID.
-
-**3. Run the installer** (installs node if needed, downloads the plugin, prompts for token and user ID):
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/jeff-hykin/claude_telegram_but_good/main/install.sh | bash
-```
-
-**4. Start Claude Code with Telegram:**
+Then run these commands:
 
 ```sh
-claude --channels plugin:telegram@claude-plugins-official
-```
-
-That's it. DM your bot and it reaches Claude.
-
-### Manual setup (no installer)
-
-If you prefer to do it yourself, these are the equivalent commands:
-
-```sh
-# 1. Install node (if you don't have it)
+# 1. Install node if you don't have it
 curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 source ~/.nvm/nvm.sh && nvm install --lts
 
-# 2. Clone and install the plugin
-git clone https://github.com/jeff-hykin/claude_telegram_but_good.git ~/.claude/channels/telegram-plugin
-cd ~/.claude/channels/telegram-plugin && npm install
+# 2. Install the plugin
+claude plugin marketplace add jeff-hykin/claude_telegram_but_good
+claude plugin install telegram@jeff-hykin-claude-telegram-but-good
 
-# Symlink into claude's plugin directories
-ln -sf ~/.claude/channels/telegram-plugin ~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins/telegram
-mkdir -p ~/.claude/plugins/cache/claude-plugins-official/telegram/0.0.4
-ln -sf ~/.claude/channels/telegram-plugin ~/.claude/plugins/cache/claude-plugins-official/telegram/0.0.4
-
-# 3. Enable the plugin
-node -e "
-  const fs = require('fs');
-  const f = process.env.HOME + '/.claude/settings.json';
-  const s = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
-  s.enabledPlugins = { ...s.enabledPlugins, 'telegram@claude-plugins-official': true };
-  fs.writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
-"
-
-# 4. Set the bot token
+# 3. Set your bot token
 mkdir -p ~/.claude/channels/telegram
 echo 'TELEGRAM_BOT_TOKEN=<your-token>' > ~/.claude/channels/telegram/.env
 chmod 600 ~/.claude/channels/telegram/.env
 
-# 5. Allow your Telegram user ID (skips pairing entirely)
+# 4. Allow your Telegram user ID (skips interactive pairing)
 cat > ~/.claude/channels/telegram/access.json << 'EOF'
 {
   "dmPolicy": "allowlist",
@@ -69,11 +39,13 @@ cat > ~/.claude/channels/telegram/access.json << 'EOF'
 }
 EOF
 
-# 6. Start
-claude --channels plugin:telegram@claude-plugins-official
+# 5. Start Claude Code with Telegram
+claude --channels plugin:telegram@jeff-hykin-claude-telegram-but-good
 ```
 
-> For unattended use: `claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official`
+That's it. DM your bot and it reaches Claude.
+
+> For unattended use: `claude --dangerously-skip-permissions --channels plugin:telegram@jeff-hykin-claude-telegram-but-good`
 
 > To run multiple bots on one machine, set `TELEGRAM_STATE_DIR` to a different directory per instance.
 
