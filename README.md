@@ -80,7 +80,7 @@ Paste that into the claude-code session you just started.
 
 ### 4. Start claude-ing
 
-By default every claude code session you want to control via telegram must be started with:
+You will need to start every claude code session with the following if you want to control it via telegram:
 
 ```sh
 claude --channels plugin:telegram@claude-plugins-official
