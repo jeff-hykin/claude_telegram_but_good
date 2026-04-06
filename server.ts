@@ -167,6 +167,8 @@ type CommandHandler = (ctx: Context, bot: Bot, state: Record<string, unknown>) =
 let hotCommands = new Map<string, CommandHandler>()
 let commandLoadCount = 0
 
+const TEMP_CMD_DIR = join(STATE_DIR, '_hot_commands')
+
 async function loadCommandsFromDir(dir: string, newCommands: Map<string, CommandHandler>, errors: string[]): Promise<number> {
   let files: string[]
   try {
@@ -175,11 +177,19 @@ async function loadCommandsFromDir(dir: string, newCommands: Map<string, Command
     return 0
   }
 
+  // Copy files to a temp dir with unique names to defeat import caching
+  // (tsx's loader ignores ?v= query params on file:// URLs)
+  mkdirSync(TEMP_CMD_DIR, { recursive: true })
   for (const file of files) {
     const filePath = join(dir, file)
-    const url = pathToFileURL(filePath).href + `?v=${commandLoadCount}-${Date.now()}`
+    const tmpName = `${commandLoadCount}_${Date.now()}_${file}`
+    const tmpPath = join(TEMP_CMD_DIR, tmpName)
     try {
+      const code = readFileSync(filePath, 'utf8')
+      writeFileSync(tmpPath, code)
+      const url = pathToFileURL(tmpPath).href
       const mod = await import(url)
+      unlinkSync(tmpPath)
       if (mod.commands && typeof mod.commands === 'object') {
         for (const [name, handler] of Object.entries(mod.commands)) {
           if (typeof handler === 'function') {
@@ -189,6 +199,7 @@ async function loadCommandsFromDir(dir: string, newCommands: Map<string, Command
       }
       dbg('HOT', `loaded ${file}: ${Object.keys(mod.commands || {}).join(', ')}`)
     } catch (err) {
+      try { unlinkSync(tmpPath) } catch {}
       const msg = err instanceof Error ? err.message : String(err)
       dbg('HOT', `failed to load ${file}: ${msg}`)
       errors.push(`${file}: ${msg}`)
