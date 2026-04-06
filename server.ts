@@ -22,7 +22,7 @@ import { execSync } from 'child_process'
 import { randomBytes } from 'crypto'
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, readdirSync, rmSync, statSync, renameSync, realpathSync, chmodSync, unlinkSync, existsSync } from 'fs'
 import { createServer, createConnection, type Socket } from 'net'
-import { homedir } from 'os'
+import { homedir, tmpdir } from 'os'
 import { join, extname, sep } from 'path'
 
 const STATE_DIR = process.env.TELEGRAM_STATE_DIR ?? join(homedir(), '.claude', 'channels', 'telegram')
@@ -167,7 +167,7 @@ type CommandHandler = (ctx: Context, bot: Bot, state: Record<string, unknown>) =
 let hotCommands = new Map<string, CommandHandler>()
 let commandLoadCount = 0
 
-const TEMP_CMD_DIR = join(STATE_DIR, '_hot_commands')
+const TEMP_CMD_DIR = join(tmpdir(), 'claude-telegram-hot-commands')
 
 async function loadCommandsFromDir(dir: string, newCommands: Map<string, CommandHandler>, errors: string[]): Promise<number> {
   let files: string[]
