@@ -9,6 +9,7 @@ export const commands = {
       `/list — show connected sessions (tap an ID to switch)\n` +
       `/title <name> — label the focused session\n` +
       `/spawn_d — launch a new Claude Code session\n` +
+      `/cron — list scheduled tasks\n` +
       `/cancel — send Ctrl+C to the focused session\n` +
       `/pause — suspend the focused session (Ctrl+Z)\n` +
       `/resume — resume a paused session\n` +

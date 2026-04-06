@@ -755,6 +755,12 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
           }
         }
 
+        // Record outbound reply for message history
+        const onReply = hotCommands.get('__onReply')
+        if (onReply) {
+          try { await onReply({ text, chat_id } as any, bot, getCommandState()) } catch {}
+        }
+
         const result =
           sentIds.length === 1
             ? `sent (id: ${sentIds[0]})`
@@ -966,8 +972,31 @@ bot.on('message:text', async ctx => {
       return
     }
     focusedSessionId = targetId
-    await ctx.reply(`Switched to session ${targetId}\n\`${target.cwd}\``)
+    const parts = [`Switched to session ${targetId}`]
+
+    // Show title if set
+    const titles = (globalThis as any).__tgCommandState?.titles
+    const title = titles?.get(targetId)
+    if (title) parts[0] += `: ${title}`
+
+    // Show last 2 messages as context refresher
+    const history = (globalThis as any).__tgCommandState?.messageHistory?.get(targetId)
+    if (history && history.length > 0) {
+      parts.push('')
+      for (const msg of history) {
+        const prefix = msg.from === 'claude' ? '🤖' : '👤'
+        parts.push(`${prefix} ${msg.text}`)
+      }
+    }
+
+    await ctx.reply(parts.join('\n'))
     return
+  }
+
+  // Run __onMessage hook if present (for recording history, etc.)
+  const onMsg = hotCommands.get('__onMessage')
+  if (onMsg) {
+    try { await onMsg(ctx, bot, getCommandState()) } catch {}
   }
 
   // Check hot-reloadable commands: /commandname
