@@ -9,45 +9,54 @@ The claude telegram plugin is kinda bad, this one just adds a few things like:
 
 ## Quick Setup
 
-Before starting, get two things from Telegram:
-1. **Bot token** — message [@BotFather](https://t.me/BotFather), send `/newbot`, copy the token (`123456789:AAHfiqksKZ8...`)
-2. **Your user ID** — message [@userinfobot](https://t.me/userinfobot), it replies with your numeric ID
+### 1. Get a bot token
 
-Then run these commands:
+Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, and copy the token (`123456789:AAHfiqksKZ8...`).
+
+### 2. Install the plugin
+
+Paste your token on the first line and run:
 
 ```sh
-# 1. Install node if you don't have it
+BOT_TOKEN=<YOUR_TOKEN_HERE>
+
+# install node if you don't have it
 curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 source ~/.nvm/nvm.sh && nvm install --lts
 
-# 2. Install the plugin
+# install the plugin
 claude plugin marketplace add jeff-hykin/claude_telegram_but_good
 claude plugin install telegram@jeff-hykin-claude-telegram-but-good
 
-# 3. Set your bot token
+# save the bot token
 mkdir -p ~/.claude/channels/telegram
-echo 'TELEGRAM_BOT_TOKEN=<your-token>' > ~/.claude/channels/telegram/.env
+echo "TELEGRAM_BOT_TOKEN=$BOT_TOKEN" > ~/.claude/channels/telegram/.env
 chmod 600 ~/.claude/channels/telegram/.env
+```
 
-# 4. Allow your Telegram user ID (skips interactive pairing)
-cat > ~/.claude/channels/telegram/access.json << 'EOF'
-{
-  "dmPolicy": "allowlist",
-  "allowFrom": ["<your-user-id>"],
-  "groups": {},
-  "pending": {}
-}
-EOF
+### 3. Approve yourself
 
-# 5. Start Claude Code with Telegram
+Start the telegram server by opening a connected claude session:
+
+```sh
 claude --channels plugin:telegram@jeff-hykin-claude-telegram-but-good
 ```
 
-That's it. DM your bot and it reaches Claude.
+Then DM your bot on Telegram.<br>
+E.g.
+- go to the botfather chat, look for "You will find it at < url >" click the url
+- send a dm (any dm)
+- it should respond with something like `/telegram:access pair 398a98`
 
-> For unattended use: `claude --dangerously-skip-permissions --channels plugin:telegram@jeff-hykin-claude-telegram-but-good`
+Paste that into your active claude-code session
 
-> To run multiple bots on one machine, set `TELEGRAM_STATE_DIR` to a different directory per instance.
+### 4. Start claude-ing
+
+IMPORTANT:If you want to control a claude code session to be controllable by telegram it must be started with:
+
+```sh
+claude --channels plugin:telegram@jeff-hykin-claude-telegram-but-good
+```
 
 ## Access control
 
@@ -55,7 +64,7 @@ See **[ACCESS.md](./ACCESS.md)** for DM policies, groups, mention detection, del
 
 Quick reference: IDs are **numeric user IDs** (get yours from [@userinfobot](https://t.me/userinfobot)). Default policy is `pairing`. `ackReaction` only accepts Telegram's fixed emoji whitelist.
 
-## Tools exposed to the assistant
+## Tools exposed to Claude
 
 | Tool | Purpose |
 | --- | --- |
