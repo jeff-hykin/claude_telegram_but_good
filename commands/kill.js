@@ -29,6 +29,20 @@ export const commands = {
     return true
   },
 
+  relay_shutdown: async (ctx, bot, state) => {
+    if (ctx.chat?.type !== 'private') return true
+    const access = state.loadAccess()
+    if (!access.allowFrom.includes(String(ctx.from?.id))) return true
+
+    // Kill all server instances (secondaries + primary) without touching Claude sessions
+    const sessions = state.allSessions()
+    for (const s of sessions) {
+      try { process.kill(s.pid, 'SIGKILL') } catch {}
+    }
+    await ctx.reply('Telegram relay shut down. Claude sessions are still running.')
+    process.exit(0)
+  },
+
   fkill_all: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true
     const access = state.loadAccess()
