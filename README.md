@@ -1,11 +1,15 @@
 # Claude Telegram But Good
 
-The claude telegram plugin is kinda bad, this one just adds a few things like:
-- Listing all claude sessions and choosing which one telegram is connected to
-- Cancelling a request (ctrl+c) from telegram
-- Killing, force killing, pausing, resuming claude sessions
-- Starting new claude sessions from telegram
+The claude telegram plugin is kinda bad:
+- Install is confusing, no warnings/messages when it crashes
+- Doesn't allow switching between multiple claude codes
+- No cancel (e.g. ctrl+c)
+- No killing, force killing, pausing, resuming claude sessions
+- No way to starting new claude sessions from telegram
+- No way to add telegram commands (no hot reloading of changes)
 - etc
+
+I made this repo cause my team and I were annoyed by these limitations.
 
 ## Quick Setup
 
