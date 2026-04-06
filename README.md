@@ -7,62 +7,75 @@ The claude telegram plugin is kinda bad, this one just adds a few things like:
 - Starting new claude sessions from telegram
 - etc
 
-
 ## Quick Setup
 
-> Default pairing flow for a single-user DM bot. See [ACCESS.md](./ACCESS.md) for groups and multi-user setups.
+**1. Get a bot token** — message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, and copy the token (looks like `123456789:AAHfiqksKZ8...`).
 
-**1. Create a bot with BotFather.**
+**2. Get your Telegram user ID** — message [@userinfobot](https://t.me/userinfobot) and it replies with your numeric ID.
 
-Open a chat with [@BotFather](https://t.me/BotFather) on Telegram and send `/newbot`. BotFather asks for two things:
+**3. Run the installer** (installs node if needed, downloads the plugin, prompts for token and user ID):
 
-- **Name** — the display name shown in chat headers (anything, can contain spaces)
-- **Username** — a unique handle ending in `bot` (e.g. `my_assistant_bot`). This becomes your bot's link: `t.me/my_assistant_bot`.
-
-BotFather replies with a token that looks like `123456789:AAHfiqksKZ8...` — that's the whole token, copy it including the leading number and colon.
-
-**2. Install the plugin.**
-
-These are Claude Code commands — run `claude` to start a session first.
-
-Install the plugin:
-```
-/plugin install telegram@claude-plugins-official
+```sh
+curl -fsSL https://raw.githubusercontent.com/jeff-hykin/claude_telegram_but_good/main/install.sh | bash
 ```
 
-**3. Give the server the token.**
-
-```
-/telegram:configure 123456789:AAHfiqksKZ8...
-```
-
-Writes `TELEGRAM_BOT_TOKEN=...` to `~/.claude/channels/telegram/.env`. You can also write that file by hand, or set the variable in your shell environment — shell takes precedence.
-
-> To run multiple bots on one machine (different tokens, separate allowlists), point `TELEGRAM_STATE_DIR` at a different directory per instance.
-
-**4. Relaunch with the channel flag.**
-
-The server won't connect without this — exit your session and start a new one:
+**4. Start Claude Code with Telegram:**
 
 ```sh
 claude --channels plugin:telegram@claude-plugins-official
 ```
 
-**5. Pair.**
+That's it. DM your bot and it reaches Claude.
 
-With Claude Code running from the previous step, DM your bot on Telegram — it replies with a 6-character pairing code. If the bot doesn't respond, make sure your session is running with `--channels`. In your Claude Code session:
+### Manual setup (no installer)
 
+If you prefer to do it yourself, these are the equivalent commands:
+
+```sh
+# 1. Install node (if you don't have it)
+curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+source ~/.nvm/nvm.sh && nvm install --lts
+
+# 2. Clone and install the plugin
+git clone https://github.com/jeff-hykin/claude_telegram_but_good.git ~/.claude/channels/telegram-plugin
+cd ~/.claude/channels/telegram-plugin && npm install
+
+# Symlink into claude's plugin directories
+ln -sf ~/.claude/channels/telegram-plugin ~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins/telegram
+mkdir -p ~/.claude/plugins/cache/claude-plugins-official/telegram/0.0.4
+ln -sf ~/.claude/channels/telegram-plugin ~/.claude/plugins/cache/claude-plugins-official/telegram/0.0.4
+
+# 3. Enable the plugin
+node -e "
+  const fs = require('fs');
+  const f = process.env.HOME + '/.claude/settings.json';
+  const s = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
+  s.enabledPlugins = { ...s.enabledPlugins, 'telegram@claude-plugins-official': true };
+  fs.writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
+"
+
+# 4. Set the bot token
+mkdir -p ~/.claude/channels/telegram
+echo 'TELEGRAM_BOT_TOKEN=<your-token>' > ~/.claude/channels/telegram/.env
+chmod 600 ~/.claude/channels/telegram/.env
+
+# 5. Allow your Telegram user ID (skips pairing entirely)
+cat > ~/.claude/channels/telegram/access.json << 'EOF'
+{
+  "dmPolicy": "allowlist",
+  "allowFrom": ["<your-user-id>"],
+  "groups": {},
+  "pending": {}
+}
+EOF
+
+# 6. Start
+claude --channels plugin:telegram@claude-plugins-official
 ```
-/telegram:access pair <code>
-```
 
-Your next DM reaches the assistant.
+> For unattended use: `claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official`
 
-> Unlike Discord, there's no server invite step — Telegram bots accept DMs immediately. Pairing handles the user-ID lookup so you never touch numeric IDs.
-
-**6. Lock it down.**
-
-Pairing is for capturing IDs. Once you're in, switch to `allowlist` so strangers don't get pairing-code replies. Ask Claude to do it, or `/telegram:access policy allowlist` directly.
+> To run multiple bots on one machine, set `TELEGRAM_STATE_DIR` to a different directory per instance.
 
 ## Access control
 

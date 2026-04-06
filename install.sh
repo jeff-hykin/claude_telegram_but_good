@@ -2,28 +2,18 @@
 set -euo pipefail
 
 # Claude Telegram Plugin Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/<owner>/claude_telegram_but_good/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/jeff-hykin/claude_telegram_but_good/main/install.sh | bash
 
 echo "=== Claude Telegram Plugin Installer ==="
 echo ""
 
 # --- Check for Node.js ---
 if ! command -v node &>/dev/null; then
-  echo "Node.js is not installed."
-  echo ""
-  if command -v brew &>/dev/null; then
-    echo "Installing via Homebrew..."
-    brew install node
-  elif command -v apt-get &>/dev/null; then
-    echo "Installing via apt..."
-    sudo apt-get update && sudo apt-get install -y nodejs npm
-  elif command -v dnf &>/dev/null; then
-    echo "Installing via dnf..."
-    sudo dnf install -y nodejs npm
-  else
-    echo "Please install Node.js manually: https://nodejs.org"
-    exit 1
-  fi
+  echo "Node.js is not installed. Installing via nvm..."
+  curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+  export NVM_DIR="${HOME}/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+  nvm install --lts
 fi
 
 NODE_VERSION=$(node --version)
@@ -69,12 +59,31 @@ rm -rf "$PLUGIN_DIR" "$CACHE_DIR"
 ln -s "$REPO_DIR" "$PLUGIN_DIR"
 ln -s "$REPO_DIR" "$CACHE_DIR"
 
-echo "Plugin installed."
+# Enable the plugin in settings.json
+SETTINGS_FILE="$HOME/.claude/settings.json"
+if [ -f "$SETTINGS_FILE" ]; then
+  # Use node to merge enabledPlugins without clobbering other keys
+  node -e "
+    const fs = require('fs');
+    const s = JSON.parse(fs.readFileSync('$SETTINGS_FILE', 'utf8'));
+    s.enabledPlugins = s.enabledPlugins || {};
+    s.enabledPlugins['telegram@claude-plugins-official'] = true;
+    fs.writeFileSync('$SETTINGS_FILE', JSON.stringify(s, null, 2) + '\n');
+  "
+else
+  mkdir -p "$(dirname "$SETTINGS_FILE")"
+  echo '{"enabledPlugins":{"telegram@claude-plugins-official":true}}' \
+    | node -e "process.stdout.write(JSON.stringify(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')),null,2)+'\n')" \
+    > "$SETTINGS_FILE"
+fi
+
+echo "Plugin installed and enabled."
 echo ""
 
 # --- Bot token setup ---
 TOKEN_DIR="$HOME/.claude/channels/telegram"
 ENV_FILE="$TOKEN_DIR/.env"
+ACCESS_FILE="$TOKEN_DIR/access.json"
 mkdir -p "$TOKEN_DIR"
 
 if [ -f "$ENV_FILE" ] && grep -q "TELEGRAM_BOT_TOKEN=" "$ENV_FILE"; then
@@ -93,24 +102,48 @@ else
     echo "Token saved."
   else
     echo "Skipped. Set it later:"
-    echo "  echo 'TELEGRAM_BOT_TOKEN=<your-token>' > $ENV_FILE"
-    echo "  chmod 600 $ENV_FILE"
+    echo "  echo 'TELEGRAM_BOT_TOKEN=<your-token>' > $ENV_FILE && chmod 600 $ENV_FILE"
   fi
 fi
 
 echo ""
 
-# --- Pairing instructions ---
+# --- User ID / access setup ---
+if [ -f "$ACCESS_FILE" ]; then
+  EXISTING=$(node -e "const a=JSON.parse(require('fs').readFileSync('$ACCESS_FILE','utf8')); console.log((a.allowFrom||[]).join(', '))")
+  if [ -n "$EXISTING" ]; then
+    echo "Allowed users already configured: $EXISTING"
+  fi
+else
+  echo "To skip pairing, enter your Telegram user ID."
+  echo "  (Get it by messaging @userinfobot on Telegram)"
+  echo ""
+  read -rp "Your Telegram user ID (or press Enter to use pairing later): " USER_ID
+
+  if [ -n "$USER_ID" ]; then
+    cat > "$ACCESS_FILE" << EOF
+{
+  "dmPolicy": "allowlist",
+  "allowFrom": ["$USER_ID"],
+  "groups": {},
+  "pending": {}
+}
+EOF
+    mkdir -p "$TOKEN_DIR/approved"
+    echo "$USER_ID" > "$TOKEN_DIR/approved/$USER_ID"
+    echo "User $USER_ID added to allowlist."
+  else
+    echo "Skipped. You can pair later by DMing the bot and running:"
+    echo "  /telegram:access pair <code>"
+  fi
+fi
+
+echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "To start Claude Code with Telegram:"
+echo "Start Claude Code with Telegram:"
 echo ""
 echo "  claude --channels plugin:telegram@claude-plugins-official"
-echo ""
-echo "Then pair your Telegram account:"
-echo "  1. DM your bot on Telegram — it replies with a 6-char code"
-echo "  2. In Claude Code, run: /telegram:access pair <code>"
-echo "  3. Lock it down: /telegram:access policy allowlist"
 echo ""
 echo "For unattended use (no permission prompts):"
 echo ""
