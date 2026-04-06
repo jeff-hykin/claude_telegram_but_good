@@ -603,6 +603,7 @@ const mcp = new Server(
 
 // Stores full permission details for "See more" expansion keyed by request_id.
 const pendingPermissions = new Map<string, { tool_name: string; description: string; input_preview: string }>()
+const pendingCommandErrors = new Map<string, { cmdName: string; error: string; stack: string; text: string }>()
 
 // Receive permission_request from CC → format → send to all allowlisted DMs.
 // Groups are intentionally excluded — the security thread resolution was
@@ -963,6 +964,57 @@ bot.command('reload', async ctx => {
 // Security mirrors the text-reply path: allowFrom must contain the sender.
 bot.on('callback_query:data', async ctx => {
   const data = ctx.callbackQuery.data
+  // Handle command error debug button
+  const errMatch = /^cmderr:fix:([a-f0-9]+)$/.exec(data)
+  if (errMatch) {
+    const access = loadAccess()
+    const senderId = String(ctx.from.id)
+    if (!access.allowFrom.includes(senderId)) {
+      await ctx.answerCallbackQuery({ text: 'Not authorized.' }).catch(() => {})
+      return
+    }
+    const errorId = errMatch[1]
+    const errInfo = pendingCommandErrors.get(errorId)
+    if (!errInfo) {
+      await ctx.answerCallbackQuery({ text: 'Error details expired.' }).catch(() => {})
+      return
+    }
+    pendingCommandErrors.delete(errorId)
+    const isCustom = existsSync(join(homedir(), '.claude', 'telegram', 'custom_commands', errInfo.cmdName + '.js'))
+    const fileLoc = isCustom
+      ? `~/.claude/telegram/custom_commands/${errInfo.cmdName}.js`
+      : `the commands/ directory in the plugin source`
+    const debugMsg =
+      `The Telegram command /${errInfo.cmdName} threw an error. ` +
+      `Please fix it and hot-reload.\n\n` +
+      `Error: ${errInfo.error}\n` +
+      `Stack: ${errInfo.stack}\n\n` +
+      `The command file is at: ${fileLoc}\n` +
+      `The user's message was: ${errInfo.text}\n\n` +
+      `After fixing, use the reload MCP tool to hot-reload the commands. ` +
+      `The server log is at ~/claud_telegram.log if you need more context.`
+    // Forward to Claude via letClaudeHandle
+    const chat_id = String(ctx.callbackQuery.message?.chat.id ?? ctx.from.id)
+    const meta: Record<string, string> = {
+      chat_id,
+      user: ctx.from.username ?? String(ctx.from.id),
+      user_id: String(ctx.from.id),
+    }
+    if (!deliverToFocused(debugMsg, meta)) {
+      void mcp.notification({
+        method: 'notifications/claude/channel',
+        params: { content: debugMsg, meta },
+      })
+    }
+    await ctx.answerCallbackQuery({ text: 'Sent to Claude for debugging.' }).catch(() => {})
+    // Update the message to show it was sent
+    const msg = ctx.callbackQuery.message
+    if (msg && 'text' in msg && msg.text) {
+      await ctx.editMessageText(`${msg.text}\n\n🔧 Sent to Claude for debugging.`).catch(() => {})
+    }
+    return
+  }
+
   const m = /^perm:(allow|deny|more):([a-km-z]{5})$/.exec(data)
   if (!m) {
     await ctx.answerCallbackQuery().catch(() => {})
@@ -1086,7 +1138,17 @@ bot.on('message:text', async ctx => {
         const handled = await handler(ctx, bot, getCommandState())
         if (handled) return
       } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        const errStack = err instanceof Error ? err.stack ?? '' : ''
         dbg('HOT', `command ${cmdName} error:`, err)
+        const errorId = randomBytes(3).toString('hex')
+        pendingCommandErrors.set(errorId, { cmdName, error: errMsg, stack: errStack, text })
+        const keyboard = new InlineKeyboard()
+          .text('🔧 Ask Claude to fix', `cmderr:fix:${errorId}`)
+        await ctx.reply(
+          `⚠️ /${cmdName} failed: ${errMsg}`,
+          { reply_markup: keyboard },
+        ).catch(() => {})
       }
     }
   }
