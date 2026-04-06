@@ -4,10 +4,10 @@ The claude telegram plugin is kinda bad:
 - Install is confusing, no warnings/messages when it crashes
 - Doesn't allow switching between multiple claude codes
 - No cancel (e.g. ctrl+c)
+- No way to starting new claude sessions from telegram
 - Doesn't allow adding custom telegram commands/skills
 - If you telegram-reply to a message (as a reference) the bot has no idea whats being referenced
 - No killing, force killing, pausing, resuming claude sessions
-- No way to starting new claude sessions from telegram
 - No way to add telegram commands (no hot reloading of changes)
 - etc
 
