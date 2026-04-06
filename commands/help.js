@@ -16,6 +16,7 @@ export const commands = {
       `/fkill — force kill the focused session\n` +
       `/fkill_all — force kill all sessions\n` +
       `/reload — hot-reload command handlers\n` +
+      `/new_command — how to create custom commands\n` +
       `/ping — test if the bot is alive`
     )
     return true

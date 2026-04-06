@@ -162,26 +162,21 @@ function deliverPermissionToFocused(params: { request_id: string; tool_name: str
 import { pathToFileURL } from 'url'
 
 const COMMANDS_DIR = join(import.meta.dirname ?? new URL('.', import.meta.url).pathname, 'commands')
+const CUSTOM_COMMANDS_DIR = join(homedir(), '.claude', 'telegram', 'custom_commands')
 type CommandHandler = (ctx: Context, bot: Bot, state: Record<string, unknown>) => Promise<boolean | void>
 let hotCommands = new Map<string, CommandHandler>()
 let commandLoadCount = 0
 
-async function loadCommands(): Promise<{ loaded: number; errors: string[] }> {
-  const newCommands = new Map<string, CommandHandler>()
-  const errors: string[] = []
-  commandLoadCount++
-
+async function loadCommandsFromDir(dir: string, newCommands: Map<string, CommandHandler>, errors: string[]): Promise<number> {
   let files: string[]
   try {
-    files = readdirSync(COMMANDS_DIR).filter(f => f.endsWith('.js'))
+    files = readdirSync(dir).filter(f => f.endsWith('.js'))
   } catch {
-    dbg('HOT', 'no commands/ directory found')
-    return { loaded: 0, errors: [] }
+    return 0
   }
 
   for (const file of files) {
-    const filePath = join(COMMANDS_DIR, file)
-    // Cache-bust by appending a unique query param
+    const filePath = join(dir, file)
     const url = pathToFileURL(filePath).href + `?v=${commandLoadCount}-${Date.now()}`
     try {
       const mod = await import(url)
@@ -199,9 +194,20 @@ async function loadCommands(): Promise<{ loaded: number; errors: string[] }> {
       errors.push(`${file}: ${msg}`)
     }
   }
+  return files.length
+}
+
+async function loadCommands(): Promise<{ loaded: number; errors: string[] }> {
+  const newCommands = new Map<string, CommandHandler>()
+  const errors: string[] = []
+  commandLoadCount++
+
+  const builtinFiles = await loadCommandsFromDir(COMMANDS_DIR, newCommands, errors)
+  // Custom commands load second so they can override builtins
+  const customFiles = await loadCommandsFromDir(CUSTOM_COMMANDS_DIR, newCommands, errors)
 
   hotCommands = newCommands
-  dbg('HOT', `loaded ${newCommands.size} commands from ${files.length} files`)
+  dbg('HOT', `loaded ${newCommands.size} commands from ${builtinFiles + customFiles} files`)
   return { loaded: newCommands.size, errors }
 }
 
@@ -219,6 +225,26 @@ function setSessionTitle(sessionId: string, title: string): boolean {
   return false
 }
 
+function letClaudeHandle(ctx: Context, text?: string): void {
+  const content = text ?? ctx.message?.text ?? ''
+  const from = ctx.from!
+  const chat_id = String(ctx.chat!.id)
+  const msgId = ctx.message?.message_id
+  const meta: Record<string, string> = {
+    chat_id,
+    ...(msgId != null ? { message_id: String(msgId) } : {}),
+    user: from.username ?? String(from.id),
+    user_id: String(from.id),
+    ts: new Date((ctx.message?.date ?? 0) * 1000).toISOString(),
+  }
+  if (!deliverToFocused(content, meta)) {
+    void mcp.notification({
+      method: 'notifications/claude/channel',
+      params: { content, meta },
+    })
+  }
+}
+
 function getCommandState() {
   return {
     allSessions, get focusedSessionId() { return focusedSessionId },
@@ -227,6 +253,7 @@ function getCommandState() {
     SESSION_ID, get isPrimary() { return isPrimary },
     loadAccess, secondaries, SESSION_PID, SESSION_CWD,
     deliverToFocused, sendIpc, bot, mcp, dbg,
+    letClaudeHandle,
     execSync, randomBytes, homedir,
   }
 }
@@ -582,6 +609,17 @@ mcp.setNotificationHandler(
   }),
   async ({ params }) => {
     const { request_id, tool_name, description, input_preview } = params
+
+    // Auto-approve our own MCP tools so users don't have to click allow every time
+    if (tool_name.startsWith('mcp__plugin_telegram_telegram__')) {
+      dbg('PERM', 'auto-allowing own tool:', tool_name)
+      void mcp.notification({
+        method: 'notifications/claude/channel/permission',
+        params: { request_id, behavior: 'allow' },
+      })
+      return
+    }
+
     pendingPermissions.set(request_id, { tool_name, description, input_preview })
     const access = loadAccess()
     const text = `🔐 Permission: ${tool_name}`
@@ -685,6 +723,18 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object',
         properties: {},
+      },
+    },
+    {
+      name: 'new_command',
+      description: `Create or update a custom Telegram bot command and hot-reload it immediately. Commands are written to ${CUSTOM_COMMANDS_DIR}/ as .js files (survives plugin updates). Each file exports { commands: { name: async (ctx, bot, state) => bool } }. The ctx is a grammy Context. state has: isPrimary, focusedSessionId, allSessions(), loadAccess(), homedir(), letClaudeHandle(ctx, text?) — forwards the message (or custom text) to Claude while still returning true. Return true if the command was handled. Custom commands override builtins with the same name. After writing, this tool auto-reloads so the command is live instantly.`,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          filename: { type: 'string', description: 'Filename (e.g. "mycommand.js"). Must end in .js.' },
+          code: { type: 'string', description: 'Full JavaScript source code for the command file.' },
+        },
+        required: ['filename', 'code'],
       },
     },
   ],
@@ -804,6 +854,22 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
       case 'reload': {
         const { loaded, errors } = await loadCommands()
         const parts = [`Reloaded: ${loaded} command(s)`]
+        if (errors.length > 0) {
+          parts.push(`\nErrors:\n${errors.join('\n')}`)
+        }
+        return { content: [{ type: 'text', text: parts.join('') }] }
+      }
+      case 'new_command': {
+        const filename = args.filename as string
+        const code = args.code as string
+        if (!filename.endsWith('.js')) {
+          return { content: [{ type: 'text', text: 'Error: filename must end in .js' }] }
+        }
+        mkdirSync(CUSTOM_COMMANDS_DIR, { recursive: true })
+        const filePath = join(CUSTOM_COMMANDS_DIR, filename)
+        writeFileSync(filePath, code)
+        const { loaded, errors } = await loadCommands()
+        const parts = [`Wrote ${filePath}\nReloaded: ${loaded} command(s)`]
         if (errors.length > 0) {
           parts.push(`\nErrors:\n${errors.join('\n')}`)
         }

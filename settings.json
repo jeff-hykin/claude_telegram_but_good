@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_telegram_telegram__reply",
+      "mcp__plugin_telegram_telegram__react",
+      "mcp__plugin_telegram_telegram__edit_message",
+      "mcp__plugin_telegram_telegram__download_attachment",
+      "mcp__plugin_telegram_telegram__set_title",
+      "mcp__plugin_telegram_telegram__reload",
+      "mcp__plugin_telegram_telegram__new_command"
+    ]
+  }
+}
