@@ -38,7 +38,13 @@ claude plugin install telegram@jeff-hykin-claude-telegram-but-good
 claude plugin install telegram@claude-plugins-official
 mkdir -p ~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins
 CACHE_DIR=$(ls -d ~/.claude/plugins/cache/jeff-hykin-claude-telegram-but-good/telegram/*/ | tail -1)
+# remove existing telegram dir/symlink first — ln -sf won't replace a directory
+rm -rf ~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins/telegram
 ln -sf "$CACHE_DIR" ~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins/telegram
+
+# install npm dependencies (the plugin won't start without them)
+CACHE_DIR_RESOLVED=$(ls -d ~/.claude/plugins/cache/jeff-hykin-claude-telegram-but-good/telegram/*/ | tail -1)
+npm install --prefix "$CACHE_DIR_RESOLVED" --silent
 
 # save the bot token
 mkdir -p ~/.claude/channels/telegram

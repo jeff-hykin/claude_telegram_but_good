@@ -6,8 +6,10 @@ export const commands = {
       await ctx.reply(`This bot isn't accepting new connections.`)
       return true
     }
+    const userId = ctx.from?.id ?? 'unknown'
     await ctx.reply(
       `This bot bridges Telegram to a Claude Code session.\n\n` +
+      `Your Telegram user ID: ${userId}\n\n` +
       `To pair:\n` +
       `1. DM me anything — you'll get a 6-char code\n` +
       `2. In Claude Code: /telegram:access pair <code>\n\n` +
