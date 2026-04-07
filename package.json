@@ -3,9 +3,12 @@
   "version": "0.0.1",
   "license": "Apache-2.0",
   "type": "module",
-  "bin": "./server.ts",
+  "bin": "./shim.ts",
   "scripts": {
-    "start": "npm install --silent && npx tsx server.ts"
+    "start": "npm install --silent && npx tsx shim.ts",
+    "server": "npx tsx standalone-server.ts",
+    "server:start": "npx tsx standalone-server.ts &",
+    "server:stop": "node -e \"try{process.kill(+require('fs').readFileSync(require('os').homedir()+'/.claude/channels/telegram/server.pid','utf8'));console.log('stopped')}catch{console.log('not running')}\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
