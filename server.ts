@@ -68,6 +68,11 @@ if (!TOKEN) {
 const INBOX_DIR = join(STATE_DIR, 'inbox')
 const IPC_SOCK = join(STATE_DIR, 'ipc.sock')
 
+// Map outbound bot message IDs to the session that sent them, so telegram-replies
+// can be routed back to the correct session instead of the currently focused one.
+const messageSessionMap = new Map<number, string>() // message_id → session_id
+const MESSAGE_MAP_MAX = 5000 // cap to avoid unbounded growth
+
 // === MULTI-SESSION IPC ===
 const SESSION_ID = randomBytes(3).toString('hex') // 6 hex chars
 const SESSION_CWD = process.env.SESSION_CWD ?? process.cwd()
@@ -119,6 +124,15 @@ function allSessions(): SessionInfo[] {
   return list
 }
 
+function trackSentMessage(messageId: number, sessionId: string): void {
+  messageSessionMap.set(messageId, sessionId)
+  // Evict oldest entries if map grows too large
+  if (messageSessionMap.size > MESSAGE_MAP_MAX) {
+    const first = messageSessionMap.keys().next().value
+    if (first !== undefined) messageSessionMap.delete(first)
+  }
+}
+
 function sendIpc(socket: Socket, msg: IpcMessage): void {
   try {
     socket.write(JSON.stringify(msg) + '\n')
@@ -128,14 +142,19 @@ function sendIpc(socket: Socket, msg: IpcMessage): void {
 // Deliver a channel event to the focused session.
 // Returns true if handled (forwarded to secondary), false if primary should handle locally.
 function deliverToFocused(content: string, meta: Record<string, string>): boolean {
-  if (focusedSessionId === SESSION_ID) {
+  return deliverToSession(focusedSessionId, content, meta)
+}
+
+// Deliver a channel event to a specific session by ID.
+// Returns true if handled (forwarded to secondary), false if primary should handle locally.
+function deliverToSession(sessionId: string, content: string, meta: Record<string, string>): boolean {
+  if (sessionId === SESSION_ID) {
     ownLastActive = Date.now()
     return false // primary handles locally
   }
-  const secondary = secondaries.get(focusedSessionId)
+  const secondary = secondaries.get(sessionId)
   if (!secondary) {
-    // focused session gone, fall back to primary
-    focusedSessionId = SESSION_ID
+    // target session gone, fall back to primary
     ownLastActive = Date.now()
     return false
   }
@@ -790,7 +809,12 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const limit = Math.max(1, Math.min(access.textChunkLimit ?? MAX_CHUNK_LIMIT, MAX_CHUNK_LIMIT))
         const mode = access.chunkMode ?? 'length'
         const replyMode = access.replyToMode ?? 'first'
-        const chunks = chunk(text, limit, mode)
+
+        // Prepend session tag so the user knows which session sent this
+        const sessionTag = `/switch_${focusedSessionId}`
+        const taggedText = `${sessionTag}\n${text}`
+
+        const chunks = chunk(taggedText, limit, mode)
         const sentIds: number[] = []
 
         try {
@@ -804,6 +828,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
               ...(parseMode ? { parse_mode: parseMode } : {}),
             })
             sentIds.push(sent.message_id)
+            trackSentMessage(sent.message_id, focusedSessionId)
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
@@ -823,9 +848,11 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
           if (PHOTO_EXTS.has(ext)) {
             const sent = await bot.api.sendPhoto(chat_id, input, opts)
             sentIds.push(sent.message_id)
+            trackSentMessage(sent.message_id, focusedSessionId)
           } else {
             const sent = await bot.api.sendDocument(chat_id, input, opts)
             sentIds.push(sent.message_id)
+            trackSentMessage(sent.message_id, focusedSessionId)
           }
         }
 
@@ -1432,9 +1459,19 @@ async function handleInbound(
     } : {}),
   }
 
-  // Route to focused session — if it's a secondary, forward over IPC
-  dbg('NOTIFY', 'about to send notifications/claude/channel, text:', text, 'chat_id:', chat_id, 'focused:', focusedSessionId)
-  if (isPrimary && deliverToFocused(text, meta)) {
+  // If this is a telegram-reply to a bot message, route to the session that sent it
+  let targetSessionId = focusedSessionId
+  if (replyTo && replyTo.from?.id === bot.botInfo.id) {
+    const mappedSession = messageSessionMap.get(replyTo.message_id)
+    if (mappedSession) {
+      dbg('NOTIFY', 'telegram-reply targets session:', mappedSession, 'instead of focused:', focusedSessionId)
+      targetSessionId = mappedSession
+    }
+  }
+
+  // Route to target session — if it's a secondary, forward over IPC
+  dbg('NOTIFY', 'about to send notifications/claude/channel, text:', text, 'chat_id:', chat_id, 'target:', targetSessionId)
+  if (isPrimary && deliverToSession(targetSessionId, text, meta)) {
     dbg('NOTIFY', 'forwarded to secondary', focusedSessionId)
     return
   }
