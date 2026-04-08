@@ -1244,6 +1244,10 @@ bot.on('message:text', async ctx => {
           { reply_markup: keyboard },
         ).catch(() => {})
       }
+    } else if (/^ *\/\w+ *$/.test(text)) {
+      // Looks like a command but no handler found — don't forward to Claude
+      await ctx.reply(`Unknown command: /${cmdName}\nUse //${cmdName} if you want to literally tell Claude "/${cmdName}" without invoking a telegram command.`)
+      return
     }
   }
 
