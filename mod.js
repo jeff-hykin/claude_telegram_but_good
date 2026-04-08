@@ -9,7 +9,7 @@ import { startService, stopService, restartService, serviceStatus } from "./lib/
 import { createSession, attachSession, listDtachSockets } from "./lib/dtach.js"
 import { onboard, isOnboarded } from "./lib/onboard.js"
 import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE } from "./lib/protocol.js"
-import { configPath } from "./lib/config.js"
+import { configPath, configDir } from "./lib/config.js"
 import { removeShim } from "./lib/shim.js"
 
 const c = colors
@@ -260,9 +260,9 @@ switch (cmd) {
             default: false,
         })
         if (removeToken) {
-            try { Deno.removeSync(configPath()) } catch { /* ignore */ }
+            try { Deno.removeSync(configDir(), { recursive: true }) } catch { /* ignore */ }
             try { Deno.removeSync(ENV_FILE) } catch { /* ignore */ }
-            console.log(c.green("  \u2714 ") + "Bot token removed.")
+            console.log(c.green("  \u2714 ") + "Bot token and config dir removed.")
         }
 
         // Offer to remove paired chat IDs
