@@ -45,12 +45,29 @@ const PLUGIN_VERSION = (() => {
   } catch { return 'unknown' }
 })()
 
-const SESSION_ID = randomBytes(3).toString('hex')
+const SESSION_ID = (() => {
+  // Check for a pre-assigned session ID from /spawn
+  const f = join(STATE_DIR, 'next_session.json')
+  try {
+    const raw = readFileSync(f, 'utf8')
+    dbg('SHIM', 'next_session.json found:', raw.trim())
+    const data = JSON.parse(raw)
+    unlinkSync(f)
+    if (data.id) {
+      if (data.title) process.env.TELEGRAM_SESSION_TITLE = data.title
+      dbg('SHIM', 'using pre-assigned session ID:', data.id)
+      return data.id as string
+    }
+  } catch (err) {
+    dbg('SHIM', 'next_session.json not found or error:', String(err))
+  }
+  return randomBytes(3).toString('hex')
+})()
 const SESSION_CWD = process.env.SESSION_CWD ?? process.cwd()
 const SESSION_PID = process.pid
 const SESSION_START = Date.now()
 
-let ownTitle: string | undefined
+let ownTitle: string | undefined = process.env.TELEGRAM_SESSION_TITLE ?? undefined
 const ownGitBranch = (() => {
   try {
     return execSync('git rev-parse --abbrev-ref HEAD', { cwd: SESSION_CWD, encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined
