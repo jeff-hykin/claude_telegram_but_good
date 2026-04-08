@@ -169,6 +169,14 @@ loadCommands(COMMANDS_DIR, CUSTOM_COMMANDS_DIR).catch(() => {})
 
 // === Message delivery ===
 
+function deliverToSession(sessionId: string, content: string, meta: Record<string, string>): boolean {
+  const session = sessions.get(sessionId)
+  if (!session) return false
+  session.info.lastActive = Date.now()
+  sendIpc(session.socket, { type: 'channel_event', content, meta })
+  return true
+}
+
 function deliverToFocused(content: string, meta: Record<string, string>): boolean {
   if (!focusedSessionId) {
     // No focused session — queue or respond
@@ -544,7 +552,18 @@ async function handleInbound(
     } : {}),
   }
 
-  const delivered = deliverToFocused(text, meta)
+  // If this is a telegram-reply to a bot message, extract the session ID from the
+  // /switch_<id> header we prepend to all outbound replies, and route there instead
+  let delivered = false
+  if (replyTo && replyTo.from?.id === bot.botInfo.id && replyTo.text) {
+    const switchMatch = /^\/switch_([a-f0-9]+)/i.exec(replyTo.text)
+    if (switchMatch) {
+      const targetSession = switchMatch[1]
+      dbg('ROUTE', 'telegram-reply targets session:', targetSession, 'instead of focused:', focusedSessionId)
+      delivered = deliverToSession(targetSession, text, meta)
+    }
+  }
+  if (!delivered) delivered = deliverToFocused(text, meta)
   if (!delivered) {
     // No sessions — tell the user
     await bot.api.sendMessage(chat_id, '💤 No active Claude sessions. Message queued — it will be delivered when a session connects.').catch(() => {})
