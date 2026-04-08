@@ -7,7 +7,7 @@
  *   cbg start            Start the daemon (systemd/launchd)
  *   cbg stop             Stop the daemon
  *   cbg restart          Restart the daemon
- *   cbg new [title]      Create a new Claude session in dtach with telegram
+ *   cbg new [--title T] [claude args...]  Create a new dtach session with telegram
  *   cbg resume [id]      Attach to a dtach session (interactive selector if no id)
  *   cbg status           Show daemon status + list sessions
  *   cbg config           Print all config as YAML
@@ -42,7 +42,7 @@ Commands:
   start            Start the daemon (creates systemd/launchd service)
   stop             Stop the daemon
   restart          Stop + start
-  new [title]      Create a new Claude session in dtach with telegram
+  new [opts] [...]  Create a new dtach session (--title T, rest passed to claude)
   resume [id]      Attach to a dtach session (lists sessions if no id)
   status           Show daemon status + list sessions
   config           Print all config as YAML
@@ -90,8 +90,18 @@ switch (cmd) {
 
     case "new": {
         await ensureOnboarded()
-        const title = args.join(" ").trim() || undefined
-        createSession(title)
+        // Extract --title from args, pass everything else through to claude
+        let title
+        const claudeArgs = []
+        for (let i = 0; i < args.length; i++) {
+            if (args[i] === "--title" && i + 1 < args.length) {
+                title = args[i + 1]
+                i++ // skip the value
+            } else {
+                claudeArgs.push(args[i])
+            }
+        }
+        createSession(title, claudeArgs)
         break
     }
 

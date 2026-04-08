@@ -83,7 +83,7 @@ There's also an `enable_telegram_by_default` MCP tool you can ask Claude to invo
 | `cbg start` | Start the daemon (creates a systemd/launchd service) |
 | `cbg stop` | Stop the daemon |
 | `cbg restart` | Stop + start |
-| `cbg new [title]` | Create a new Claude session in dtach with telegram |
+| `cbg new [--title T] [claude args...]` | Create a new dtach session. `--title` sets the display name; all other args pass through to `claude` (e.g. `cbg new --title "refactor" resume`, `cbg new --dangerously-skip-permissions`). `--channels` is always included automatically. |
 | `cbg resume [id]` | Attach to a dtach session (interactive selector if no id) |
 | `cbg status` | Show daemon status + list sessions |
 | `cbg config` | Print all config as YAML |

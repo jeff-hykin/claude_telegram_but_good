@@ -131,7 +131,8 @@ const ownGitBranch = (() => {
     }
 })()
 
-const SESSION_DTACH_SOCKET = Deno.env.get("TELEGRAM_DTACH_SOCKET") ?? undefined
+const SESSION_DTACH_SOCKET = Deno.env.get("TELEGRAM_DTACH_SOCKET") ?? Deno.env.get("CBG_DTACH_SOCKET") ?? undefined
+const IN_DTACH = !!(Deno.env.get("CBG_DTACH") || SESSION_DTACH_SOCKET)
 
 function ownSessionInfo() {
     return {
@@ -142,6 +143,7 @@ function ownSessionInfo() {
         title: ownTitle,
         gitBranch: ownGitBranch,
         dtachSocket: SESSION_DTACH_SOCKET,
+        inDtach: IN_DTACH,
     }
 }
 
