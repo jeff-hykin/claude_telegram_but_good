@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Start a Claude Code session inside dtach with telegram channel support.
+# Usage: claude-telegram-dtach [title]
+#
+# Creates a dtach session with a known socket so /cancel can send Escape.
+# If a title is given, it's passed to the telegram shim via next_session.json.
+
+set -euo pipefail
+
+STATE_DIR="${HOME}/.claude/channels/telegram"
+mkdir -p "$STATE_DIR"
+
+SESSION_ID=$(head -c 3 /dev/urandom | xxd -p)
+DTACH_SOCK="${STATE_DIR}/dtach-${SESSION_ID}.sock"
+TITLE="${*:-}"
+
+# Write session info for the shim to pick up
+node -e "
+  const fs = require('fs');
+  const info = { id: process.argv[1], dtachSocket: process.argv[2] };
+  if (process.argv[3]) info.title = process.argv[3];
+  fs.writeFileSync(process.argv[4] + '/next_session.json', JSON.stringify(info));
+" "$SESSION_ID" "$DTACH_SOCK" "$TITLE" "$STATE_DIR"
+
+echo "Session ID: ${SESSION_ID}"
+echo "dtach socket: ${DTACH_SOCK}"
+echo "Detach with Ctrl+\\"
+echo ""
+
+# -c = create + attach, -z = no suspend key
+# Default detach char (Ctrl+\) so user can detach and reattach with dtach -a <sock>
+exec dtach -c "$DTACH_SOCK" -z claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official

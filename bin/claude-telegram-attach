@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Reattach to a detached claude-telegram-dtach session.
+# Usage: claude-telegram-attach <session-id>
+#
+# Lists available sessions if no ID given.
+
+STATE_DIR="${HOME}/.claude/channels/telegram"
+
+if [ -z "${1:-}" ]; then
+  echo "Available dtach sessions:"
+  for sock in "$STATE_DIR"/dtach-*.sock; do
+    [ -e "$sock" ] || continue
+    id=$(basename "$sock" | sed 's/dtach-//;s/\.sock//')
+    echo "  $id  ($sock)"
+  done
+  echo ""
+  echo "Usage: claude-telegram-attach <session-id>"
+  exit 0
+fi
+
+DTACH_SOCK="${STATE_DIR}/dtach-${1}.sock"
+if [ ! -e "$DTACH_SOCK" ]; then
+  echo "No dtach socket found for session $1"
+  echo "Expected: $DTACH_SOCK"
+  exit 1
+fi
+
+exec dtach -a "$DTACH_SOCK"
