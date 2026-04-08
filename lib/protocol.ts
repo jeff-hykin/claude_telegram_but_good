@@ -27,6 +27,7 @@ export type SessionInfo = {
   title?: string
   lastActive?: number
   gitBranch?: string
+  dtachSocket?: string
 }
 
 export type ToolResult = {

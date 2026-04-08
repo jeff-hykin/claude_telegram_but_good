@@ -1,4 +1,4 @@
-import { openSync, writeSync, closeSync } from 'fs'
+import { execSync } from 'child_process'
 
 export const commands = {
   cancel: async (ctx, bot, state) => {
@@ -14,13 +14,20 @@ export const commands = {
       return true
     }
 
-    // Send Escape key to Claude Code's stdin via /proc/<pid>/fd/0
-    // This triggers the TUI's cancel behavior (like pressing Esc)
     try {
-      const fd = openSync(`/proc/${focused.pid}/fd/0`, 'w')
-      writeSync(fd, '\x1b') // ESC byte
-      closeSync(fd)
-      await ctx.reply(`Sent Escape to Claude Code (PID ${focused.pid})`)
+      if (focused.dtachSocket) {
+        // Send Escape via dtach socket — triggers TUI cancel
+        execSync(`printf '\\033' | dtach -p "${focused.dtachSocket}"`, {
+          timeout: 3000,
+          encoding: 'utf8',
+          shell: true,
+        })
+        await ctx.reply(`Sent Escape to session ${focused.id} via dtach`)
+      } else {
+        // Fallback: SIGINT to Claude Code process
+        process.kill(focused.pid, 'SIGINT')
+        await ctx.reply(`Sent SIGINT to Claude Code (PID ${focused.pid})`)
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       state.dbg('CANCEL', 'failed:', msg)

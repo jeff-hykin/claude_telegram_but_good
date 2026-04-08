@@ -55,6 +55,7 @@ const SESSION_ID = (() => {
     unlinkSync(f)
     if (data.id) {
       if (data.title) process.env.TELEGRAM_SESSION_TITLE = data.title
+      if (data.dtachSocket) process.env.TELEGRAM_DTACH_SOCKET = data.dtachSocket
       dbg('SHIM', 'using pre-assigned session ID:', data.id)
       return data.id as string
     }
@@ -95,8 +96,10 @@ const ownGitBranch = (() => {
   } catch { return undefined }
 })()
 
+const SESSION_DTACH_SOCKET = process.env.TELEGRAM_DTACH_SOCKET ?? undefined
+
 function ownSessionInfo(): SessionInfo {
-  return { id: SESSION_ID, pid: SESSION_PID, cwd: SESSION_CWD, connectedAt: SESSION_START, title: ownTitle, gitBranch: ownGitBranch }
+  return { id: SESSION_ID, pid: SESSION_PID, cwd: SESSION_CWD, connectedAt: SESSION_START, title: ownTitle, gitBranch: ownGitBranch, dtachSocket: SESSION_DTACH_SOCKET }
 }
 
 // === MCP Server ===

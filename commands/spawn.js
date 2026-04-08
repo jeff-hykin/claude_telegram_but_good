@@ -9,20 +9,18 @@ export const commands = {
     const senderId = String(ctx.from?.id)
     if (!access.allowFrom.includes(senderId)) return true
 
-    if (!state.isPrimary) {
-      await ctx.reply('Only available on the primary.')
-      return true
-    }
-
-    // Prefer zellij, fall back to tmux
+    // Check for dtach, fall back to zellij/tmux
     let launcher = null
-    try { execSync('which zellij', { stdio: 'ignore' }); launcher = 'zellij' } catch {}
+    try { execSync('which dtach', { stdio: 'ignore' }); launcher = 'dtach' } catch {}
+    if (!launcher) {
+      try { execSync('which zellij', { stdio: 'ignore' }); launcher = 'zellij' } catch {}
+    }
     if (!launcher) {
       try { execSync('which tmux', { stdio: 'ignore' }); launcher = 'tmux' } catch {}
     }
 
     if (!launcher) {
-      await ctx.reply('Neither zellij nor tmux found. Install one to use /spawn.')
+      await ctx.reply('No session launcher found. Install dtach, zellij, or tmux.')
       return true
     }
 
@@ -33,6 +31,8 @@ export const commands = {
     const sessionName = `claude-${sessionId}`
     const claudeCmd = 'claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official'
     const home = state.homedir()
+    const stateDir = join(state.homedir(), '.claude', 'channels', 'telegram')
+    const dtachSock = join(stateDir, `dtach-${sessionId}.sock`)
 
     // Strip env vars that would confuse the child Claude session
     const cleanEnv = { ...process.env }
@@ -41,16 +41,24 @@ export const commands = {
         delete cleanEnv[key]
       }
     }
-    // Also remove ZELLIJ so nested zellij commands don't conflict
     delete cleanEnv.ZELLIJ
     delete cleanEnv.ZELLIJ_SESSION_NAME
 
     // Write pre-assigned session info for the new server to pick up on startup
-    const stateDir = join(state.homedir(), '.claude', 'channels', 'telegram')
-    writeFileSync(join(stateDir, 'next_session.json'), JSON.stringify({ id: sessionId, title: title || undefined }))
+    writeFileSync(join(stateDir, 'next_session.json'), JSON.stringify({
+      id: sessionId,
+      title: title || undefined,
+      dtachSocket: launcher === 'dtach' ? dtachSock : undefined,
+    }))
 
     try {
-      if (launcher === 'zellij') {
+      if (launcher === 'dtach') {
+        // -n = create detached, -E = disable detach char, -z = disable suspend
+        execSync(
+          `dtach -n "${dtachSock}" -Ez bash -c 'cd "${home}" && ${claudeCmd}'`,
+          { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
+        )
+      } else if (launcher === 'zellij') {
         const insideZellij = !!process.env.ZELLIJ
         if (insideZellij) {
           execSync(
