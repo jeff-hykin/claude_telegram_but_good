@@ -74,7 +74,7 @@ const messageSessionMap = new Map<number, string>() // message_id → session_id
 const MESSAGE_MAP_MAX = 5000 // cap to avoid unbounded growth
 
 // === MULTI-SESSION IPC ===
-const SESSION_ID = randomBytes(3).toString('hex') // 6 hex chars
+const SESSION_ID = process.env.TELEGRAM_SESSION_ID ?? randomBytes(3).toString('hex') // 6 hex chars
 const SESSION_CWD = process.env.SESSION_CWD ?? process.cwd()
 const SESSION_PID = process.pid
 const SESSION_START = Date.now()
@@ -110,7 +110,7 @@ function getGitBranch(cwd: string): string | undefined {
   } catch { return undefined }
 }
 
-let ownTitle: string | undefined
+let ownTitle: string | undefined = process.env.TELEGRAM_SESSION_TITLE ?? undefined
 let ownLastActive: number | undefined
 const ownGitBranch = getGitBranch(SESSION_CWD)
 

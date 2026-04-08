@@ -24,8 +24,13 @@ export const commands = {
       return true
     }
 
-    const sessionName = `claude-${state.randomBytes(3).toString('hex')}`
-    const claudeCmd = 'claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official'
+    // Pre-assign the session ID so we know the switch command ahead of time
+    const sessionId = state.randomBytes(3).toString('hex')
+    const title = ctx.message?.text?.replace(/^\/spawn\s*/, '').trim() || undefined
+
+    const sessionName = `claude-${sessionId}`
+    const titleEnv = title ? `TELEGRAM_SESSION_TITLE="${title.replace(/"/g, '\\"')}"` : ''
+    const claudeCmd = `TELEGRAM_SESSION_ID=${sessionId} ${titleEnv} claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official`
     const home = state.homedir()
 
     // Strip env vars that would confuse the child Claude session
@@ -43,13 +48,11 @@ export const commands = {
       if (launcher === 'zellij') {
         const insideZellij = !!process.env.ZELLIJ
         if (insideZellij) {
-          // Already inside a zellij session — open a new pane
           execSync(
             `zellij run --cwd "${home}" -n "${sessionName}" -- bash -c '${claudeCmd}'`,
             { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
           )
         } else {
-          // Not inside zellij — create a background session then run in it
           execSync(
             `zellij attach -b --create "${sessionName}"`,
             { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
@@ -65,7 +68,15 @@ export const commands = {
           { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
         )
       }
-      await ctx.reply(`Spawned via ${launcher}: ${sessionName}\nIt should appear in /list shortly.`)
+
+      const displayTitle = title ? ` (${title})` : ''
+      await ctx.reply(`Spawned via ${launcher}: /switch_${sessionId}${displayTitle}\nSwitching in ~10s...`)
+
+      // Wait for the session to register, then switch to it
+      setTimeout(() => {
+        state.setFocusedSession(sessionId)
+      }, 10000)
+
     } catch (err) {
       let detail = ''
       if (err instanceof Error) {
