@@ -336,6 +336,7 @@ async function connectToServer() {
 }
 
 async function ensureServerRunning() {
+    // Try to connect to an existing server
     try {
         const testConn = await connectToServer()
         testConn.close()
@@ -344,29 +345,53 @@ async function ensureServerRunning() {
         // Server not running
     }
 
-    dbg("SHIM", "starting standalone server...")
-    const serverScript = join(
-        import.meta.dirname ?? fromFileUrl(new URL(".", import.meta.url)),
-        "standalone-server.js",
-    )
-    const child = new Deno.Command("deno", {
-        args: ["run", "-A", serverScript],
-        stdout: "null",
-        stderr: "null",
-        stdin: "null",
-    }).spawn()
-    child.unref()
+    // Use a lock file to prevent multiple shims from starting servers simultaneously
+    const lockFile = join(STATE_DIR, "server.starting")
+    let weStarted = false
+    try {
+        // Try to create the lock file exclusively
+        Deno.writeTextFileSync(lockFile, String(Deno.pid), { createNew: true })
+        weStarted = true
+    } catch {
+        // Another shim is already starting the server — just wait for it
+        dbg("SHIM", "another shim is starting the server, waiting...")
+    }
 
+    if (weStarted) {
+        dbg("SHIM", "starting standalone server...")
+        const serverScript = join(
+            import.meta.dirname ?? fromFileUrl(new URL(".", import.meta.url)),
+            "standalone-server.js",
+        )
+        const child = new Deno.Command("deno", {
+            args: ["run", "-A", serverScript],
+            stdout: "null",
+            stderr: "null",
+            stdin: "null",
+        }).spawn()
+        child.unref()
+    }
+
+    // Wait for the server to become connectable (whether we started it or not)
     for (let i = 0; i < 40; i++) {
         await new Promise(r => setTimeout(r, 250))
         try {
             const testConn = await connectToServer()
             testConn.close()
-            dbg("SHIM", "standalone server started")
+            dbg("SHIM", weStarted ? "standalone server started" : "server now available")
+            // Clean up lock file if we created it
+            if (weStarted) {
+                try { Deno.removeSync(lockFile) } catch { /* ignore */ }
+            }
             return
         } catch {
             // not ready yet
         }
+    }
+
+    // Clean up on failure
+    if (weStarted) {
+        try { Deno.removeSync(lockFile) } catch { /* ignore */ }
     }
     throw new Error("failed to start standalone Telegram server")
 }

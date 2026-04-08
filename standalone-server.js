@@ -68,8 +68,26 @@ if (!TOKEN) {
 
 dbg("SERVER", "starting standalone server, TOKEN set:", !!TOKEN, "STATIC:", STATIC)
 
-// === PID file ===
+// === Check for existing server ===
 Deno.mkdirSync(STATE_DIR, { recursive: true })
+try {
+    const existingPid = parseInt(Deno.readTextFileSync(PID_FILE).trim())
+    if (existingPid > 0 && existingPid !== Deno.pid) {
+        const check = new Deno.Command("kill", {
+            args: ["-0", String(existingPid)],
+            stdout: "null",
+            stderr: "null",
+        }).outputSync()
+        if (check.success) {
+            dbg("SERVER", "another server is already running at PID", existingPid, "— exiting")
+            Deno.exit(0)
+        }
+    }
+} catch {
+    // no pid file or not running — we proceed
+}
+
+// === PID file ===
 Deno.writeTextFileSync(PID_FILE, String(Deno.pid))
 
 // === Session registry ===
