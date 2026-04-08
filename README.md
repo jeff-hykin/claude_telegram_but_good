@@ -1,94 +1,94 @@
-# Claude Telegram But Good
+# cbg — Claude Telegram But Good
 
-The claude telegram plugin is kinda bad:
-- Install is confusing, no warnings/messages when it crashes
-- Doesn't allow switching between multiple claude codes
-- No cancel (e.g. ctrl+c)
-- No way to starting new claude sessions from telegram
-- Doesn't allow adding custom telegram commands/skills
-- If you telegram-reply to a message (as a reference) the bot has no idea whats being referenced
-- No killing, force killing, pausing, resuming claude sessions
-- No way to add telegram commands (no hot reloading of changes)
-- etc
+A Telegram channel plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that actually works well:
 
-I made this repo cause my team and I were annoyed by these limitations.
+- Multi-session support with `/list`, `/switch`, and `/spawn`
+- Cancel running tasks via `/cancel` (sends Escape through dtach)
+- Spawn new Claude sessions directly from Telegram
+- Hot-reloadable custom commands
+- Telegram-reply routing — reply to a message to target that session
+- Photo/document/voice/video attachments
+- Permission approval buttons in Telegram
+- Daemon mode with systemd/launchd auto-restart
 
 ## Quick Setup
 
+### Prerequisites
+
+- [Deno](https://deno.com/) (v2+)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
+
 ### 1. Get a bot token
 
-Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, and copy the token (`123456789:AAHfiqksKZ8...`).
+Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, and copy the token.
 
-### 2. Install the plugin
-
-Paste your token on the first line and run:
+### 2. Install cbg
 
 ```sh
-BOT_TOKEN=<YOUR_TOKEN_HERE>
+# Clone the repo
+git clone https://github.com/jeff-hykin/claude_telegram_but_good.git
+cd claude_telegram_but_good
 
-# install node if you don't have it
-curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-source ~/.nvm/nvm.sh && nvm install --lts
-
-# install the plugin from the fork's marketplace
-claude plugin marketplace add jeff-hykin/claude_telegram_but_good
-claude plugin install telegram@jeff-hykin-claude-telegram-but-good
-
-# register under the official plugin name (required for the --channels allowlist)
-claude plugin install telegram@claude-plugins-official
-mkdir -p ~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins
-CACHE_DIR=$(ls -d ~/.claude/plugins/cache/jeff-hykin-claude-telegram-but-good/telegram/*/ | tail -1)
-# remove existing telegram dir/symlink first — ln -sf won't replace a directory
-rm -rf ~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins/telegram
-ln -sf "$CACHE_DIR" ~/.claude/plugins/marketplaces/claude-plugins-official/external_plugins/telegram
-
-# install npm dependencies (the plugin won't start without them)
-CACHE_DIR_RESOLVED=$(ls -d ~/.claude/plugins/cache/jeff-hykin-claude-telegram-but-good/telegram/*/ | tail -1)
-npm install --prefix "$CACHE_DIR_RESOLVED" --silent
-
-# save the bot token
-mkdir -p ~/.claude/channels/telegram
-echo "TELEGRAM_BOT_TOKEN=$BOT_TOKEN" > ~/.claude/channels/telegram/.env
-chmod 600 ~/.claude/channels/telegram/.env
-
-# enable channels and the plugin
-node -e "
-  const fs = require('fs');
-  const f = process.env.HOME + '/.claude/settings.json';
-  const s = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : {};
-  s.channelsEnabled = true;
-  s.enabledPlugins = { ...s.enabledPlugins, 'telegram@claude-plugins-official': true };
-  fs.writeFileSync(f, JSON.stringify(s, null, 2) + '\n');
-"
+# Install the CLI globally
+deno install -A -g -n cbg ./mod.ts
 ```
 
-### 3. Approve yourself
+### 3. Run onboarding
 
-Start the telegram server by opening a connected claude session:
+```sh
+cbg onboard
+```
+
+This will:
+1. Install `dtach` (tries nix, apt, brew in order)
+2. Prompt for your bot token and save it to `~/.config/cbg/config.yaml`
+3. Symlink the plugin into Claude Code's plugin directory
+4. Enable channels + the plugin in `~/.claude/settings.json`
+
+### 4. Approve yourself
+
+Start the daemon and open a connected Claude session:
+
+```sh
+cbg start
+claude --channels plugin:telegram@claude-plugins-official
+```
+
+DM your bot on Telegram. It will reply with a pairing command like `/telegram:access pair 398a98`. Paste that into the Claude Code session.
+
+### 5. Start using it
+
+Every Claude session started with `--channels` is accessible via Telegram:
 
 ```sh
 claude --channels plugin:telegram@claude-plugins-official
 ```
 
-DM your bot on Telegram.<br>
-E.g.
-- go to the botfather chat, look for "You will find it at < url >" click the url
-- send a dm (any dm)
-- it should respond with something like `/telegram:access pair 398a98`
-
-Paste that into the claude-code session you just started.
-
-### 4. Start claude-ing
-
-You will need to start every claude code session with the following if you want to control it via telegram:
+Or use `cbg new` to create dtach-backed sessions you can detach/reattach:
 
 ```sh
-claude --channels plugin:telegram@claude-plugins-official
+cbg new "my task"    # creates a detachable session
+cbg resume           # interactive session picker
 ```
 
-However, there's a enable_telegram_by_default skill you can tell claude to invoke if you want all claude sessions to be accessible through telegram. It makes a wapper around the claude command (just FYI).
+There's also an `enable_telegram_by_default` MCP tool you can ask Claude to invoke — it wraps the `claude` binary so the flag is always passed.
 
-> **Why the official name?** Claude Code has a hardcoded channels allowlist that only permits `telegram@claude-plugins-official`. The install script symlinks the fork's code into the official plugin location so it passes the allowlist while running the improved code.
+> **Why the official plugin name?** Claude Code has a hardcoded channels allowlist that only permits `telegram@claude-plugins-official`. The install symlinks this fork's code into the official plugin location so it passes the allowlist while running the improved code.
+
+## CLI Reference
+
+| Command | Description |
+| --- | --- |
+| `cbg onboard` | Full setup: dtach, bot token, Claude plugin registration |
+| `cbg start` | Start the daemon (creates a systemd/launchd service) |
+| `cbg stop` | Stop the daemon |
+| `cbg restart` | Stop + start |
+| `cbg new [title]` | Create a new Claude session in dtach with telegram |
+| `cbg resume [id]` | Attach to a dtach session (interactive selector if no id) |
+| `cbg status` | Show daemon status + list sessions |
+| `cbg config` | Print all config as YAML |
+| `cbg config <key>` | Print a single config value |
+| `cbg config <key> <value>` | Set a config value (value is YAML-parsed) |
 
 ## Telegram Commands
 
@@ -96,69 +96,88 @@ These commands are sent as messages to your bot in Telegram.
 
 | Command | Description |
 | --- | --- |
-| `/list` | Show all connected Claude Code sessions with working directory, git branch, start time, and last active time. The active session is marked with ▶. Tap `/switch_<id>` to change which session receives your messages. |
-| `/cancel` | Send Ctrl+C (SIGINT) to the active session — gracefully interrupts whatever Claude is doing. |
-| `/title <name>` | Set a custom display name for the active session (shown in `/list`). With no argument, auto-generates a name from the directory and git branch. |
-| `/spawn` | Launch a new Claude Code session in a new terminal pane (uses zellij or tmux). It appears in `/list` once it connects. |
-| `/ping` | Health check — replies "pong" if the bot is alive. |
-| `/pause` | Suspend the active session (SIGTSTP, like Ctrl+Z). Claude stops working but stays in memory. |
+| `/list` | Show all connected sessions with cwd, git branch, and timing info. Tap `/switch_<id>` to change focus. |
+| `/cancel` | Send Escape to the focused session via dtach — interrupts whatever Claude is doing. Falls back to SIGINT for non-dtach sessions. |
+| `/spawn [title]` | Launch a new Claude Code session in dtach. Auto-switches focus after 3s. |
+| `/title <name>` | Set a display name for the focused session. No argument auto-generates from directory + branch. |
+| `/ping` | Health check — replies "pong". |
+| `/pause` | Suspend the focused session (SIGTSTP). |
 | `/resume` | Resume a paused session (SIGCONT). |
-| `/fkill` | Force kill the active session (SIGKILL). No graceful shutdown — use when `/cancel` isn't enough. |
-| `/fkill_all` | Force kill **all** connected Claude Code sessions. You'll need to restart them manually. |
-| `/cron` | List scheduled tasks (desktop scheduled tasks and in-session cron jobs). |
-| `/status` | Show your pairing status and all running Claude Code processes. |
-| `/new_command` | Describe a new telegram command and Claude will create it and hot-reload the bot to have it immediately |
-| `/start` | Show pairing instructions for new users. |
+| `/kill` | Force kill the focused session (SIGKILL). |
+| `/status` | Show pairing status and running Claude processes. |
+| `/cron` | List scheduled tasks. |
 | `/help` | Show the full command list. |
+| `/start` | Show pairing instructions for new users. |
 
 ## Custom Commands
 
-Note custom commands can be pure code (ex: make a cowsay command, no tokens burned by calling it) or interact with claude. Custom commands live in `~/.claude/telegram/custom_commands/` and survive plugin updates. You can create them two ways:
+Custom commands live in `~/.claude/telegram/custom_commands/` and survive plugin updates.
 
-1. **From Telegram:** Send `/new_command <description>` — Claude will write and hot-reload the command for you.
-2. **Manually:** Create a `.js` file in the custom commands directory. Each file exports `{ commands: { name: async (ctx, bot, state) => bool } }`. Use `state.letClaudeHandle(ctx, text?)` to forward messages to Claude while still returning `true`.
+**From Telegram:** Describe a new command to Claude and it will create it via the `new_command` MCP tool and hot-reload immediately.
 
-If a command throws an error, the bot shows the error message with a "🔧 Ask Claude to fix" button that sends the error details to Claude for debugging.
+**Manually:** Create a `.js` file exporting `{ commands: { name: async (ctx, bot, state) => bool } }`. Use `state.letClaudeHandle(ctx, text?)` to forward messages to Claude while still returning `true`.
+
+If a command throws an error, the bot shows a "Ask Claude to fix" button that sends the error details to the focused session.
 
 ## Multi-Session Support
 
-You can run multiple Claude Code sessions simultaneously, each started with `--channels`. The bot acts as a hub:
+Multiple Claude Code sessions can connect simultaneously. The bot acts as a hub:
 
-- **One primary** session handles Telegram polling and bot commands
-- **Secondaries** register via IPC and can receive forwarded messages
-- `/list` shows all sessions — tap `/switch_<id>` to change which one gets your messages
-- `/title` lets you label sessions so you can tell them apart (e.g. "backend (feature-x)")
-- If the primary dies, a secondary auto-promotes to keep the bot online
+- Each session registers via IPC when it starts
+- `/list` shows all sessions — tap `/switch_<id>` to change which one receives your messages
+- Telegram-reply routing: reply to a bot message to target the session that sent it (via `/switch_<id>` headers)
+- `/spawn` creates new sessions from Telegram
+- If the focused session disconnects, focus auto-moves to the next available session
+- Messages sent when no sessions are connected get queued and delivered when one connects
 
+## Config
 
-## Photos
+Config is stored at `~/.config/cbg/config.yaml`. Currently supported keys:
 
-Inbound photos are downloaded to `~/.claude/channels/telegram/inbox/` and the
-local path is included in the `<channel>` notification so the assistant can
-`Read` it. Telegram compresses photos — if you need the original file, send it
-as a document instead (long-press → Send as File).
+```yaml
+telegram_bot_token: "123456789:AAH..."
+```
 
-## Limitations
+The bot token is also read from the legacy location (`~/.claude/channels/telegram/.env`) as a fallback.
 
-There's no API for the active model or the context usage percent, which is unfortunate.
+## Architecture
 
-## Access control
+See [CLAUDE.md](./CLAUDE.md) for the full architecture overview. The short version:
 
-See **[ACCESS.md](./ACCESS.md)** for DM policies, groups, mention detection, delivery config, skill commands, and the `access.json` schema.
+- **`shim.ts`** — MCP server loaded by Claude Code, one per session. Proxies tool calls to the standalone server over a Unix socket.
+- **`standalone-server.ts`** — Long-lived daemon owning the Telegram bot. Routes messages between Telegram and focused sessions.
+- **`mod.ts`** — CLI entry point for `cbg`.
 
-Quick reference: IDs are **numeric user IDs** (get yours from [@userinfobot](https://t.me/userinfobot)). Default policy is `pairing`. `ackReaction` only accepts Telegram's fixed emoji whitelist.
+Communication uses newline-delimited JSON over `~/.claude/channels/telegram/ipc.sock`.
 
-## Tools exposed to Claude
+## Tools Exposed to Claude
 
 | Tool | Purpose |
 | --- | --- |
-| `reply` | Send to a chat. Takes `chat_id` + `text`, optionally `reply_to` (message ID) for native threading and `files` (absolute paths) for attachments. Images (`.jpg`/`.png`/`.gif`/`.webp`) send as photos with inline preview; other types send as documents. Max 50MB each. Auto-chunks text; files send as separate messages after the text. Returns the sent message ID(s). |
-| `react` | Add an emoji reaction to a message by ID. **Only Telegram's fixed whitelist** is accepted (👍 👎 ❤ 🔥 👀 etc). |
-| `edit_message` | Edit a message the bot previously sent. Useful for "working…" → result progress updates. Only works on the bot's own messages. |
-| `download_attachment` | Download a file attachment from a Telegram message to the local inbox. Use when the inbound message has an `attachment_file_id`. Telegram caps bot downloads at 20MB. |
-| `set_title` | Set a display title for this session in the Telegram `/list` view (e.g. "denix refactor"). |
-| `reload` | Hot-reload command handlers from the `commands/` directory. Use after editing command files so changes take effect without restarting the server. |
-| `new_command` | Create or update a custom Telegram bot command and hot-reload it immediately. Takes a `filename` and `code` — writes to `~/.claude/telegram/custom_commands/` (survives plugin updates) and reloads in one step. Custom commands override builtins with the same name. Ask Claude to "add a /weather command" and it just works. |
+| `reply` | Send to a chat. Supports `reply_to` for threading, `files` for attachments (photos render inline, others as documents). Auto-chunks at 4096 chars. Max 50MB per file. |
+| `react` | Add an emoji reaction. Only Telegram's fixed whitelist is accepted. |
+| `edit_message` | Edit a previously sent message. Edits don't trigger push notifications. |
+| `download_attachment` | Download a file from Telegram to the local inbox (20MB bot API limit). |
+| `set_title` | Set a display title for this session. |
+| `reload` | Hot-reload command handlers. |
+| `new_command` | Create/update a custom command and hot-reload. |
+| `enable_telegram_by_default` | Create/remove a shell wrapper so `claude` always has the `--channels` flag. |
 
-Inbound messages trigger a typing indicator automatically — Telegram shows
-"botname is typing…" while the assistant works on a response.
+## Photos & Attachments
+
+Inbound photos are downloaded to `~/.claude/channels/telegram/inbox/` and the local path is included in the channel notification so Claude can `Read` it. Telegram compresses photos — send as a document (long-press, Send as File) for originals.
+
+Documents, voice messages, audio, video, video notes, and stickers are all supported — their `file_id` is passed in the channel metadata for download via `download_attachment`.
+
+## Access Control
+
+See [ACCESS.md](./ACCESS.md) for DM policies, groups, mention detection, delivery config, and the `access.json` schema.
+
+Quick reference: IDs are numeric user IDs (get yours from [@userinfobot](https://t.me/userinfobot)). Default policy is `pairing`.
+
+## Limitations
+
+- No API for the active model or context usage percentage
+- Telegram Bot API has no message history or search — only live messages
+- Telegram's emoji reaction whitelist is fixed and small
+- Bot file downloads capped at 20MB by Telegram

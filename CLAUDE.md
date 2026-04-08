@@ -1,28 +1,45 @@
 # Architecture
 
-This is a Telegram channel plugin for Claude Code, implemented as a Deno project. It uses a **shim + standalone server** architecture and ships a CLI tool called `cbg`.
+This is a Telegram channel plugin for Claude Code, implemented as a Deno project using plain JavaScript. It uses a **shim + standalone server** architecture and ships a CLI tool called `cbg`.
 
 ## Runtime
 
-**Deno** — no npm/node required. All dependencies are in `deno.json` imports map.
+**Deno** — no npm/node required. All external dependencies are pinned esm.sh URL imports consolidated in `imports.js`.
+
+## Formatting
+
+- 4-space indentation
+- No semicolons
+- All `if`/`for` bodies use braces
+- Prefer `for...of` and `for...in` over C-style `for`
 
 ## Entry Points
 
-- **`mod.ts`** — CLI entry point (`cbg`). Subcommands: onboard, start, stop, restart, new, resume, status, config.
-- **`shim.ts`** — Thin MCP proxy that Claude Code loads. One instance per Claude session. Declares tools, proxies all tool calls to the standalone server over a Unix socket (`~/.claude/channels/telegram/ipc.sock`). Auto-starts the standalone server if it isn't running.
-- **`standalone-server.ts`** — Long-lived daemon that owns the Telegram bot. Runs independently of any Claude session. Accepts shim connections via IPC, routes inbound Telegram messages to the focused shim, and executes tool calls on behalf of shims.
+- **`mod.js`** — CLI entry point (`cbg`). Subcommands: onboard, start, stop, restart, new, resume, status, config.
+- **`shim.js`** — Thin MCP proxy that Claude Code loads. One instance per Claude session. Declares tools, proxies all tool calls to the standalone server over a Unix socket (`~/.claude/channels/telegram/ipc.sock`). Auto-starts the standalone server if it isn't running.
+- **`standalone-server.js`** — Long-lived daemon that owns the Telegram bot. Runs independently of any Claude session. Accepts shim connections via IPC, routes inbound Telegram messages to the focused shim, and executes tool calls on behalf of shims.
+
+## Dependencies
+
+All imports go through `imports.js` which re-exports from pinned esm.sh URLs. No import maps, no deno.json. To bump a version, edit the URL in imports.js.
 
 ## Libraries (`lib/`)
 
-- **`protocol.ts`** — Shared IPC message types, Deno.UnixConn helpers, and debug logging.
-- **`config.ts`** — YAML config system at `~/.config/cbg/config.yaml`. Replaces the old `.env` file.
-- **`telegram-api.ts`** — Telegram Bot API operations (reply, react, edit, download).
-- **`commands.ts`** — Hot-reloadable command loader. Loads `.js` files from `commands/` and `~/.claude/telegram/custom_commands/`.
-- **`access.ts`** — Access control: pairing, allowlists, group policies.
-- **`hooks.ts`** — Formats PreToolUse/PostToolUse hook events into Telegram status messages.
-- **`daemon.ts`** — systemd (Linux) / launchd (macOS) service management.
-- **`dtach.ts`** — dtach install check, session create/attach/list.
-- **`onboard.ts`** — Full onboarding flow: dtach, bot token, Claude plugin registration.
+- **`protocol.js`** — Shared IPC message types, Deno.UnixConn helpers, and debug logging.
+- **`config.js`** — YAML config system at `~/.config/cbg/config.yaml`. Replaces the old `.env` file.
+- **`telegram-api.js`** — Telegram Bot API operations (reply, react, edit, download).
+- **`commands.js`** — Hot-reloadable command loader. Loads `.js` files from `commands/` and `~/.claude/telegram/custom_commands/`.
+- **`access.js`** — Access control: pairing, allowlists, group policies.
+- **`hooks.js`** — Formats PreToolUse/PostToolUse hook events into Telegram status messages.
+- **`daemon.js`** — systemd (Linux) / launchd (macOS) service management.
+- **`dtach.js`** — dtach install check, session create/attach/list.
+- **`onboard.js`** — Full onboarding flow: dtach, bot token, Claude plugin registration.
+
+## Run Scripts (`run/`)
+
+Replaces deno.json tasks. Executable shell scripts:
+- `run/start` — Start the MCP shim
+- `run/server` — Start the standalone server directly
 
 ## Commands (`commands/`)
 
