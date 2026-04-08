@@ -1,4 +1,6 @@
 import { execSync } from 'child_process'
+import { writeFileSync } from 'fs'
+import { join } from 'path'
 
 export const commands = {
   spawn: async (ctx, bot, state) => {
@@ -43,9 +45,9 @@ export const commands = {
     delete cleanEnv.ZELLIJ
     delete cleanEnv.ZELLIJ_SESSION_NAME
 
-    // Set session ID and title so the MCP server inherits them
-    cleanEnv.TELEGRAM_SESSION_ID = sessionId
-    if (title) cleanEnv.TELEGRAM_SESSION_TITLE = title
+    // Write pre-assigned session info for the new server to pick up on startup
+    const stateDir = join(state.homedir(), '.claude', 'channels', 'telegram')
+    writeFileSync(join(stateDir, 'next_session.json'), JSON.stringify({ id: sessionId, title: title || undefined }))
 
     try {
       if (launcher === 'zellij') {

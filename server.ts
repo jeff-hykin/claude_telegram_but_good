@@ -74,7 +74,19 @@ const messageSessionMap = new Map<number, string>() // message_id → session_id
 const MESSAGE_MAP_MAX = 5000 // cap to avoid unbounded growth
 
 // === MULTI-SESSION IPC ===
-const SESSION_ID = process.env.TELEGRAM_SESSION_ID ?? randomBytes(3).toString('hex') // 6 hex chars
+const SESSION_ID = (() => {
+  // Check for a pre-assigned session ID from /spawn
+  try {
+    const f = join(STATE_DIR, 'next_session.json')
+    const data = JSON.parse(readFileSync(f, 'utf8'))
+    unlinkSync(f)
+    if (data.id) {
+      if (data.title) process.env.TELEGRAM_SESSION_TITLE = data.title
+      return data.id as string
+    }
+  } catch {}
+  return randomBytes(3).toString('hex')
+})() // 6 hex chars
 const SESSION_CWD = process.env.SESSION_CWD ?? process.cwd()
 const SESSION_PID = process.pid
 const SESSION_START = Date.now()
