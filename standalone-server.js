@@ -705,16 +705,31 @@ bot.on("message:text", async (ctx) => {
         return
     }
 
-    // __onMessage hook
-    const onMsg = getHotCommands().get("__onMessage")
-    if (onMsg) {
-        try { await onMsg(ctx, bot, getCommandState()) } catch { /* ignore */ }
+    // __onMessage hook (only for approved users)
+    const onMsgAccess = loadAccess(BOOT_ACCESS)
+    const onMsgSenderId = String(ctx.from?.id)
+    if (onMsgAccess.allowFrom.includes(onMsgSenderId)) {
+        const onMsg = getHotCommands().get("__onMessage")
+        if (onMsg) {
+            try { await onMsg(ctx, bot, getCommandState()) } catch { /* ignore */ }
+        }
     }
 
     // Hot-reloadable commands
     const cmdMatch = /^\/(\w+)/.exec(text)
     if (cmdMatch) {
         const cmdName = cmdMatch[1].toLowerCase()
+
+        // Block all commands except approve_user for unapproved users
+        if (cmdName !== "approve_user") {
+            const access = loadAccess(BOOT_ACCESS)
+            const senderId = String(ctx.from?.id)
+            if (!access.allowFrom.includes(senderId)) {
+                await ctx.reply("You need to be approved first. Ask the bot owner for an /approve_user command.")
+                return
+            }
+        }
+
         const handler = getHotCommands().get(cmdName)
         if (handler) {
             try {
