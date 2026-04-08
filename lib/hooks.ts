@@ -5,9 +5,9 @@
  * status messages. PreToolUse creates a new message; PostToolUse edits it.
  */
 
-import type { IpcMessage } from './protocol.ts'
+import type { IpcMessage } from "./protocol.ts"
 
-export type HookEvent = Extract<IpcMessage, { type: 'hook_event' }>
+export type HookEvent = Extract<IpcMessage, { type: "hook_event" }>
 
 // Track active tool call messages so PostToolUse can edit them
 const activeToolMessages = new Map<string, { chatId: string; messageId: number }>()
@@ -23,7 +23,7 @@ export function formatPreToolUse(event: HookEvent, sessionTitle?: string): strin
   const label = sessionTitle ?? event.sessionId
   const preview = event.input_preview
     ? `\n${truncate(event.input_preview, 200)}`
-    : ''
+    : ""
   return `⚙️ [${label}] Running: ${event.tool_name}${preview}`
 }
 
@@ -32,10 +32,10 @@ export function formatPreToolUse(event: HookEvent, sessionTitle?: string): strin
  */
 export function formatPostToolUse(event: HookEvent, sessionTitle?: string): string {
   const label = sessionTitle ?? event.sessionId
-  const status = event.is_error ? '❌' : '✅'
+  const status = event.is_error ? "❌" : "✅"
   const preview = event.output_preview
     ? `\n${truncate(event.output_preview, 200)}`
-    : ''
+    : ""
   return `${status} [${label}] Done: ${event.tool_name}${preview}`
 }
 
@@ -53,5 +53,5 @@ export function clearActiveToolMessage(sessionId: string, toolName: string): voi
 
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s
-  return s.slice(0, max - 3) + '...'
+  return s.slice(0, max - 3) + "..."
 }

@@ -3,10 +3,14 @@
  * Extracted from server.ts for shared use by standalone server and shim.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, renameSync, readdirSync, rmSync } from 'fs'
-import { randomBytes } from 'crypto'
-import type { Context } from 'grammy'
-import { STATE_DIR, ACCESS_FILE, APPROVED_DIR, dbgSync as dbg } from './protocol.ts'
+import type { Context } from "grammy"
+import { STATE_DIR, ACCESS_FILE, APPROVED_DIR, dbgSync as dbg } from "./protocol.ts"
+
+function randomHex(bytes: number): string {
+  const arr = new Uint8Array(bytes)
+  crypto.getRandomValues(arr)
+  return Array.from(arr, b => b.toString(16).padStart(2, "0")).join("")
+}
 
 export type PendingEntry = {
   senderId: string
@@ -22,20 +26,20 @@ export type GroupPolicy = {
 }
 
 export type Access = {
-  dmPolicy: 'pairing' | 'allowlist' | 'disabled'
+  dmPolicy: "pairing" | "allowlist" | "disabled"
   allowFrom: string[]
   groups: Record<string, GroupPolicy>
   pending: Record<string, PendingEntry>
   mentionPatterns?: string[]
   ackReaction?: string
-  replyToMode?: 'off' | 'first' | 'all'
+  replyToMode?: "off" | "first" | "all"
   textChunkLimit?: number
-  chunkMode?: 'length' | 'newline'
+  chunkMode?: "length" | "newline"
 }
 
 export function defaultAccess(): Access {
   return {
-    dmPolicy: 'pairing',
+    dmPolicy: "pairing",
     allowFrom: [],
     groups: {},
     pending: {},
@@ -44,10 +48,10 @@ export function defaultAccess(): Access {
 
 export function readAccessFile(): Access {
   try {
-    const raw = readFileSync(ACCESS_FILE, 'utf8')
+    const raw = Deno.readTextFileSync(ACCESS_FILE)
     const parsed = JSON.parse(raw) as Partial<Access>
     return {
-      dmPolicy: parsed.dmPolicy ?? 'pairing',
+      dmPolicy: parsed.dmPolicy ?? "pairing",
       allowFrom: parsed.allowFrom ?? [],
       groups: parsed.groups ?? {},
       pending: parsed.pending ?? {},
@@ -58,20 +62,20 @@ export function readAccessFile(): Access {
       chunkMode: parsed.chunkMode,
     }
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return defaultAccess()
+    if (err instanceof Deno.errors.NotFound) return defaultAccess()
     try {
-      renameSync(ACCESS_FILE, `${ACCESS_FILE}.corrupt-${Date.now()}`)
-    } catch {}
-    process.stderr.write(`telegram channel: access.json is corrupt, moved aside. Starting fresh.\n`)
+      Deno.renameSync(ACCESS_FILE, `${ACCESS_FILE}.corrupt-${Date.now()}`)
+    } catch { /* ignore */ }
+    Deno.stderr.writeSync(new TextEncoder().encode(`telegram channel: access.json is corrupt, moved aside. Starting fresh.\n`))
     return defaultAccess()
   }
 }
 
 export function saveAccess(a: Access): void {
-  mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 })
-  const tmp = ACCESS_FILE + '.tmp'
-  writeFileSync(tmp, JSON.stringify(a, null, 2) + '\n', { mode: 0o600 })
-  renameSync(tmp, ACCESS_FILE)
+  Deno.mkdirSync(STATE_DIR, { recursive: true })
+  const tmp = ACCESS_FILE + ".tmp"
+  Deno.writeTextFileSync(tmp, JSON.stringify(a, null, 2) + "\n")
+  Deno.renameSync(tmp, ACCESS_FILE)
 }
 
 export function pruneExpired(a: Access): boolean {
@@ -98,39 +102,39 @@ export function assertAllowedChat(chat_id: string, staticAccess: Access | null =
 }
 
 export type GateResult =
-  | { action: 'deliver'; access: Access }
-  | { action: 'drop' }
-  | { action: 'pair'; code: string; isResend: boolean }
+  | { action: "deliver"; access: Access }
+  | { action: "drop" }
+  | { action: "pair"; code: string; isResend: boolean }
 
 export function gate(ctx: Context, botUsername: string, staticAccess: Access | null = null): GateResult {
   const access = loadAccess(staticAccess)
-  dbg('GATE', 'access:', JSON.stringify(access))
+  dbg("GATE", "access:", JSON.stringify(access))
   const pruned = pruneExpired(access)
   if (pruned && !staticAccess) saveAccess(access)
 
-  if (access.dmPolicy === 'disabled') { dbg('GATE', 'DROPPED: dmPolicy=disabled'); return { action: 'drop' } }
+  if (access.dmPolicy === "disabled") { dbg("GATE", "DROPPED: dmPolicy=disabled"); return { action: "drop" } }
 
   const from = ctx.from
-  if (!from) { dbg('GATE', 'DROPPED: no from'); return { action: 'drop' } }
+  if (!from) { dbg("GATE", "DROPPED: no from"); return { action: "drop" } }
   const senderId = String(from.id)
   const chatType = ctx.chat?.type
-  dbg('GATE', 'senderId:', senderId, 'chatType:', chatType, 'allowFrom:', access.allowFrom)
+  dbg("GATE", "senderId:", senderId, "chatType:", chatType, "allowFrom:", access.allowFrom)
 
-  if (chatType === 'private') {
-    if (access.allowFrom.includes(senderId)) { dbg('GATE', 'DELIVER: sender in allowFrom'); return { action: 'deliver', access } }
-    if (access.dmPolicy === 'allowlist') { dbg('GATE', 'DROPPED: policy=allowlist, sender not in list'); return { action: 'drop' } }
+  if (chatType === "private") {
+    if (access.allowFrom.includes(senderId)) { dbg("GATE", "DELIVER: sender in allowFrom"); return { action: "deliver", access } }
+    if (access.dmPolicy === "allowlist") { dbg("GATE", "DROPPED: policy=allowlist, sender not in list"); return { action: "drop" } }
 
     for (const [code, p] of Object.entries(access.pending)) {
       if (p.senderId === senderId) {
-        if ((p.replies ?? 1) >= 2) return { action: 'drop' }
+        if ((p.replies ?? 1) >= 2) return { action: "drop" }
         p.replies = (p.replies ?? 1) + 1
         saveAccess(access)
-        return { action: 'pair', code, isResend: true }
+        return { action: "pair", code, isResend: true }
       }
     }
-    if (Object.keys(access.pending).length >= 3) return { action: 'drop' }
+    if (Object.keys(access.pending).length >= 3) return { action: "drop" }
 
-    const code = randomBytes(3).toString('hex')
+    const code = randomHex(3)
     const now = Date.now()
     access.pending[code] = {
       senderId,
@@ -140,44 +144,44 @@ export function gate(ctx: Context, botUsername: string, staticAccess: Access | n
       replies: 1,
     }
     saveAccess(access)
-    return { action: 'pair', code, isResend: false }
+    return { action: "pair", code, isResend: false }
   }
 
-  if (chatType === 'group' || chatType === 'supergroup') {
+  if (chatType === "group" || chatType === "supergroup") {
     const groupId = String(ctx.chat!.id)
     const policy = access.groups[groupId]
-    if (!policy) return { action: 'drop' }
+    if (!policy) return { action: "drop" }
     const groupAllowFrom = policy.allowFrom ?? []
     const requireMention = policy.requireMention ?? true
     if (groupAllowFrom.length > 0 && !groupAllowFrom.includes(senderId)) {
-      return { action: 'drop' }
+      return { action: "drop" }
     }
     if (requireMention && !isMentioned(ctx, botUsername, access.mentionPatterns)) {
-      return { action: 'drop' }
+      return { action: "drop" }
     }
-    return { action: 'deliver', access }
+    return { action: "deliver", access }
   }
 
-  return { action: 'drop' }
+  return { action: "drop" }
 }
 
 export function isMentioned(ctx: Context, botUsername: string, extraPatterns?: string[]): boolean {
   const entities = ctx.message?.entities ?? ctx.message?.caption_entities ?? []
-  const text = ctx.message?.text ?? ctx.message?.caption ?? ''
+  const text = ctx.message?.text ?? ctx.message?.caption ?? ""
   for (const e of entities) {
-    if (e.type === 'mention') {
+    if (e.type === "mention") {
       const mentioned = text.slice(e.offset, e.offset + e.length)
       if (mentioned.toLowerCase() === `@${botUsername}`.toLowerCase()) return true
     }
-    if (e.type === 'text_mention' && e.user?.is_bot && e.user.username === botUsername) {
+    if (e.type === "text_mention" && e.user?.is_bot && e.user.username === botUsername) {
       return true
     }
   }
   if (ctx.message?.reply_to_message?.from?.username === botUsername) return true
   for (const pat of extraPatterns ?? []) {
     try {
-      if (new RegExp(pat, 'i').test(text)) return true
-    } catch {}
+      if (new RegExp(pat, "i").test(text)) return true
+    } catch { /* skip invalid regex */ }
   }
   return false
 }
@@ -185,17 +189,17 @@ export function isMentioned(ctx: Context, botUsername: string, extraPatterns?: s
 export function checkApprovals(bot: { api: { sendMessage: (chatId: string, text: string) => Promise<unknown> } }): void {
   let files: string[]
   try {
-    files = readdirSync(APPROVED_DIR)
+    files = Array.from(Deno.readDirSync(APPROVED_DIR)).map(e => e.name)
   } catch { return }
   if (files.length === 0) return
 
   for (const senderId of files) {
     const file = `${APPROVED_DIR}/${senderId}`
     void bot.api.sendMessage(senderId, "Paired! Say hi to Claude.").then(
-      () => rmSync(file, { force: true }),
-      err => {
-        process.stderr.write(`telegram channel: failed to send approval confirm: ${err}\n`)
-        rmSync(file, { force: true })
+      () => { try { Deno.removeSync(file) } catch { /* ignore */ } },
+      (err: unknown) => {
+        Deno.stderr.writeSync(new TextEncoder().encode(`telegram channel: failed to send approval confirm: ${err}\n`))
+        try { Deno.removeSync(file) } catch { /* ignore */ }
       },
     )
   }

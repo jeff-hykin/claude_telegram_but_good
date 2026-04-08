@@ -2,7 +2,7 @@
   "mcpServers": {
     "telegram": {
       "command": "sh",
-      "args": ["-c", "SESSION_CWD=\"$PWD\" npm run --prefix \"${CLAUDE_PLUGIN_ROOT}\" --silent start"]
+      "args": ["-c", "SESSION_CWD=\"$PWD\" deno run -A \"${CLAUDE_PLUGIN_ROOT}/shim.ts\""]
     }
   }
 }

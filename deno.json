@@ -1,0 +1,22 @@
+{
+  "name": "cbg",
+  "version": "0.0.26",
+  "exports": "./mod.ts",
+  "imports": {
+    "grammy": "npm:grammy@^1.21.0",
+    "grammy/types": "npm:grammy@^1.21.0/types",
+    "@modelcontextprotocol/sdk/server/index.js": "npm:@modelcontextprotocol/sdk@^1.0.0/server/index.js",
+    "@modelcontextprotocol/sdk/server/stdio.js": "npm:@modelcontextprotocol/sdk@^1.0.0/server/stdio.js",
+    "@modelcontextprotocol/sdk/types.js": "npm:@modelcontextprotocol/sdk@^1.0.0/types.js",
+    "zod": "npm:zod",
+    "@std/path": "jsr:@std/path@^1",
+    "@std/fs": "jsr:@std/fs@^1",
+    "@std/yaml": "jsr:@std/yaml@^1",
+    "@cliffy/prompt": "jsr:@cliffy/prompt@^1",
+    "timeago.js": "npm:timeago.js"
+  },
+  "tasks": {
+    "start": "deno run -A shim.ts",
+    "server": "deno run -A standalone-server.ts"
+  }
+}
