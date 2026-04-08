@@ -532,7 +532,7 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
     // If this is a telegram-reply to a bot message, extract the session ID
     let delivered = false
     if (replyTo && replyTo.from?.id === bot.botInfo.id && replyTo.text) {
-        const switchMatch = /^\/switch_([a-f0-9]+)/i.exec(replyTo.text)
+        const switchMatch = /^\/switch_([a-z0-9_-]+)/i.exec(replyTo.text)
         if (switchMatch) {
             const targetSession = switchMatch[1]
             dbg("ROUTE", "telegram-reply targets session:", targetSession, "instead of focused:", focusedSessionId)

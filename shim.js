@@ -19,6 +19,7 @@ import {
     sendIpc, parseIpcMessages, dbg,
 } from "./lib/protocol.js"
 import { getBotToken } from "./lib/config.js"
+import { generateName } from "./lib/names.js"
 
 function randomHex(bytes) {
     const arr = new Uint8Array(bytes)
@@ -68,7 +69,7 @@ const SESSION_ID = (() => {
     } catch (err) {
         dbg("SHIM", "next_session.json not found or error:", String(err))
     }
-    return randomHex(3)
+    return generateName()
 })()
 
 const SESSION_CWD = Deno.env.get("SESSION_CWD") ?? Deno.cwd()
