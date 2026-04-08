@@ -299,7 +299,7 @@ function handleShimMessage(conn, msg) {
             const { requestId, sessionId, name, args } = msg
 
             if (name === "reply" && args.text && sessionId) {
-                args.text = `/switch_${sessionId}\n${args.text}`
+                args.text = `/chat_${sessionId}\n${args.text}`
             }
 
             void (async () => {
@@ -339,6 +339,19 @@ function handleShimMessage(conn, msg) {
                 }
 
                 const result = await toolExecutor(name, args)
+
+                // Track last reply text per session (strip the /chat_ header)
+                if (name === "reply" && !result.isError && sessionId) {
+                    const session = sessions.get(sessionId)
+                    if (session) {
+                        const raw = args.text ?? ""
+                        const stripped = raw.replace(/^\/chat_[a-z0-9_-]+\n/, "")
+                        session.info.lastReply = stripped.length > 120
+                            ? stripped.slice(0, 117) + "..."
+                            : stripped
+                    }
+                }
+
                 sendIpc(conn, { type: "tool_response", requestId, result })
             })()
             break
@@ -532,7 +545,7 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
     // If this is a telegram-reply to a bot message, extract the session ID
     let delivered = false
     if (replyTo && replyTo.from?.id === bot.botInfo.id && replyTo.text) {
-        const switchMatch = /^\/switch_([a-z0-9_-]+)/i.exec(replyTo.text)
+        const switchMatch = /^\/(?:switch|chat)_([a-z0-9_-]+)/i.exec(replyTo.text)
         if (switchMatch) {
             const targetSession = switchMatch[1]
             dbg("ROUTE", "telegram-reply targets session:", targetSession, "instead of focused:", focusedSessionId)
