@@ -25,7 +25,7 @@ export const commands = {
     }
 
     // Pre-assign the session ID so we know the switch command ahead of time
-    const sessionId = state.randomHex(3)
+    const sessionId = state.generateName()
     const title = ctx.message?.text?.replace(/^\/spawn\s*/, '').trim() || undefined
 
     const sessionName = `claude-${sessionId}`

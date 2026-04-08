@@ -26,6 +26,7 @@ import {
     setActiveToolMessage, getActiveToolMessage, clearActiveToolMessage,
 } from "./lib/hooks.js"
 import { getBotToken } from "./lib/config.js"
+import { generateName } from "./lib/names.js"
 
 const HOME = Deno.env.get("HOME")
 
@@ -185,6 +186,7 @@ function getCommandState() {
         },
         execSync,
         randomHex,
+        generateName,
         homedir: () => HOME,
         PLUGIN_VERSION,
     }
