@@ -12,12 +12,14 @@ export {
 } from "https://esm.sh/grammy@1.40.1"
 
 // === MCP SDK (Model Context Protocol) ===
-export { Server as McpServer } from "https://esm.sh/@modelcontextprotocol/sdk@1.29.0/server/index.js"
-export { StdioServerTransport } from "https://esm.sh/@modelcontextprotocol/sdk@1.29.0/server/stdio.js"
+// Vendored from npm:@modelcontextprotocol/sdk@1.12.0 via deno bundle.
+// esm.sh's denonext build of zod v4 is broken, so we bundle locally with zod v3.
+export { Server as McpServer } from "./vendor/mcp-server.js"
+export { StdioServerTransport } from "./vendor/mcp-stdio.js"
 export {
     ListToolsRequestSchema,
     CallToolRequestSchema,
-} from "https://esm.sh/@modelcontextprotocol/sdk@1.29.0/types.js"
+} from "./vendor/mcp-types.js"
 
 // === @std/path ===
 export {

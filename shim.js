@@ -29,18 +29,14 @@ function randomHex(bytes) {
 /**
  * Minimal duck-typed schema that satisfies the MCP SDK's
  * setNotificationHandler routing without importing zod.
- * The SDK reads `._def.shape().method._def.value` for the method name
- * and calls `.parse(data)` for validation (we just pass through).
+ * The SDK reads `schema.shape.method.value` for routing
+ * and calls `schema.parse(data)` for validation (we pass through).
  */
 function notificationSchema(method) {
     return {
         parse(data) { return data },
-        _def: {
-            shape() {
-                return {
-                    method: { _def: { value: method } },
-                }
-            },
+        shape: {
+            method: { value: method },
         },
     }
 }
