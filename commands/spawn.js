@@ -29,8 +29,7 @@ export const commands = {
     const title = ctx.message?.text?.replace(/^\/spawn\s*/, '').trim() || undefined
 
     const sessionName = `claude-${sessionId}`
-    const titleEnv = title ? `TELEGRAM_SESSION_TITLE="${title.replace(/"/g, '\\"')}"` : ''
-    const claudeCmd = `TELEGRAM_SESSION_ID=${sessionId} ${titleEnv} claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official`
+    const claudeCmd = 'claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official'
     const home = state.homedir()
 
     // Strip env vars that would confuse the child Claude session
@@ -43,6 +42,10 @@ export const commands = {
     // Also remove ZELLIJ so nested zellij commands don't conflict
     delete cleanEnv.ZELLIJ
     delete cleanEnv.ZELLIJ_SESSION_NAME
+
+    // Set session ID and title so the MCP server inherits them
+    cleanEnv.TELEGRAM_SESSION_ID = sessionId
+    if (title) cleanEnv.TELEGRAM_SESSION_TITLE = title
 
     try {
       if (launcher === 'zellij') {
@@ -70,12 +73,12 @@ export const commands = {
       }
 
       const displayTitle = title ? ` (${title})` : ''
-      await ctx.reply(`Spawned via ${launcher}: /switch_${sessionId}${displayTitle}\nSwitching in ~10s...`)
+      await ctx.reply(`Spawned via ${launcher}: /switch_${sessionId}${displayTitle}\nSwitching in ~3s...`)
 
       // Wait for the session to register, then switch to it
       setTimeout(() => {
         state.setFocusedSession(sessionId)
-      }, 10000)
+      }, 3000)
 
     } catch (err) {
       let detail = ''
