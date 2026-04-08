@@ -1,21 +1,9 @@
 #!/usr/bin/env -S deno run -A
 /**
  * cbg — CLI for Claude Telegram Bot (claude_telegram_but_good)
- *
- * Usage:
- *   cbg onboard          Full setup: install dtach, register Claude plugin, prompt for bot token
- *   cbg start            Start the daemon (systemd/launchd)
- *   cbg stop             Stop the daemon
- *   cbg restart          Restart the daemon
- *   cbg new [--title T] [claude args...]  Create a new dtach session with telegram
- *   cbg resume [id]      Attach to a dtach session (interactive selector if no id)
- *   cbg status           Show daemon status + list sessions
- *   cbg config           Print all config as YAML
- *   cbg config <key>     Print a single config value
- *   cbg config <key> <v> Set a config value (value is YAML-parsed)
  */
 
-import { stringifyYaml, Select } from "./imports.js"
+import { stringifyYaml, Select, colors } from "./imports.js"
 import { readConfig, getConfig, setConfig } from "./lib/config.js"
 import { startService, stopService, restartService, serviceStatus } from "./lib/daemon.js"
 import { createSession, attachSession, listDtachSockets } from "./lib/dtach.js"
@@ -23,6 +11,7 @@ import { onboard, isOnboarded } from "./lib/onboard.js"
 import { PID_FILE, IPC_SOCK } from "./lib/protocol.js"
 import { removeShim } from "./lib/shim.js"
 
+const c = colors
 const [cmd, ...args] = Deno.args
 
 async function ensureOnboarded() {
@@ -36,20 +25,35 @@ async function ensureOnboarded() {
 }
 
 function printUsage() {
-    console.log(`cbg — Claude Telegram Bot CLI
+    console.log()
+    console.log(c.bold.cyan("  cbg") + c.dim(" — Claude Telegram But Good"))
+    console.log()
+    console.log(c.bold.white("  Commands:"))
+    console.log()
 
-Commands:
-  onboard          Full setup: dtach, bot token, Claude plugin registration
-  start            Start the daemon (creates systemd/launchd service)
-  stop             Stop the daemon
-  restart          Stop + start
-  new [opts] [...]  Create a new dtach session (--title T, rest passed to claude)
-  resume [id]      Attach to a dtach session (lists sessions if no id)
-  status           Show daemon status + list sessions
-  config           Print all config as YAML
-  config <key>     Print a single config value
-  config <key> <v> Set a config value (value is YAML-parsed)
-  uninstall        Stop services and remove the claude shim`)
+    const cmds = [
+        ["onboard",          "Full setup: dtach, bot token, plugin, pairing, shim"],
+        ["start",            "Start the daemon (creates systemd/launchd service)"],
+        ["stop",             "Stop the daemon"],
+        ["restart",          "Stop + start"],
+        ["new [opts] [...]", "New dtach session (" + c.dim("--title T") + ", rest passed to claude)"],
+        ["resume [id]",      "Attach to a dtach session (interactive picker if no id)"],
+        ["status",           "Show daemon status + active sessions"],
+        ["config",           "Print all config as YAML"],
+        ["config <key>",     "Print a single config value"],
+        ["config <key> <v>", "Set a config value (value is YAML-parsed)"],
+        ["uninstall",        "Stop services and remove the claude shim"],
+    ]
+
+    for (const [name, desc] of cmds) {
+        console.log(`    ${c.cyan(name.padEnd(20))}${c.dim(desc)}`)
+    }
+
+    console.log()
+    console.log(c.dim("  The claude shim (installed by onboard) wraps every `claude`"))
+    console.log(c.dim("  invocation with Telegram channels + dtach automatically."))
+    console.log(c.dim("  Use ") + c.white("claude --no-tele") + c.dim(" to bypass."))
+    console.log()
 }
 
 switch (cmd) {
@@ -60,45 +64,44 @@ switch (cmd) {
 
     case "start": {
         await ensureOnboarded()
-        console.log("Starting cbg daemon...")
+        console.log(c.dim("  Starting cbg daemon..."))
         const out = startService()
         if (out.trim()) {
-            console.log(out.trim())
+            console.log(c.dim("  " + out.trim()))
         }
-        console.log("Done.")
+        console.log(c.green("  \u2714 Done."))
         break
     }
 
     case "stop": {
-        console.log("Stopping cbg daemon...")
+        console.log(c.dim("  Stopping cbg daemon..."))
         const out = stopService()
         if (out.trim()) {
-            console.log(out.trim())
+            console.log(c.dim("  " + out.trim()))
         }
-        console.log("Done.")
+        console.log(c.green("  \u2714 Done."))
         break
     }
 
     case "restart": {
         await ensureOnboarded()
-        console.log("Restarting cbg daemon...")
+        console.log(c.dim("  Restarting cbg daemon..."))
         const out = restartService()
         if (out.trim()) {
-            console.log(out.trim())
+            console.log(c.dim("  " + out.trim()))
         }
-        console.log("Done.")
+        console.log(c.green("  \u2714 Done."))
         break
     }
 
     case "new": {
         await ensureOnboarded()
-        // Extract --title from args, pass everything else through to claude
         let title
         const claudeArgs = []
         for (let i = 0; i < args.length; i++) {
             if (args[i] === "--title" && i + 1 < args.length) {
                 title = args[i + 1]
-                i++ // skip the value
+                i++
             } else {
                 claudeArgs.push(args[i])
             }
@@ -113,8 +116,8 @@ switch (cmd) {
         } else {
             const sockets = listDtachSockets()
             if (sockets.length === 0) {
-                console.log("No active dtach sessions.")
-                console.log("Create one with: cbg new [title]")
+                console.log(c.yellow("  No active dtach sessions."))
+                console.log(c.dim("  Create one with: ") + c.cyan("cbg new"))
                 break
             }
 
@@ -128,18 +131,20 @@ switch (cmd) {
                 })
                 attachSession(selected)
             } catch {
-                console.log("Active dtach sessions:")
+                console.log(c.bold.white("  Active dtach sessions:"))
                 for (const s of sockets) {
-                    console.log(`  ${s.id}  (${s.socketPath})`)
+                    console.log(`    ${c.cyan(s.id)}  ${c.dim(s.socketPath)}`)
                 }
-                console.log("\nUsage: cbg resume <session-id>")
+                console.log(c.dim("\n  Usage: ") + c.white("cbg resume <session-id>"))
             }
         }
         break
     }
 
     case "status": {
-        console.log("=== CBG Status ===\n")
+        console.log()
+        console.log(c.bold.white("  CBG Status"))
+        console.log(c.dim("  " + "\u2500".repeat(40)))
 
         let daemonRunning = false
         try {
@@ -152,32 +157,39 @@ switch (cmd) {
             }).outputSync()
             daemonRunning = result.success
             if (daemonRunning) {
-                console.log(`Daemon: running (PID ${pid})`)
+                console.log(c.green("  \u2714 Daemon: ") + `running ${c.dim(`(PID ${pid})`)}`)
             } else {
-                console.log("Daemon: not running (stale PID file)")
+                console.log(c.yellow("  \u26A0 Daemon: ") + c.dim("not running (stale PID file)"))
             }
         } catch {
-            console.log("Daemon: not running")
+            console.log(c.dim("  \u2500 Daemon: not running"))
         }
 
         try {
             Deno.statSync(IPC_SOCK)
-            console.log(`IPC socket: ${IPC_SOCK}`)
+            console.log(c.green("  \u2714 IPC socket: ") + c.dim(IPC_SOCK))
         } catch {
-            console.log("IPC socket: not found")
+            console.log(c.dim("  \u2500 IPC socket: not found"))
         }
 
         const sockets = listDtachSockets()
-        console.log(`\nDtach sessions: ${sockets.length}`)
-        for (const s of sockets) {
-            console.log(`  ${s.id}  (${s.socketPath})`)
+        console.log()
+        console.log(c.bold.white(`  Dtach sessions: ${sockets.length}`))
+        if (sockets.length > 0) {
+            for (const s of sockets) {
+                console.log(`    ${c.cyan(s.id)}  ${c.dim(s.socketPath)}`)
+            }
         }
 
-        console.log("\n--- Service Status ---")
+        console.log()
+        console.log(c.bold.white("  Service:"))
         const svcStatus = serviceStatus()
         if (svcStatus.trim()) {
-            console.log(svcStatus.trim())
+            for (const line of svcStatus.trim().split("\n")) {
+                console.log(c.dim("    " + line))
+            }
         }
+        console.log()
         break
     }
 
@@ -185,57 +197,67 @@ switch (cmd) {
         if (args.length === 0) {
             const config = readConfig()
             if (Object.keys(config).length === 0) {
-                console.log("# No config set yet. Use: cbg config <key> <value>")
+                console.log(c.dim("  # No config set yet. Use: ") + c.white("cbg config <key> <value>"))
             } else {
                 console.log(stringifyYaml(config).trimEnd())
             }
         } else if (args.length === 1) {
             const val = getConfig(args[0])
             if (val === undefined) {
-                console.log("(not set)")
+                console.log(c.dim("(not set)"))
             } else {
                 console.log(typeof val === "object" ? JSON.stringify(val) : String(val))
             }
         } else {
             setConfig(args[0], args.slice(1).join(" "))
-            console.log(`Set ${args[0]}`)
+            console.log(c.green("  \u2714 Set ") + c.white(args[0]))
         }
         break
     }
 
     case "uninstall": {
-        console.log("Uninstalling cbg...\n")
+        console.log()
+        console.log(c.bold.white("  Uninstalling cbg..."))
+        console.log(c.dim("  " + "\u2500".repeat(40)))
 
         // Stop the daemon
-        console.log("Stopping daemon...")
+        console.log(c.dim("  Stopping daemon..."))
         try {
             const out = stopService()
             if (out.trim()) {
-                console.log(out.trim())
+                console.log(c.dim("    " + out.trim()))
             }
         } catch {
             // may not be running
         }
 
-        // Also kill server by PID if it's still running
+        // Kill server by PID
         try {
             const pidStr = Deno.readTextFileSync(PID_FILE).trim()
             const pid = parseInt(pidStr)
             if (pid > 0) {
                 new Deno.Command("kill", { args: [String(pid)], stdout: "null", stderr: "null" }).outputSync()
-                console.log(`Killed server (PID ${pid})`)
+                console.log(c.green("  \u2714 ") + `Killed server ${c.dim(`(PID ${pid})`)}`)
             }
         } catch {
             // not running or no pid file
         }
 
         // Remove the claude shim
-        console.log("Removing claude shim...")
+        console.log(c.dim("  Removing claude shim..."))
         const shimResult = removeShim()
-        console.log(`  ${shimResult.message}`)
+        if (shimResult.ok) {
+            console.log(c.green("  \u2714 ") + shimResult.message)
+        } else {
+            console.log(c.yellow("  \u26A0 ") + shimResult.message)
+        }
 
-        console.log("\nDone. cbg services stopped and claude shim removed.")
-        console.log("To fully remove, delete the repo and run: deno uninstall cbg")
+        console.log()
+        console.log(c.green("  \u2714 cbg services stopped and shim removed."))
+        console.log()
+        console.log(c.dim("  To fully remove, delete the repo and run:"))
+        console.log(c.white("    deno uninstall cbg"))
+        console.log()
         break
     }
 
@@ -248,7 +270,7 @@ switch (cmd) {
     }
 
     default: {
-        console.error(`Unknown command: ${cmd}`)
+        console.error(c.red(`  Unknown command: ${cmd}`))
         printUsage()
         Deno.exit(1)
     }
