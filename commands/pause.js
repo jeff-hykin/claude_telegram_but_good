@@ -1,21 +1,12 @@
-import { execSync } from 'child_process'
 import { shared } from './_shared.js'
 
 const pausedSessions = shared.pausedSessions
-
-function getClaudePid(serverPid) {
-  try {
-    const ppid = parseInt(execSync(`ps -o ppid= -p ${serverPid}`, { encoding: 'utf8', timeout: 3000 }).trim())
-    return isNaN(ppid) || ppid <= 1 ? null : ppid
-  } catch { return null }
-}
 
 export const commands = {
   pause: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true
     const access = state.loadAccess()
     if (!access.allowFrom.includes(String(ctx.from?.id))) return true
-    if (!state.isPrimary) { await ctx.reply('Only available on the primary.'); return true }
 
     const focused = state.allSessions().find(s => s.id === state.focusedSessionId)
     if (!focused) { await ctx.reply('No focused session.'); return true }
@@ -25,13 +16,11 @@ export const commands = {
       return true
     }
 
-    const claudePid = getClaudePid(focused.pid)
-    if (!claudePid) { await ctx.reply('Could not find Claude Code process.'); return true }
-
+    // focused.pid is the Claude Code process (shim reports process.ppid)
     try {
-      process.kill(claudePid, 'SIGTSTP')
+      process.kill(focused.pid, 'SIGTSTP')
       pausedSessions.add(focused.id)
-      await ctx.reply(`Paused session ${focused.id} (PID ${claudePid})`)
+      await ctx.reply(`Paused session ${focused.id} (PID ${focused.pid})`)
     } catch (err) {
       await ctx.reply(`Pause failed: ${err instanceof Error ? err.message : err}`)
     }
@@ -42,7 +31,6 @@ export const commands = {
     if (ctx.chat?.type !== 'private') return true
     const access = state.loadAccess()
     if (!access.allowFrom.includes(String(ctx.from?.id))) return true
-    if (!state.isPrimary) { await ctx.reply('Only available on the primary.'); return true }
 
     const focused = state.allSessions().find(s => s.id === state.focusedSessionId)
     if (!focused) { await ctx.reply('No focused session.'); return true }
@@ -52,13 +40,11 @@ export const commands = {
       return true
     }
 
-    const claudePid = getClaudePid(focused.pid)
-    if (!claudePid) { await ctx.reply('Could not find Claude Code process.'); return true }
-
+    // focused.pid is the Claude Code process (shim reports process.ppid)
     try {
-      process.kill(claudePid, 'SIGCONT')
+      process.kill(focused.pid, 'SIGCONT')
       pausedSessions.delete(focused.id)
-      await ctx.reply(`Resumed session ${focused.id} (PID ${claudePid})`)
+      await ctx.reply(`Resumed session ${focused.id} (PID ${focused.pid})`)
     } catch (err) {
       await ctx.reply(`Resume failed: ${err instanceof Error ? err.message : err}`)
     }

@@ -64,7 +64,7 @@ const SESSION_ID = (() => {
   return randomBytes(3).toString('hex')
 })()
 const SESSION_CWD = process.env.SESSION_CWD ?? process.cwd()
-const SESSION_PID = process.pid
+const SESSION_PID = process.ppid // Claude Code's PID, not the shim's
 const SESSION_START = Date.now()
 
 let ownTitle: string | undefined = process.env.TELEGRAM_SESSION_TITLE ?? undefined
