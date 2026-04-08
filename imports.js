@@ -36,8 +36,9 @@ export {
     stringify as stringifyYaml,
 } from "https://esm.sh/jsr/@std/yaml@1.0.12"
 
-// === cliffy (interactive prompts) ===
-export { Select } from "https://esm.sh/jsr/@cliffy/prompt@1.0.0"
+// === cliffy (interactive prompts + terminal styling) ===
+export { Select, Input, Confirm } from "https://esm.sh/jsr/@cliffy/prompt@1.0.0"
+export { colors } from "https://esm.sh/jsr/@cliffy/ansi@1.0.0/colors"
 
 // === timeago ===
 export { format as timeago } from "https://esm.sh/timeago.js@4.0.2"

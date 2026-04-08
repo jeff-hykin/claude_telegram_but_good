@@ -13,11 +13,6 @@ A Telegram channel plugin for [Claude Code](https://docs.anthropic.com/en/docs/c
 
 ## Quick Setup
 
-### Prerequisites
-
-- [Deno](https://deno.com/) (v2+)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
-
 ### 1. Get a bot token
 
 Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, and copy the token.
@@ -25,12 +20,11 @@ Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, and co
 ### 2. Install cbg
 
 ```sh
-# Clone the repo
-git clone https://github.com/jeff-hykin/claude_telegram_but_good.git
-cd claude_telegram_but_good
+# Install deno if you don't have it
+curl -fsSL https://deno.land/install.sh | sh
 
-# Install the CLI globally
-deno install -A -g -n cbg ./mod.js
+# Install cbg
+deno install -A -g -n cbg https://raw.githubusercontent.com/jeff-hykin/claude_telegram_but_good/refs/heads/jeff/refactor/standalone-server/mod.js
 ```
 
 ### 3. Run onboarding
