@@ -83,12 +83,11 @@ export const commands = {
       }
 
       const displayTitle = title ? ` (${title})` : ''
-      await ctx.reply(`Spawned via ${launcher}: /chat_${sessionId}${displayTitle}\nSwitching in ~3s...`)
+      await ctx.reply(`Spawned: /chat_${sessionId}${displayTitle}`)
 
-      // Wait for the session to register, then switch to it
       setTimeout(() => {
         state.setFocusedSession(sessionId)
-      }, 3000)
+      }, 1000)
 
     } catch (err) {
       let detail = ''
