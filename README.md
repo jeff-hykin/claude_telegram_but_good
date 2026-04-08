@@ -1,15 +1,17 @@
 # cbg — Claude Telegram But Good
 
-A Telegram channel plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that actually works well:
+The claude telegram plugin is kinda bad:
+- Install is confusing, no warnings/messages when it crashes
+- Doesn't allow switching between multiple claude codes
+- No cancel (e.g. ctrl+c)
+- No way to starting new claude sessions from telegram
+- Doesn't allow adding custom telegram commands/skills
+- If you telegram-reply to a message (as a reference) the bot has no idea whats being referenced
+- No killing, force killing, pausing, resuming claude sessions
+- No way to add telegram commands (no hot reloading of changes)
+- etc
 
-- Multi-session support with `/list`, `/switch`, and `/spawn`
-- Cancel running tasks via `/cancel` (sends Escape through dtach)
-- Spawn new Claude sessions directly from Telegram
-- Hot-reloadable custom commands
-- Telegram-reply routing — reply to a message to target that session
-- Photo/document/voice/video attachments
-- Permission approval buttons in Telegram
-- Daemon mode with systemd/launchd auto-restart
+I made this fork of the offical telegram support cause my team and I were annoyed by these limitations.
 
 ## Quick Setup
 
