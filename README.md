@@ -13,61 +13,16 @@ A Telegram channel plugin for [Claude Code](https://docs.anthropic.com/en/docs/c
 
 ## Quick Setup
 
-### 1. Get a bot token
-
-Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, and copy the token.
-
-### 2. Install cbg
-
 ```sh
 # Install deno if you don't have it
 curl -fsSL https://deno.land/install.sh | sh
 
-# Install cbg
-deno install -A -g -n cbg https://raw.githubusercontent.com/jeff-hykin/claude_telegram_but_good/refs/heads/jeff/refactor/standalone-server/mod.js
-```
+# Install the `cbg` command
+deno install -A -g -n cbg https://raw.githubusercontent.com/jeff-hykin/claude_telegram_but_good/refs/heads/master/mod.js
 
-### 3. Run onboarding
-
-```sh
+# Run onboarding (will help setup a bot)
 cbg onboard
 ```
-
-This will:
-1. Install `dtach` (tries nix, apt, brew in order)
-2. Prompt for your bot token and save it to `~/.config/cbg/config.yaml`
-3. Symlink the plugin into Claude Code's plugin directory
-4. Enable channels + the plugin in `~/.claude/settings.json`
-
-### 4. Approve yourself
-
-Start the daemon and open a connected Claude session:
-
-```sh
-cbg start
-claude --channels plugin:telegram@claude-plugins-official
-```
-
-DM your bot on Telegram. It will reply with a pairing command like `/telegram:access pair 398a98`. Paste that into the Claude Code session.
-
-### 5. Start using it
-
-Every Claude session started with `--channels` is accessible via Telegram:
-
-```sh
-claude --channels plugin:telegram@claude-plugins-official
-```
-
-Or use `cbg new` to create dtach-backed sessions you can detach/reattach:
-
-```sh
-cbg new "my task"    # creates a detachable session
-cbg resume           # interactive session picker
-```
-
-There's also an `enable_telegram_by_default` MCP tool you can ask Claude to invoke — it wraps the `claude` binary so the flag is always passed.
-
-> **Why the official plugin name?** Claude Code has a hardcoded channels allowlist that only permits `telegram@claude-plugins-official`. The install symlinks this fork's code into the official plugin location so it passes the allowlist while running the improved code.
 
 ## CLI Reference
 
