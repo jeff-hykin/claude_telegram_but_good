@@ -21,6 +21,7 @@ import { startService, stopService, restartService, serviceStatus } from "./lib/
 import { createSession, attachSession, listDtachSockets } from "./lib/dtach.js"
 import { onboard, isOnboarded } from "./lib/onboard.js"
 import { PID_FILE, IPC_SOCK } from "./lib/protocol.js"
+import { removeShim } from "./lib/shim.js"
 
 const [cmd, ...args] = Deno.args
 
@@ -47,7 +48,8 @@ Commands:
   status           Show daemon status + list sessions
   config           Print all config as YAML
   config <key>     Print a single config value
-  config <key> <v> Set a config value (value is YAML-parsed)`)
+  config <key> <v> Set a config value (value is YAML-parsed)
+  uninstall        Stop services and remove the claude shim`)
 }
 
 switch (cmd) {
@@ -198,6 +200,42 @@ switch (cmd) {
             setConfig(args[0], args.slice(1).join(" "))
             console.log(`Set ${args[0]}`)
         }
+        break
+    }
+
+    case "uninstall": {
+        console.log("Uninstalling cbg...\n")
+
+        // Stop the daemon
+        console.log("Stopping daemon...")
+        try {
+            const out = stopService()
+            if (out.trim()) {
+                console.log(out.trim())
+            }
+        } catch {
+            // may not be running
+        }
+
+        // Also kill server by PID if it's still running
+        try {
+            const pidStr = Deno.readTextFileSync(PID_FILE).trim()
+            const pid = parseInt(pidStr)
+            if (pid > 0) {
+                new Deno.Command("kill", { args: [String(pid)], stdout: "null", stderr: "null" }).outputSync()
+                console.log(`Killed server (PID ${pid})`)
+            }
+        } catch {
+            // not running or no pid file
+        }
+
+        // Remove the claude shim
+        console.log("Removing claude shim...")
+        const shimResult = removeShim()
+        console.log(`  ${shimResult.message}`)
+
+        console.log("\nDone. cbg services stopped and claude shim removed.")
+        console.log("To fully remove, delete the repo and run: deno uninstall cbg")
         break
     }
 
