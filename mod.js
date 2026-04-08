@@ -275,11 +275,17 @@ switch (cmd) {
             console.log(c.green("  \u2714 ") + "Access file removed.")
         }
 
+        // Remove the cbg binary itself
+        console.log(c.dim("  Removing cbg CLI..."))
+        new Deno.Command("deno", {
+            args: ["uninstall", "-g", "cbg"],
+            stdout: "null",
+            stderr: "null",
+        }).outputSync()
+        console.log(c.green("  \u2714 ") + "cbg uninstalled.")
+
         console.log()
-        console.log(c.green("  \u2714 cbg services stopped and shim removed."))
-        console.log()
-        console.log(c.dim("  To fully remove, delete the repo and run:"))
-        console.log(c.white("    deno uninstall cbg"))
+        console.log(c.green("  \u2714 All done. cbg has been fully removed."))
         console.log()
         break
     }
