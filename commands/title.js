@@ -1,4 +1,4 @@
-import { execSync } from 'child_process'
+import { execSync } from 'node:child_process'
 import { shared } from './_shared.js'
 
 function autoTitle(session) {

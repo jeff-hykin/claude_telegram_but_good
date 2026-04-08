@@ -1,6 +1,6 @@
-import { execSync } from 'child_process'
-import { writeFileSync } from 'fs'
-import { join } from 'path'
+import { execSync } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 export const commands = {
   spawn: async (ctx, bot, state) => {
@@ -25,7 +25,7 @@ export const commands = {
     }
 
     // Pre-assign the session ID so we know the switch command ahead of time
-    const sessionId = state.randomBytes(3).toString('hex')
+    const sessionId = state.randomHex(3)
     const title = ctx.message?.text?.replace(/^\/spawn\s*/, '').trim() || undefined
 
     const sessionName = `claude-${sessionId}`
@@ -83,7 +83,7 @@ export const commands = {
       }
 
       const displayTitle = title ? ` (${title})` : ''
-      await ctx.reply(`Spawned via ${launcher}: /switch_${sessionId}${displayTitle}\nSwitching in ~3s...`)
+      await ctx.reply(`Spawned via ${launcher}: /chat_${sessionId}${displayTitle}\nSwitching in ~3s...`)
 
       // Wait for the session to register, then switch to it
       setTimeout(() => {
