@@ -3,12 +3,13 @@
  * cbg — CLI for Claude Telegram Bot (claude_telegram_but_good)
  */
 
-import { stringifyYaml, Select, colors } from "./imports.js"
+import { stringifyYaml, Select, Confirm, colors } from "./imports.js"
 import { readConfig, getConfig, setConfig } from "./lib/config.js"
 import { startService, stopService, restartService, serviceStatus } from "./lib/daemon.js"
 import { createSession, attachSession, listDtachSockets } from "./lib/dtach.js"
 import { onboard, isOnboarded } from "./lib/onboard.js"
-import { PID_FILE, IPC_SOCK } from "./lib/protocol.js"
+import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE } from "./lib/protocol.js"
+import { configPath } from "./lib/config.js"
 import { removeShim } from "./lib/shim.js"
 
 const c = colors
@@ -250,6 +251,28 @@ switch (cmd) {
             console.log(c.green("  \u2714 ") + shimResult.message)
         } else {
             console.log(c.yellow("  \u26A0 ") + shimResult.message)
+        }
+
+        // Offer to remove bot token
+        console.log()
+        const removeToken = await Confirm.prompt({
+            message: c.white("  Remove bot token?") + c.dim(" (~/.config/cbg/config.yaml + legacy .env)"),
+            default: false,
+        })
+        if (removeToken) {
+            try { Deno.removeSync(configPath()) } catch { /* ignore */ }
+            try { Deno.removeSync(ENV_FILE) } catch { /* ignore */ }
+            console.log(c.green("  \u2714 ") + "Bot token removed.")
+        }
+
+        // Offer to remove paired chat IDs
+        const removeAccess = await Confirm.prompt({
+            message: c.white("  Remove paired chat IDs?") + c.dim(" (access.json allowlist)"),
+            default: false,
+        })
+        if (removeAccess) {
+            try { Deno.removeSync(ACCESS_FILE) } catch { /* ignore */ }
+            console.log(c.green("  \u2714 ") + "Access file removed.")
         }
 
         console.log()
