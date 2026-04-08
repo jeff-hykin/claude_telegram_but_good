@@ -30,7 +30,7 @@ git clone https://github.com/jeff-hykin/claude_telegram_but_good.git
 cd claude_telegram_but_good
 
 # Install the CLI globally
-deno install -A -g -n cbg ./mod.ts
+deno install -A -g -n cbg ./mod.js
 ```
 
 ### 3. Run onboarding
