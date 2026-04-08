@@ -64,23 +64,29 @@ const SESSION_ID = (() => {
   return randomBytes(3).toString('hex')
 })()
 const SESSION_CWD = process.env.SESSION_CWD ?? process.cwd()
-const SESSION_PID = process.ppid // Claude Code's PID, not the shim's
-const SESSION_START = Date.now()
-
-// Log process ancestry for debugging signal targeting
-try {
+// Walk up the process tree to find the Claude Code process
+const SESSION_PID = (() => {
   const getppid = (pid: number) => {
     try { return parseInt(execSync(`ps -o ppid= -p ${pid}`, { encoding: 'utf8', timeout: 1000 }).trim()) } catch { return -1 }
   }
   const getcomm = (pid: number) => {
     try { return execSync(`ps -o comm= -p ${pid}`, { encoding: 'utf8', timeout: 1000 }).trim() } catch { return '?' }
   }
-  const self = process.pid
-  const parent = process.ppid
-  const grandparent = getppid(parent)
-  const greatgrandparent = getppid(grandparent)
-  dbg('SHIM', `PID ancestry: self=${self}(${getcomm(self)}) parent=${parent}(${getcomm(parent)}) grandparent=${grandparent}(${getcomm(grandparent)}) great-grandparent=${greatgrandparent}(${getcomm(greatgrandparent)})`)
-} catch {}
+  let pid = process.pid
+  for (let i = 0; i < 10; i++) {
+    pid = getppid(pid)
+    if (pid <= 1) break
+    const comm = getcomm(pid)
+    dbg('SHIM', `ancestry walk: pid=${pid} comm=${comm}`)
+    if (/\bclaude\b/i.test(comm)) {
+      dbg('SHIM', `found Claude Code at PID ${pid}`)
+      return pid
+    }
+  }
+  dbg('SHIM', 'could not find claude in ancestry, falling back to ppid:', process.ppid)
+  return process.ppid
+})()
+const SESSION_START = Date.now()
 
 let ownTitle: string | undefined = process.env.TELEGRAM_SESSION_TITLE ?? undefined
 const ownGitBranch = (() => {
