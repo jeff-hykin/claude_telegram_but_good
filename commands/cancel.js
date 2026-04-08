@@ -1,3 +1,5 @@
+import { openSync, writeSync, closeSync } from 'fs'
+
 export const commands = {
   cancel: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true
@@ -12,10 +14,13 @@ export const commands = {
       return true
     }
 
-    // focused.pid is the Claude Code process (shim reports process.ppid)
+    // Send Escape key to Claude Code's stdin via /proc/<pid>/fd/0
+    // This triggers the TUI's cancel behavior (like pressing Esc)
     try {
-      process.kill(focused.pid, 'SIGINT')
-      await ctx.reply(`Sent SIGINT to Claude Code (PID ${focused.pid})`)
+      const fd = openSync(`/proc/${focused.pid}/fd/0`, 'w')
+      writeSync(fd, '\x1b') // ESC byte
+      closeSync(fd)
+      await ctx.reply(`Sent Escape to Claude Code (PID ${focused.pid})`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       state.dbg('CANCEL', 'failed:', msg)
