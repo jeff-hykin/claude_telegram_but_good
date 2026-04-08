@@ -51,8 +51,7 @@ const LOG_FILE = join(homedir(), 'claud_telegram.log')
 function dbg(label: string, ...args: unknown[]): void {
   if (!DEBUG) return
   const ts = new Date().toISOString()
-  const line = `[TG-DBG ${ts}] ${label}: ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}\n`
-  process.stderr.write(line)
+  const line = `[TG-DBG ${ts}] [PID:${process.pid}] ${label}: ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}\n`
   try { appendFileSync(LOG_FILE, line) } catch {}
 }
 dbg('INIT', 'TOKEN set:', !!TOKEN, 'STATIC:', STATIC, 'STATE_DIR:', STATE_DIR)
@@ -76,15 +75,20 @@ const MESSAGE_MAP_MAX = 5000 // cap to avoid unbounded growth
 // === MULTI-SESSION IPC ===
 const SESSION_ID = (() => {
   // Check for a pre-assigned session ID from /spawn
+  const f = join(STATE_DIR, 'next_session.json')
   try {
-    const f = join(STATE_DIR, 'next_session.json')
-    const data = JSON.parse(readFileSync(f, 'utf8'))
+    const raw = readFileSync(f, 'utf8')
+    dbg('INIT', 'next_session.json found:', raw.trim())
+    const data = JSON.parse(raw)
     unlinkSync(f)
     if (data.id) {
       if (data.title) process.env.TELEGRAM_SESSION_TITLE = data.title
+      dbg('INIT', 'using pre-assigned session ID:', data.id)
       return data.id as string
     }
-  } catch {}
+  } catch (err) {
+    dbg('INIT', 'next_session.json not found or error at', f, String(err))
+  }
   return randomBytes(3).toString('hex')
 })() // 6 hex chars
 const SESSION_CWD = process.env.SESSION_CWD ?? process.cwd()

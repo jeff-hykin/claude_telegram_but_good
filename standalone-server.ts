@@ -311,7 +311,13 @@ function handleShimMessage(socket: Socket, msg: IpcMessage): void {
 
     case 'tool_request': {
       // Shim requesting a tool call — execute and respond
-      const { requestId, name, args } = msg
+      const { requestId, sessionId, name, args } = msg
+
+      // Prepend session tag to outbound replies so the user knows which session sent it
+      if (name === 'reply' && args.text && sessionId) {
+        args.text = `/switch_${sessionId}\n${args.text}`
+      }
+
       void (async () => {
         // Handle non-bot tools locally
         if (name === 'reload') {
