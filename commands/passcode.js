@@ -29,13 +29,6 @@ export const commands = {
             return true
         }
 
-        // Check expiry
-        if (pending.expiresAt && Date.now() > pending.expiresAt) {
-            try { unlinkSync(PASSCODE_FILE) } catch {}
-            await ctx.reply('Passcode expired. Run `cbg onboard` again.')
-            return true
-        }
-
         // Check code
         if (submitted !== pending.code) {
             await ctx.reply('Invalid passcode.')
