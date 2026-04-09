@@ -15,6 +15,25 @@ import { installShim, removeShim, isShimInstalled } from "./lib/shim.js"
 const c = colors
 const [cmd, ...args] = Deno.args
 
+function killAllServers() {
+    Deno.mkdirSync(STATE_DIR, { recursive: true })
+    Deno.writeTextFileSync(STOPPED_FILE, String(Date.now()))
+    try { stopService() } catch { /* may not be running */ }
+    try {
+        const pidStr = Deno.readTextFileSync(PID_FILE).trim()
+        const pid = parseInt(pidStr)
+        if (pid > 0) {
+            new Deno.Command("kill", { args: [String(pid)], stdout: "null", stderr: "null" }).outputSync()
+        }
+    } catch { /* not running */ }
+    try {
+        new Deno.Command("pkill", {
+            args: ["-f", "standalone-server\\.js"],
+            stdout: "null", stderr: "null",
+        }).outputSync()
+    } catch { /* none found */ }
+}
+
 async function ensureOnboarded() {
     if (!isOnboarded()) {
         console.log("Need to finish onboarding first. Running cbg onboard...\n")
@@ -80,28 +99,7 @@ switch (cmd) {
 
     case "stop": {
         console.log(c.dim("  Stopping cbg daemon..."))
-
-        // Signal shims to not respawn the server
-        Deno.mkdirSync(STATE_DIR, { recursive: true })
-        Deno.writeTextFileSync(STOPPED_FILE, String(Date.now()))
-
-        // Stop the systemd/launchd service
-        const out = stopService()
-        if (out.trim()) {
-            console.log(c.dim("  " + out.trim()))
-        }
-
-        // Kill the server by PID
-        try {
-            const pidStr = Deno.readTextFileSync(PID_FILE).trim()
-            const pid = parseInt(pidStr)
-            if (pid > 0) {
-                new Deno.Command("kill", { args: [String(pid)], stdout: "null", stderr: "null" }).outputSync()
-            }
-        } catch {
-            // not running
-        }
-
+        killAllServers()
         console.log(c.green("  \u2714 Stopped. Shims will not respawn the server."))
         console.log(c.dim("  Run ") + c.white("cbg start") + c.dim(" to resume."))
         break
@@ -109,8 +107,9 @@ switch (cmd) {
 
     case "restart": {
         await ensureOnboarded()
-        try { Deno.removeSync(STOPPED_FILE) } catch { /* ignore */ }
         console.log(c.dim("  Restarting cbg daemon..."))
+        killAllServers()
+        try { Deno.removeSync(STOPPED_FILE) } catch { /* ignore */ }
         const out = restartService()
         if (out.trim()) {
             console.log(c.dim("  " + out.trim()))
@@ -263,18 +262,7 @@ switch (cmd) {
 
         // Stop daemon
         console.log(c.dim("  Stopping daemon..."))
-        Deno.mkdirSync(STATE_DIR, { recursive: true })
-        Deno.writeTextFileSync(STOPPED_FILE, String(Date.now()))
-        try {
-            stopService()
-        } catch { /* may not be running */ }
-        try {
-            const pidStr = Deno.readTextFileSync(PID_FILE).trim()
-            const pid = parseInt(pidStr)
-            if (pid > 0) {
-                new Deno.Command("kill", { args: [String(pid)], stdout: "null", stderr: "null" }).outputSync()
-            }
-        } catch { /* not running */ }
+        killAllServers()
         console.log(c.green("  \u2714 Daemon stopped."))
 
         // Reinstall plugin via Claude CLI, then symlink over the result

@@ -113,6 +113,34 @@ const SESSION_PID = (() => {
 
 const SESSION_START = Date.now()
 
+// Prevent duplicate shims for the same Claude process.
+// Claude may load the plugin from both the cache and marketplace source.
+// The first shim wins; later ones sleep forever (exiting would make Claude
+// think the MCP server crashed and disconnect the working one too).
+{
+    const lockFile = join(STATE_DIR, `shim-${SESSION_PID}.pid`)
+    let isDuplicate = false
+    try {
+        const existing = parseInt(Deno.readTextFileSync(lockFile).trim())
+        if (existing > 0 && existing !== Deno.pid) {
+            const check = new Deno.Command("kill", {
+                args: ["-0", String(existing)],
+                stdout: "null", stderr: "null",
+            }).outputSync()
+            if (check.success) {
+                isDuplicate = true
+            }
+        }
+    } catch { /* no lock or stale */ }
+    if (isDuplicate) {
+        dbg("SHIM", `another shim already running for Claude PID ${SESSION_PID} — going dormant`)
+        // Sleep forever instead of exiting, so Claude doesn't restart us or
+        // tear down the working shim's MCP transport.
+        await new Promise(() => {})
+    }
+    Deno.writeTextFileSync(lockFile, String(Deno.pid))
+}
+
 let ownTitle = Deno.env.get("TELEGRAM_SESSION_TITLE") ?? undefined
 const ownGitBranch = (() => {
     try {
