@@ -22,6 +22,7 @@ export {
 } from "./vendor/mcp-types.js"
 
 // === @std/path ===
+import { fromFileUrl as _fromFileUrl } from "https://esm.sh/jsr/@std/path@1.1.4"
 export {
     join,
     extname,
@@ -54,7 +55,7 @@ export { format as timeago } from "https://esm.sh/timeago.js@4.0.2"
 export function sibling(meta, relativePath) {
     const resolved = new URL(relativePath, meta.url)
     if (resolved.protocol === "file:") {
-        return fromFileUrl(resolved)
+        return _fromFileUrl(resolved)
     }
     return resolved.href
 }
