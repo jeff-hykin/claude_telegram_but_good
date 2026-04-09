@@ -421,9 +421,29 @@ function handleShimMessage(conn, msg) {
 
 // === Hook event handling ===
 
+// Map Claude PID to shim session ID
+const pidToShimSession = new Map()
+
 async function handleHookEvent(msg) {
+    // Resolve Claude PID to shim session ID
+    let shimId = msg.claudePid ? pidToShimSession.get(msg.claudePid) : undefined
+    if (!shimId && msg.claudePid) {
+        // Look up by PID — shims register with the Claude process PID
+        for (const [id, s] of sessions) {
+            if (s.info.pid === msg.claudePid) {
+                shimId = id
+                pidToShimSession.set(msg.claudePid, id)
+                dbg("HOOK", `mapped Claude PID ${msg.claudePid} -> shim ${id}`)
+                break
+            }
+        }
+    }
+    if (!shimId) {
+        dbg("HOOK", `no shim found for Claude PID ${msg.claudePid}, session ${msg.sessionId}`)
+    }
+
     // Only show hooks from the focused session
-    if (msg.sessionId !== focusedSessionId) return
+    if (shimId !== focusedSessionId) return
 
     const access = loadAccess(BOOT_ACCESS)
     const sessionTitle = getSessionTitle(msg.sessionId)

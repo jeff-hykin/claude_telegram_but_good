@@ -208,8 +208,15 @@ switch (cmd) {
         console.log()
         console.log(c.bold.white("  Service:"))
         const svcStatus = serviceStatus()
-        if (svcStatus.trim()) {
-            for (const line of svcStatus.trim().split("\n")) {
+        const svcText = svcStatus.trim()
+        if (!svcText || svcText.includes("Could not find service")) {
+            if (daemonRunning) {
+                console.log(c.yellow("  \u26A0 Daemon running but not via service manager. Run `cbg reinstall` to fix."))
+            } else {
+                console.log(c.dim("    not installed. Run `cbg onboard` or `cbg start`."))
+            }
+        } else {
+            for (const line of svcText.split("\n")) {
                 console.log(c.dim("    " + line))
             }
         }
