@@ -54,8 +54,8 @@ function sessionBlock(s, { shortPath, isActive }) {
     }
     if (s.recentMessages && s.recentMessages.length > 0) {
         for (const msg of s.recentMessages) {
-            const icon = msg.role === "bot" ? "\uD83E\uDD16" : "\uD83D\uDDE3"
-            lines.push(`  ${icon} _${esc(msg.text)}_`)
+            const icon = msg.role === "bot" ? "🤖" : "🗣"
+            lines.push(`  ${icon} _${esc(msg.text.replace(/\n+/g," "))}_`)
         }
     }
 
