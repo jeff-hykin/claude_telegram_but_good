@@ -112,7 +112,6 @@ Communication uses newline-delimited JSON over `~/.claude/channels/telegram/ipc.
 | `set_title` | Set a display title for this session. |
 | `reload` | Hot-reload command handlers. |
 | `new_command` | Create/update a custom command and hot-reload. |
-| `enable_telegram_by_default` | Create/remove a shell wrapper so `claude` always has the `--channels` flag. |
 
 ## Photos & Attachments
 
