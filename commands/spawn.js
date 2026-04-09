@@ -82,6 +82,16 @@ export const commands = {
       }
     }
 
+    // Pre-accept the workspace trust dialog for the target directory
+    try {
+        const claudeJsonPath = join(home, '.claude.json')
+        const claudeJson = JSON.parse(readFileSync(claudeJsonPath, 'utf8'))
+        if (!claudeJson.projects) { claudeJson.projects = {} }
+        if (!claudeJson.projects[home]) { claudeJson.projects[home] = {} }
+        claudeJson.projects[home].hasTrustDialogAccepted = true
+        writeFileSync(claudeJsonPath, JSON.stringify(claudeJson, null, 2))
+    } catch { /* best-effort — the watchForTrustPrompt fallback will handle it */ }
+
     // Write pre-assigned session info for the new server to pick up on startup
     writeFileSync(join(stateDir, 'next_session.json'), JSON.stringify({
       id: sessionId,
