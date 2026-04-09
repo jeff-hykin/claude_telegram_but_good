@@ -1,4 +1,6 @@
-import { CUSTOM_COMMANDS_DIR } from '../lib/protocol.js'
+// Dynamic import with cache-busting: static imports of protocol.js would be
+// cached from the first load and not pick up edits on hot-reload.
+const { CUSTOM_COMMANDS_DIR } = await import(`../lib/protocol.js#${Math.random()}`)
 
 export const tips = [
     "custom commands don't need to involve an agent, they're just JavaScript ( /new_command )",

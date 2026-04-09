@@ -1,7 +1,8 @@
 import { execSync } from 'node:child_process'
 import { writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { STATE_DIR } from '../lib/protocol.js'
+// Dynamic import with cache-busting so hot-reload picks up edits to protocol.js
+const { STATE_DIR } = await import(`../lib/protocol.js#${Math.random()}`)
 
 /**
  * After dtach spawns Claude, poll the log file for the "trust this folder"

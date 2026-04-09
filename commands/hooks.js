@@ -1,4 +1,5 @@
-import { recordMessage } from './_shared.js'
+// Dynamic import with cache-busting so hot-reload picks up edits to _shared.js
+const { recordMessage } = await import(`./_shared.js#${Math.random()}`)
 
 export const tips = []
 

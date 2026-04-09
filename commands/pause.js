@@ -1,4 +1,5 @@
-import { shared } from './_shared.js'
+// Dynamic import with cache-busting so hot-reload picks up edits to _shared.js
+const { shared } = await import(`./_shared.js#${Math.random()}`)
 
 export const tips = [
     "/pause suspends the whole claude process — it won't use resources until you /resume.",

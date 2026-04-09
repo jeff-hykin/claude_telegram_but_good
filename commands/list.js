@@ -1,4 +1,5 @@
-import { shared } from './_shared.js'
+// Dynamic import with cache-busting so hot-reload picks up edits to _shared.js
+const { shared } = await import(`./_shared.js#${Math.random()}`)
 
 export const tips = [
     "Tap a session ID from /list to switch to it.",

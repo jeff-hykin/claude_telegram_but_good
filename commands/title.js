@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process'
-import { shared } from './_shared.js'
+// Dynamic import with cache-busting so hot-reload picks up edits to _shared.js
+const { shared } = await import(`./_shared.js#${Math.random()}`)
 
 export const tips = [
     "/title without any argument will auto-generate a title",

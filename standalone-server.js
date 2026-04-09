@@ -13,6 +13,7 @@
 import { Bot, GrammyError, InlineKeyboard, join, sibling } from "./imports.js"
 import {
     STATE_DIR, IPC_SOCK, PID_FILE, INBOX_DIR, CUSTOM_COMMANDS_DIR,
+    ACCESS_FILE,
     sendIpc, parseIpcMessages, dbg,
 } from "./lib/protocol.js"
 import {
@@ -60,7 +61,8 @@ function execSync(cmd) {
 const PLUGIN_VERSION = (() => {
     try {
         return JSON.parse(Deno.readTextFileSync(sibling(import.meta, ".claude-plugin/plugin.json"))).version
-    } catch {
+    } catch (e) {
+        dbg("SERVER", "failed to read plugin version:", e)
         return "unknown"
     }
 })()
@@ -95,8 +97,8 @@ try {
             Deno.exit(0)
         }
     }
-} catch {
-    // no pid file or not running — we proceed
+} catch (e) {
+    dbg("SERVER", "no existing pid file or not running:", e)
 }
 
 // === PID file ===
@@ -155,7 +157,7 @@ const toolExecutor = createToolExecutor(
     async (text, chat_id) => {
         const onReply = getHotCommands().get("__onReply")
         if (onReply) {
-            try { await onReply({ text, chat_id }, bot, getCommandState()) } catch { /* ignore */ }
+            try { await onReply({ text, chat_id }, bot, getCommandState()) } catch (e) { dbg("COMMANDS", "__onReply failed:", e) }
         }
     },
 )
@@ -202,6 +204,9 @@ function getCommandState() {
         randomHex,
         generateName,
         homedir: () => HOME,
+        STATE_DIR,
+        ACCESS_FILE,
+        CUSTOM_COMMANDS_DIR,
         PLUGIN_VERSION,
     }
 }
@@ -435,8 +440,8 @@ async function handleHookEvent(msg) {
                     await bot.api.editMessageText(chat_id, last.messageId, combined, MD)
                     setLastHookMessage(chat_id, last.messageId, combined, msg.sessionId)
                     return last.messageId
-                } catch {
-                    // edit failed, fall through to send new
+                } catch (e) {
+                    dbg("HOOK", "edit failed, sending new message:", e)
                 }
             }
         }
@@ -445,12 +450,13 @@ async function handleHookEvent(msg) {
             const sent = await bot.api.sendMessage(chat_id, text, MD)
             setLastHookMessage(chat_id, sent.message_id, text, msg.sessionId)
             return sent.message_id
-        } catch {
+        } catch (e) {
+            dbg("HOOK", "sendMessage with markdown failed, retrying plain:", e)
             try {
                 const sent = await bot.api.sendMessage(chat_id, text)
                 setLastHookMessage(chat_id, sent.message_id, text, msg.sessionId)
                 return sent.message_id
-            } catch { return null }
+            } catch (e2) { dbg("HOOK", "sendMessage plain also failed:", e2); return null }
         }
     }
 
@@ -481,7 +487,8 @@ async function handleHookEvent(msg) {
                     try {
                         await bot.api.editMessageText(chat_id, active.messageId, combined, MD)
                         setLastHookMessage(chat_id, active.messageId, combined, msg.sessionId)
-                    } catch {
+                    } catch (e) {
+                        dbg("HOOK", "editMessageText failed, falling back to sendOrEdit:", e)
                         await sendOrEdit(chat_id, text)
                     }
                 } else {
@@ -537,13 +544,13 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
             const emoji = behavior === "allow" ? "\u2705" : "\u274C"
             void bot.api.setMessageReaction(chat_id, msgId, [
                 { type: "emoji", emoji },
-            ]).catch(() => {})
+            ]).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
         }
         return
     }
 
     // Typing indicator
-    void bot.api.sendChatAction(chat_id, "typing").catch(() => {})
+    void bot.api.sendChatAction(chat_id, "typing").catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
 
     // Ack reaction
     if (access.ackReaction && msgId != null) {
@@ -551,7 +558,7 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
             .setMessageReaction(chat_id, msgId, [
                 { type: "emoji", emoji: access.ackReaction },
             ])
-            .catch(() => {})
+            .catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
     }
 
     const imagePath = downloadImage ? await downloadImage() : undefined
@@ -595,7 +602,7 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
         await bot.api.sendMessage(
             chat_id,
             "No sessions connected. Use /spawn <name> to start a new one."
-        ).catch(() => {})
+        ).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
     } else {
         const verbs = [
             "Pondering", "Cogitating", "Ruminating", "Deliberating", "Musing",
@@ -610,7 +617,7 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
         const verb = verbs[Math.floor(Math.random() * verbs.length)]
         const tip = getRandomTip()
         const tipText = tip ? `\n\n_did you know:_ ${tip}` : ""
-        bot.api.sendMessage(chat_id, `_${verb}..._${tipText}`, { parse_mode: "Markdown" }).catch(() => {})
+        bot.api.sendMessage(chat_id, `_${verb}..._${tipText}`, { parse_mode: "Markdown" }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
     }
 }
 
@@ -643,22 +650,22 @@ bot.on("callback_query:data", async (ctx) => {
         const access = loadAccess(BOOT_ACCESS)
         const senderId = String(ctx.from.id)
         if (!access.allowFrom.includes(senderId)) {
-            await ctx.answerCallbackQuery({ text: "Not authorized." }).catch(() => {})
+            await ctx.answerCallbackQuery({ text: "Not authorized." }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
             return
         }
         const errorId = errMatch[1]
         const errInfo = pendingCommandErrors.get(errorId)
         if (!errInfo) {
-            await ctx.answerCallbackQuery({ text: "Error details expired." }).catch(() => {})
+            await ctx.answerCallbackQuery({ text: "Error details expired." }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
             return
         }
         pendingCommandErrors.delete(errorId)
 
         // Immediately acknowledge
-        await ctx.answerCallbackQuery({ text: "Fixing! One moment..." }).catch(() => {})
+        await ctx.answerCallbackQuery({ text: "Fixing! One moment..." }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
         const cbMsg = ctx.callbackQuery.message
         if (cbMsg && "text" in cbMsg && cbMsg.text) {
-            await ctx.editMessageText(`${cbMsg.text}\n\n\uD83D\uDD27 Sending to Claude for debugging...`).catch(() => {})
+            await ctx.editMessageText(`${cbMsg.text}\n\n\uD83D\uDD27 Sending to Claude for debugging...`).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
         }
 
         // If no session is connected, spawn one
@@ -684,8 +691,8 @@ bot.on("callback_query:data", async (ctx) => {
         try {
             Deno.statSync(join(CUSTOM_COMMANDS_DIR, errInfo.cmdName + ".js"))
             isCustom = true
-        } catch {
-            // not custom
+        } catch (e) {
+            dbg("COMMANDS", `${errInfo.cmdName}.js not in custom commands dir:`, e)
         }
         const fileLoc = isCustom
             ? `${CUSTOM_COMMANDS_DIR}/${errInfo.cmdName}.js`
@@ -706,20 +713,20 @@ bot.on("callback_query:data", async (ctx) => {
         }
         const delivered = deliverToFocused(debugMsg, meta)
         if (!delivered) {
-            await bot.api.sendMessage(chat_id, "Could not deliver to a Claude session. Try /spawn first, then click the fix button again.").catch(() => {})
+            await bot.api.sendMessage(chat_id, "Could not deliver to a Claude session. Try /spawn first, then click the fix button again.").catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
         }
         return
     }
 
     const m = /^perm:(allow|deny|more):([a-km-z]{5})$/.exec(data)
     if (!m) {
-        await ctx.answerCallbackQuery().catch(() => {})
+        await ctx.answerCallbackQuery().catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
         return
     }
     const access = loadAccess(BOOT_ACCESS)
     const senderId = String(ctx.from.id)
     if (!access.allowFrom.includes(senderId)) {
-        await ctx.answerCallbackQuery({ text: "Not authorized." }).catch(() => {})
+        await ctx.answerCallbackQuery({ text: "Not authorized." }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
         return
     }
     const [, behavior, request_id] = m
@@ -727,14 +734,15 @@ bot.on("callback_query:data", async (ctx) => {
     if (behavior === "more") {
         const details = pendingPermissions.get(request_id)
         if (!details) {
-            await ctx.answerCallbackQuery({ text: "Details no longer available." }).catch(() => {})
+            await ctx.answerCallbackQuery({ text: "Details no longer available." }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
             return
         }
         const { tool_name, description, input_preview } = details
         let prettyInput
         try {
             prettyInput = JSON.stringify(JSON.parse(input_preview), null, 2)
-        } catch {
+        } catch (e) {
+            dbg("PERM", "failed to pretty-print input_preview:", e)
             prettyInput = input_preview
         }
         const expanded =
@@ -745,8 +753,8 @@ bot.on("callback_query:data", async (ctx) => {
         const keyboard = new InlineKeyboard()
             .text("\u2705 Allow", `perm:allow:${request_id}`)
             .text("\u274C Deny", `perm:deny:${request_id}`)
-        await ctx.editMessageText(expanded, { reply_markup: keyboard }).catch(() => {})
-        await ctx.answerCallbackQuery().catch(() => {})
+        await ctx.editMessageText(expanded, { reply_markup: keyboard }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+        await ctx.answerCallbackQuery().catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
         return
     }
 
@@ -757,10 +765,10 @@ bot.on("callback_query:data", async (ctx) => {
     }
     pendingPermissions.delete(request_id)
     const label = behavior === "allow" ? "\u2705 Allowed" : "\u274C Denied"
-    await ctx.answerCallbackQuery({ text: label }).catch(() => {})
+    await ctx.answerCallbackQuery({ text: label }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
     const msg = ctx.callbackQuery.message
     if (msg && "text" in msg && msg.text) {
-        await ctx.editMessageText(`${msg.text}\n\n${label}`).catch(() => {})
+        await ctx.editMessageText(`${msg.text}\n\n${label}`).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
     }
 })
 
@@ -800,7 +808,7 @@ bot.on("message:text", async (ctx) => {
     if (onMsgAccess.allowFrom.includes(onMsgSenderId)) {
         const onMsg = getHotCommands().get("__onMessage")
         if (onMsg) {
-            try { await onMsg(ctx, bot, getCommandState()) } catch { /* ignore */ }
+            try { await onMsg(ctx, bot, getCommandState()) } catch (e) { dbg("COMMANDS", "__onMessage failed:", e) }
         }
     }
 
@@ -834,7 +842,7 @@ bot.on("message:text", async (ctx) => {
                 pendingCommandErrors.set(errorId, { cmdName, error: errMsg, stack: errStack, text })
                 const keyboard = new InlineKeyboard()
                     .text("\uD83D\uDD27 Ask Claude to fix", `cmderr:fix:${errorId}`)
-                await ctx.reply(`\u26A0\uFE0F /${cmdName} failed: ${errMsg}`, { reply_markup: keyboard }).catch(() => {})
+                await ctx.reply(`\u26A0\uFE0F /${cmdName} failed: ${errMsg}`, { reply_markup: keyboard }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
             }
         }
     }
@@ -946,8 +954,8 @@ async function handleConnection(conn) {
                 }
             }
         }
-    } catch {
-        // connection error
+    } catch (e) {
+        dbg("IPC", "connection error:", e)
     }
 
     if (sessionId) {
@@ -966,7 +974,7 @@ if (!STATIC) {
     setInterval(() => checkApprovals(bot), 5000)
 }
 
-try { Deno.removeSync(IPC_SOCK) } catch { /* ignore */ }
+try { Deno.removeSync(IPC_SOCK) } catch (e) { dbg("IPC", "failed to remove old socket:", e) }
 
 let listener = Deno.listen({ transport: "unix", path: IPC_SOCK })
 dbg("IPC", "listening on", IPC_SOCK)
@@ -1031,12 +1039,12 @@ void (async () => {
 function shutdown() {
     Deno.stderr.writeSync(new TextEncoder().encode("telegram server: shutting down\n"))
     for (const [, s] of sessions) {
-        try { s.conn.close() } catch { /* ignore */ }
+        try { s.conn.close() } catch (e) { dbg("IPC", "failed to close session conn:", e) }
     }
     sessions.clear()
     listener.close()
-    try { Deno.removeSync(IPC_SOCK) } catch { /* ignore */ }
-    try { Deno.removeSync(PID_FILE) } catch { /* ignore */ }
+    try { Deno.removeSync(IPC_SOCK) } catch (e) { dbg("SHUTDOWN", "failed to remove socket:", e) }
+    try { Deno.removeSync(PID_FILE) } catch (e) { dbg("SHUTDOWN", "failed to remove pid file:", e) }
     setTimeout(() => Deno.exit(0), 2000)
     void Promise.resolve(bot.stop()).finally(() => Deno.exit(0))
 }

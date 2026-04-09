@@ -2,7 +2,8 @@ export const tips = []
 
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { STATE_DIR, ACCESS_FILE } from '../lib/protocol.js'
+// Dynamic import with cache-busting so hot-reload picks up edits to protocol.js
+const { STATE_DIR, ACCESS_FILE } = await import(`../lib/protocol.js#${Math.random()}`)
 
 const OTP_FILE = join(STATE_DIR, 'pending_otp.json')
 
