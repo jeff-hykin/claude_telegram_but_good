@@ -761,8 +761,8 @@ bot.on("message:text", async (ctx) => {
     const text = ctx.message.text
     dbg("EVENT", "message:text received:", text, "from:", ctx.from?.id)
 
-    // /switch_<id>
-    const switchMatch = /^\/switch_([a-f0-9]+)$/i.exec(text)
+    // /switch_<id> or /chat_<id>
+    const switchMatch = /^\/(?:switch|chat)_([a-zA-Z0-9_]+)$/i.exec(text)
     if (switchMatch) {
         const access = loadAccess(BOOT_ACCESS)
         const senderId = String(ctx.from?.id)
