@@ -50,7 +50,7 @@ function sessionBlock(s, { shortPath, isActive }) {
     }
 
     // Chat command at the bottom
-    lines.push(`/chat\\_${s.id}`)
+    lines.push(`  \u2022 /chat\\_${s.id}`)
 
     return lines.join('\n')
 }
