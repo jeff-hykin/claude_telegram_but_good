@@ -31,7 +31,7 @@ function sessionBlock(s, { shortPath, isActive }) {
 
     // Bullet list with emojis
     if (s.connectedAt) {
-        lines.push(`  \u2022 \u23F1 started: ${esc(timeAgo(s.connectedAt))}`)
+        lines.push(`  \u2022 \uD83D\uDD52 started: ${esc(timeAgo(s.connectedAt))}`)
     }
     if (s.gitBranch) {
         lines.push(`  \u2022 \uD83C\uDF3F branch: \`${esc(s.gitBranch)}\``)
