@@ -3,8 +3,8 @@ export const tips = []
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { STATE_DIR, ACCESS_FILE } from '../lib/protocol.js'
 
-const STATE_DIR = join(homedir(), '.claude', 'channels', 'telegram')
 const OTP_FILE = join(STATE_DIR, 'pending_otp.json')
 
 export const commands = {
@@ -53,8 +53,7 @@ export const commands = {
         }
 
         // Save access.json
-        const accessFile = join(STATE_DIR, 'access.json')
-        writeFileSync(accessFile, JSON.stringify(access, null, 2) + '\n')
+        writeFileSync(ACCESS_FILE, JSON.stringify(access, null, 2) + '\n')
 
         // Delete the OTP file (one-time use)
         try { unlinkSync(OTP_FILE) } catch {}
