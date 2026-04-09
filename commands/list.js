@@ -23,44 +23,34 @@ function timeAgo(ts) {
 function sessionBlock(s, { shortPath, isActive }) {
     const lines = []
 
-    // Title as bold header
+    // Title
     const title = shared.titles.get(s.id) || s.title || s.id
     const marker = isActive ? " \u25B6" : ""
     lines.push(`<b>${esc(title)}${marker}</b>`)
 
-    // Details
+    // Details as a bullet list with emojis
+    if (s.connectedAt) {
+        lines.push(`  \u23F1 started: ${timeAgo(s.connectedAt)}`)
+    }
+    if (s.gitBranch) {
+        lines.push(`  \uD83C\uDF3F branch: <code>${esc(s.gitBranch)}</code>`)
+    }
     const sp = shortPath(s.cwd)
     if (sp === "~") {
-        lines.push(`<pre>(home dir)</pre>`)
+        lines.push(`  \uD83D\uDCC2 dir: <code>(home dir)</code>`)
     } else {
-        lines.push(`<pre>${esc(sp)}</pre>`)
+        lines.push(`  \uD83D\uDCC2 dir: <code>${esc(sp)}</code>`)
     }
-    const details = []
-    if (s.gitBranch) {
-        details.push(`branch: ${esc(s.gitBranch)}`)
-    }
-    if (s.connectedAt) {
-        details.push(`started ${timeAgo(s.connectedAt)}`)
-    }
-    const active = timeAgo(s.lastActive)
-    if (active) {
-        details.push(`active ${active}`)
-    }
-    if (details.length) {
-        lines.push(details.join(' \u00B7 '))
-    }
-
-    // Last reply (if any)
     if (s.lastReply) {
         const preview = s.lastReply.length > 80
             ? s.lastReply.slice(0, 77) + '...'
             : s.lastReply
-        lines.push(`<i>${esc(preview)}</i>`)
+        lines.push(`  \uD83D\uDCAC ${esc(preview)}`)
     }
 
     // Chat command at the bottom
-    const label = isActive ? "(active)" : ""
-    lines.push(`/chat_${s.id} ${label}`.trim())
+    const label = isActive ? " (active)" : ""
+    lines.push(`/chat_${s.id}${label}`)
 
     return lines.join('\n')
 }
@@ -100,7 +90,7 @@ export const commands = {
         for (const s of others) {
             parts.push(sessionBlock(s, { shortPath, isActive: false }))
         }
-        await ctx.reply(parts.join('\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n'), { parse_mode: 'HTML' })
+        await ctx.reply(parts.join('\n\n'), { parse_mode: 'HTML' })
         return true
     },
 }
