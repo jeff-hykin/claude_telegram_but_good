@@ -151,6 +151,9 @@ const toolExecutor = createToolExecutor(
 // === Commands ===
 const COMMANDS_DIR = sibling(import.meta, "commands")
 const CUSTOM_COMMANDS_DIR = join(HOME, ".claude", "telegram", "custom_commands")
+dbg("HOT", `COMMANDS_DIR resolved to: ${COMMANDS_DIR}`)
+dbg("HOT", `CUSTOM_COMMANDS_DIR resolved to: ${CUSTOM_COMMANDS_DIR}`)
+dbg("HOT", `import.meta.url: ${import.meta.url}`)
 
 function getCommandState() {
     return {
@@ -191,7 +194,7 @@ function getCommandState() {
     }
 }
 
-loadCommands(COMMANDS_DIR, CUSTOM_COMMANDS_DIR).catch(() => {})
+loadCommands(COMMANDS_DIR, CUSTOM_COMMANDS_DIR).catch((err) => { dbg("HOT", "loadCommands FAILED:", err) })
 
 // === Message delivery ===
 
