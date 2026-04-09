@@ -12,7 +12,7 @@
 
 import { Bot, GrammyError, InlineKeyboard, join, sibling } from "./imports.js"
 import {
-    STATE_DIR, IPC_SOCK, PID_FILE, INBOX_DIR,
+    STATE_DIR, IPC_SOCK, PID_FILE, INBOX_DIR, CUSTOM_COMMANDS_DIR,
     sendIpc, parseIpcMessages, dbg,
 } from "./lib/protocol.js"
 import {
@@ -162,7 +162,7 @@ const toolExecutor = createToolExecutor(
 
 // === Commands ===
 const COMMANDS_DIR = sibling(import.meta, "commands")
-const CUSTOM_COMMANDS_DIR = join(HOME, ".claude", "telegram", "custom_commands")
+// CUSTOM_COMMANDS_DIR imported from protocol.js
 dbg("HOT", `COMMANDS_DIR resolved to: ${COMMANDS_DIR}`)
 dbg("HOT", `CUSTOM_COMMANDS_DIR resolved to: ${CUSTOM_COMMANDS_DIR}`)
 dbg("HOT", `import.meta.url: ${import.meta.url}`)
@@ -750,13 +750,13 @@ bot.on("callback_query:data", async (ctx) => {
 
         let isCustom = false
         try {
-            Deno.statSync(join(HOME, ".claude", "telegram", "custom_commands", errInfo.cmdName + ".js"))
+            Deno.statSync(join(CUSTOM_COMMANDS_DIR, errInfo.cmdName + ".js"))
             isCustom = true
         } catch {
             // not custom
         }
         const fileLoc = isCustom
-            ? `~/.claude/telegram/custom_commands/${errInfo.cmdName}.js`
+            ? `${CUSTOM_COMMANDS_DIR}/${errInfo.cmdName}.js`
             : "the commands/ directory in the plugin source"
         const debugMsg =
             `The Telegram command /${errInfo.cmdName} threw an error. ` +

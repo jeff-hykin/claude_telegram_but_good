@@ -9,7 +9,7 @@ import { startService, stopService, restartService, serviceStatus } from "./lib/
 import { createSession, attachSession, listDtachSockets } from "./lib/dtach.js"
 import { onboard, isOnboarded, installAndSymlinkPlugin, ensureSettingsJson } from "./lib/onboard.js"
 import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE, STOPPED_FILE, STATE_DIR, LOCAL_REPO } from "./lib/protocol.js"
-import { configPath, configDir } from "./lib/config.js"
+import { CONFIG_DIR, CONFIG_FILE } from "./lib/protocol.js"
 import { installShim, removeShim, isShimInstalled } from "./lib/shim.js"
 
 const c = colors
@@ -344,11 +344,11 @@ switch (cmd) {
         // Offer to remove bot token
         console.log()
         const removeToken = await Confirm.prompt({
-            message: c.white("  Remove bot token?") + c.dim(" (~/.config/cbg/config.yaml + legacy .env)"),
+            message: c.white("  Remove bot token?") + c.dim(` (${CONFIG_FILE} + legacy .env)`),
             default: false,
         })
         if (removeToken) {
-            try { Deno.removeSync(configDir(), { recursive: true }) } catch { /* ignore */ }
+            try { Deno.removeSync(CONFIG_DIR, { recursive: true }) } catch { /* ignore */ }
             try { Deno.removeSync(ENV_FILE) } catch { /* ignore */ }
             console.log(c.green("  \u2714 ") + "Bot token and config dir removed.")
         }

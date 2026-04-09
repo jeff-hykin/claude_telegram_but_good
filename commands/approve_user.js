@@ -2,7 +2,6 @@ export const tips = []
 
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
 import { STATE_DIR, ACCESS_FILE } from '../lib/protocol.js'
 
 const OTP_FILE = join(STATE_DIR, 'pending_otp.json')

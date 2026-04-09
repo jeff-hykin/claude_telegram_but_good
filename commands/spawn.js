@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process'
 import { writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { STATE_DIR } from '../lib/protocol.js'
 
 /**
  * After dtach spawns Claude, poll the log file for the "trust this folder"
@@ -64,15 +65,14 @@ export const commands = {
     // Read permission args from config file
     let permArgs = ''
     try {
-        permArgs = readFileSync(join(state.homedir(), '.claude', 'channels', 'telegram', 'permission_args'), 'utf8').trim()
+        permArgs = readFileSync(join(STATE_DIR, 'permission_args'), 'utf8').trim()
     } catch {
         // no permission config — use defaults
     }
     const claudeCmd = `claude ${permArgs} --channels plugin:telegram@claude-plugins-official`.replace(/  +/g, ' ').trim()
     const home = state.homedir()
-    const stateDir = join(state.homedir(), '.claude', 'channels', 'telegram')
-    const dtachSock = join(stateDir, `dtach-${sessionId}.sock`)
-    const logFile = join(stateDir, `dtach-${sessionId}.log`)
+    const dtachSock = join(STATE_DIR, `dtach-${sessionId}.sock`)
+    const logFile = join(STATE_DIR, `dtach-${sessionId}.log`)
 
     // Strip env vars that would confuse the child Claude session
     const cleanEnv = { ...process.env }
@@ -93,7 +93,7 @@ export const commands = {
     } catch { /* best-effort — the watchForTrustPrompt fallback will handle it */ }
 
     // Write pre-assigned session info for the new server to pick up on startup
-    writeFileSync(join(stateDir, 'next_session.json'), JSON.stringify({
+    writeFileSync(join(STATE_DIR, 'next_session.json'), JSON.stringify({
       id: sessionId,
       title: title || undefined,
       dtachSocket: dtachSock,
