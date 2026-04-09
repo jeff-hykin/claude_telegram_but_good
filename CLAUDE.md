@@ -16,7 +16,7 @@ This is a Telegram channel plugin for Claude Code, implemented as a Deno project
 ## Entry Points
 
 - **`mod.js`** — CLI entry point (`cbg`). Subcommands: onboard, start, stop, restart, new, resume, status, config.
-- **`shim.js`** — Thin MCP proxy that Claude Code loads. One instance per Claude session. Declares tools, proxies all tool calls to the standalone server over a Unix socket (`~/.claude/channels/telegram/ipc.sock`). Auto-starts the standalone server if it isn't running.
+- **`shim.js`** — Thin MCP proxy that Claude Code loads. One instance per Claude session. Declares tools, proxies all tool calls to the standalone server over a Unix socket (`~/.local/share/cbg/state/ipc.sock`). Auto-starts the standalone server if it isn't running.
 - **`standalone-server.js`** — Long-lived daemon that owns the Telegram bot. Runs independently of any Claude session. Accepts shim connections via IPC, routes inbound Telegram messages to the focused shim, and executes tool calls on behalf of shims.
 
 ## Dependencies
@@ -51,11 +51,11 @@ Claude Code slash commands: `/telegram:access`, `/telegram:configure`, `/telegra
 
 ## Config
 
-Config is at `~/.config/cbg/config.yaml`. Managed via `cbg config`. The bot token is read from config (with fallback to legacy `~/.claude/channels/telegram/.env`).
+Config is at `~/.config/cbg/config.yaml`. Managed via `cbg config`. The bot token is read from config (with fallback to legacy `~/.local/share/cbg/state/.env`).
 
 ## Key State Files
 
-All under `~/.claude/channels/telegram/`:
+All under `~/.local/share/cbg/state/`:
 
 - `access.json` — allowlist, pairing codes, policies
 - `ipc.sock` — Unix socket for shim <-> server communication

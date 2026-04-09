@@ -10,7 +10,7 @@ allowed-tools:
 
 # /telegram:logs — Server Log Location
 
-The Telegram MCP server writes debug output to `~/claud_telegram.log`.
+The Telegram MCP server writes debug output to `~/.local/share/cbg/state/main.log`.
 
 Arguments passed: `$ARGUMENTS`
 
@@ -18,7 +18,7 @@ Arguments passed: `$ARGUMENTS`
 
 ## No args — show location and recent entries
 
-1. Tell the user the log path: `~/claud_telegram.log`
+1. Tell the user the log path: `~/.local/share/cbg/state/main.log`
 2. Show the line count (`wc -l`).
 3. Show the last 30 lines so the user can see recent activity.
 

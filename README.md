@@ -89,7 +89,7 @@ Config is stored at `~/.config/cbg/config.yaml`. Currently supported keys:
 telegram_bot_token: "123456789:AAH..."
 ```
 
-The bot token is also read from the legacy location (`~/.claude/channels/telegram/.env`) as a fallback.
+The bot token is also read from the legacy location (`~/.local/share/cbg/state/.env`) as a fallback.
 
 ## Architecture
 
@@ -99,7 +99,7 @@ See [CLAUDE.md](./CLAUDE.md) for the full architecture overview. The short versi
 - **`standalone-server.ts`** — Long-lived daemon owning the Telegram bot. Routes messages between Telegram and focused sessions.
 - **`mod.ts`** — CLI entry point for `cbg`.
 
-Communication uses newline-delimited JSON over `~/.claude/channels/telegram/ipc.sock`.
+Communication uses newline-delimited JSON over `~/.local/share/cbg/state/ipc.sock`.
 
 ## Tools Exposed to Claude
 
@@ -115,7 +115,7 @@ Communication uses newline-delimited JSON over `~/.claude/channels/telegram/ipc.
 
 ## Photos & Attachments
 
-Inbound photos are downloaded to `~/.claude/channels/telegram/inbox/` and the local path is included in the channel notification so Claude can `Read` it. Telegram compresses photos — send as a document (long-press, Send as File) for originals.
+Inbound photos are downloaded to `~/.local/share/cbg/state/inbox/` and the local path is included in the channel notification so Claude can `Read` it. Telegram compresses photos — send as a document (long-press, Send as File) for originals.
 
 Documents, voice messages, audio, video, video notes, and stickers are all supported — their `file_id` is passed in the channel metadata for download via `download_attachment`.
 

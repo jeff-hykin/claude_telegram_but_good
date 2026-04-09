@@ -11,7 +11,7 @@ allowed-tools:
 
 # /telegram:configure — Telegram Channel Setup
 
-Writes the bot token to `~/.claude/channels/telegram/.env` and orients the
+Writes the bot token to `~/.local/share/cbg/state/.env` and orients the
 user on access policy. The server reads both files at boot.
 
 Arguments passed: `$ARGUMENTS`
@@ -24,11 +24,11 @@ Arguments passed: `$ARGUMENTS`
 
 Read both state files and give the user a complete picture:
 
-1. **Token** — check `~/.claude/channels/telegram/.env` for
+1. **Token** — check `~/.local/share/cbg/state/.env` for
    `TELEGRAM_BOT_TOKEN`. Show set/not-set; if set, show first 10 chars masked
    (`123456789:...`).
 
-2. **Access** — read `~/.claude/channels/telegram/access.json` (missing file
+2. **Access** — read `~/.local/share/cbg/state/access.json` (missing file
    = defaults: `dmPolicy: "pairing"`, empty allowlist). Show:
    - DM policy and what it means in one line
    - Allowed senders: count, and list display names or IDs
@@ -74,10 +74,10 @@ offer.
 
 1. Treat `$ARGUMENTS` as the token (trim whitespace). BotFather tokens look
    like `123456789:AAH...` — numeric prefix, colon, long string.
-2. `mkdir -p ~/.claude/channels/telegram`
+2. `mkdir -p ~/.local/share/cbg/state`
 3. Read existing `.env` if present; update/add the `TELEGRAM_BOT_TOKEN=` line,
    preserve other keys. Write back, no quotes around the value.
-4. `chmod 600 ~/.claude/channels/telegram/.env` — the token is a credential.
+4. `chmod 600 ~/.local/share/cbg/state/.env` — the token is a credential.
 5. Confirm, then show the no-args status so the user sees where they stand.
 
 ### `clear` — remove the token

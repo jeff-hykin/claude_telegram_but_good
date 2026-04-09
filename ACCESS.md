@@ -4,7 +4,7 @@ A Telegram bot is publicly addressable. Anyone who finds its username can DM it,
 
 By default, a DM from an unknown sender triggers **pairing**: the bot replies with a 6-character code and drops the message. You run `/telegram:access pair <code>` from your assistant session to approve them. Once approved, their messages pass through.
 
-All state lives in `~/.claude/channels/telegram/access.json`. The `/telegram:access` skill commands edit this file; the server re-reads it on every inbound message, so changes take effect without a restart. Set `TELEGRAM_ACCESS_MODE=static` to pin config to what was on disk at boot (pairing is unavailable in static mode since it requires runtime writes).
+All state lives in `~/.local/share/cbg/state/access.json`. The `/telegram:access` skill commands edit this file; the server re-reads it on every inbound message, so changes take effect without a restart. Set `TELEGRAM_ACCESS_MODE=static` to pin config to what was on disk at boot (pairing is unavailable in static mode since it requires runtime writes).
 
 ## At a glance
 
@@ -14,7 +14,7 @@ All state lives in `~/.claude/channels/telegram/access.json`. The `/telegram:acc
 | Sender ID | Numeric user ID (e.g. `412587349`) |
 | Group key | Supergroup ID (negative, `-100…` prefix) |
 | `ackReaction` quirk | Fixed whitelist only; non-whitelisted emoji silently do nothing |
-| Config file | `~/.claude/channels/telegram/access.json` |
+| Config file | `~/.local/share/cbg/state/access.json` |
 
 ## DM policies
 
@@ -108,7 +108,7 @@ Configure outbound behavior with `/telegram:access set <key> <value>`.
 
 ## Config file
 
-`~/.claude/channels/telegram/access.json`. Absent file is equivalent to `pairing` policy with empty lists, so the first DM triggers pairing.
+`~/.local/share/cbg/state/access.json`. Absent file is equivalent to `pairing` policy with empty lists, so the first DM triggers pairing.
 
 ```jsonc
 {
