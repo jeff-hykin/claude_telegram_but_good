@@ -51,18 +51,9 @@ export const commands = {
     const senderId = String(ctx.from?.id)
     if (!access.allowFrom.includes(senderId)) return true
 
-    // Check for dtach, fall back to zellij/tmux
-    let launcher = null
-    try { execSync('which dtach', { stdio: 'ignore' }); launcher = 'dtach' } catch {}
-    if (!launcher) {
-      try { execSync('which zellij', { stdio: 'ignore' }); launcher = 'zellij' } catch {}
-    }
-    if (!launcher) {
-      try { execSync('which tmux', { stdio: 'ignore' }); launcher = 'tmux' } catch {}
-    }
-
-    if (!launcher) {
-      await ctx.reply('No session launcher found. Install dtach, zellij, or tmux.')
+    // Check for dtach
+    try { execSync('which dtach', { stdio: 'ignore' }) } catch {
+      await ctx.reply('dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach')
       return true
     }
 
@@ -70,7 +61,6 @@ export const commands = {
     const sessionId = state.generateName()
     const title = ctx.message?.text?.replace(/^\/spawn\s*/, '').trim() || undefined
 
-    const sessionName = `claude-${sessionId}`
     // Read permission args from config file
     let permArgs = ''
     try {
@@ -91,51 +81,23 @@ export const commands = {
         delete cleanEnv[key]
       }
     }
-    delete cleanEnv.ZELLIJ
-    delete cleanEnv.ZELLIJ_SESSION_NAME
 
     // Write pre-assigned session info for the new server to pick up on startup
     writeFileSync(join(stateDir, 'next_session.json'), JSON.stringify({
       id: sessionId,
       title: title || undefined,
-      dtachSocket: launcher === 'dtach' ? dtachSock : undefined,
+      dtachSocket: dtachSock,
     }))
 
     try {
-      if (launcher === 'dtach') {
-        // -n = create detached, -E = disable detach char, -z = disable suspend
-        execSync(
-          `dtach -n "${dtachSock}" -Ez script -q "${logFile}" bash -c 'cd "${home}" && ${claudeCmd}'`,
-          { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
-        )
-      } else if (launcher === 'zellij') {
-        const insideZellij = !!process.env.ZELLIJ
-        if (insideZellij) {
-          execSync(
-            `zellij run --cwd "${home}" -n "${sessionName}" -- bash -c '${claudeCmd}'`,
-            { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
-          )
-        } else {
-          execSync(
-            `zellij attach -b --create "${sessionName}"`,
-            { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
-          )
-          execSync(
-            `ZELLIJ_SESSION_NAME="${sessionName}" zellij run --cwd "${home}" -n "${sessionName}" -- bash -c '${claudeCmd}'`,
-            { env: cleanEnv, timeout: 5000, encoding: 'utf8', shell: true }
-          )
-        }
-      } else {
-        execSync(
-          `tmux new-session -d -s "${sessionName}" -c "${home}" '${claudeCmd}'`,
-          { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
-        )
-      }
+      // -n = create detached, -E = disable detach char, -z = disable suspend
+      execSync(
+        `dtach -n "${dtachSock}" -Ez script -q "${logFile}" bash -c 'cd "${home}" && ${claudeCmd}'`,
+        { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
+      )
 
-      // Watch for trust prompt and auto-accept it (dtach only)
-      if (launcher === 'dtach') {
-          watchForTrustPrompt(dtachSock, logFile)
-      }
+      // Watch for trust prompt and auto-accept it
+      watchForTrustPrompt(dtachSock, logFile)
 
       const displayTitle = title ? ` (${title})` : ''
       await ctx.reply(`Spawned: /chat_${sessionId}${displayTitle}`)
@@ -154,7 +116,7 @@ export const commands = {
         detail = String(err)
       }
       state.dbg('SPAWN', 'failed:', detail)
-      await ctx.reply(`Failed to spawn via ${launcher}:\n${detail}`)
+      await ctx.reply(`Failed to spawn via dtach:\n${detail}`)
     }
     return true
   },
