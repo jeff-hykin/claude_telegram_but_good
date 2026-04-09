@@ -1,0 +1,41 @@
+#!/usr/bin/env sh
+# Claude Code PreToolUse/PostToolUse hook.
+# Reads JSON from stdin and forwards it to the standalone server via IPC socket.
+
+SOCK="$HOME/.claude/channels/telegram/ipc.sock"
+LOG="$HOME/claud_telegram.log"
+
+# Read stdin
+INPUT=$(cat)
+
+# Extract fields with jq (if available) or fallback to basic parsing
+if command -v jq >/dev/null 2>&1; then
+    HOOK=$(echo "$INPUT" | jq -r '.hook_event_name // "unknown"')
+    TOOL=$(echo "$INPUT" | jq -r '.tool_name // "unknown"')
+    SESSION=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
+    INPUT_PREVIEW=$(echo "$INPUT" | jq -r '.tool_input | tostring' | head -c 200)
+    OUTPUT_PREVIEW=$(echo "$INPUT" | jq -r '.tool_response | tostring // ""' | head -c 200)
+    IS_ERROR=$(echo "$INPUT" | jq -r 'if .tool_response.error then "true" else "false" end')
+else
+    # Basic fallback without jq
+    HOOK=$(echo "$INPUT" | grep -o '"hook_event_name":"[^"]*"' | cut -d'"' -f4)
+    TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | cut -d'"' -f4)
+    SESSION=$(echo "$INPUT" | grep -o '"session_id":"[^"]*"' | cut -d'"' -f4)
+    INPUT_PREVIEW=""
+    OUTPUT_PREVIEW=""
+    IS_ERROR="false"
+fi
+
+# Log for debugging
+echo "[HOOK $(date -Iseconds)] hook=$HOOK tool=$TOOL session=$SESSION" >> "$LOG"
+
+# Send to the server via IPC socket if it exists
+if [ -S "$SOCK" ]; then
+    # Build JSON message — escape quotes in previews
+    INPUT_ESC=$(echo "$INPUT_PREVIEW" | sed 's/"/\\"/g' | tr -d '\n')
+    OUTPUT_ESC=$(echo "$OUTPUT_PREVIEW" | sed 's/"/\\"/g' | tr -d '\n')
+
+    printf '{"type":"hook_event","sessionId":"%s","hook":"%s","tool_name":"%s","input_preview":"%s","output_preview":"%s","is_error":%s}\n' \
+        "$SESSION" "$HOOK" "$TOOL" "$INPUT_ESC" "$OUTPUT_ESC" "$IS_ERROR" \
+        | socat - UNIX-CONNECT:"$SOCK" 2>/dev/null || true
+fi
