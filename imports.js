@@ -42,3 +42,19 @@ export { colors } from "https://esm.sh/jsr/@cliffy/ansi@1.0.0/colors"
 
 // === timeago ===
 export { format as timeago } from "https://esm.sh/timeago.js@4.0.2"
+
+// === helpers ===
+
+/**
+ * Resolve a sibling path relative to a module's import.meta.url.
+ * Works for both file: (local) and https: (remote/URL-installed) modules.
+ *
+ * Usage: sibling(import.meta, "../standalone-server.js")
+ */
+export function sibling(meta, relativePath) {
+    const resolved = new URL(relativePath, meta.url)
+    if (resolved.protocol === "file:") {
+        return fromFileUrl(resolved)
+    }
+    return resolved.href
+}

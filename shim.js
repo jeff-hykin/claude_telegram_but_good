@@ -12,7 +12,7 @@
 import {
     McpServer, StdioServerTransport,
     ListToolsRequestSchema, CallToolRequestSchema,
-    join, fromFileUrl,
+    join, sibling,
 } from "./imports.js"
 import {
     IPC_SOCK, STATE_DIR, STOPPED_FILE,
@@ -46,8 +46,7 @@ const HOME = Deno.env.get("HOME")
 
 const PLUGIN_VERSION = (() => {
     try {
-        const dir = import.meta.dirname ?? fromFileUrl(new URL(".", import.meta.url))
-        return JSON.parse(Deno.readTextFileSync(join(dir, ".claude-plugin", "plugin.json"))).version
+        return JSON.parse(Deno.readTextFileSync(sibling(import.meta, ".claude-plugin/plugin.json"))).version
     } catch {
         return "unknown"
     }
@@ -374,10 +373,7 @@ async function ensureServerRunning() {
 
     if (weStarted) {
         dbg("SHIM", "starting standalone server...")
-        const serverScript = join(
-            import.meta.dirname ?? fromFileUrl(new URL(".", import.meta.url)),
-            "standalone-server.js",
-        )
+        const serverScript = sibling(import.meta, "standalone-server.js")
         const child = new Deno.Command("deno", {
             args: ["run", "-A", serverScript],
             stdout: "null",

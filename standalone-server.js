@@ -10,7 +10,7 @@
  * - Manages PID file for lifecycle management
  */
 
-import { Bot, GrammyError, InlineKeyboard, join, fromFileUrl } from "./imports.js"
+import { Bot, GrammyError, InlineKeyboard, join, sibling } from "./imports.js"
 import {
     STATE_DIR, IPC_SOCK, PID_FILE, INBOX_DIR,
     sendIpc, parseIpcMessages, dbg,
@@ -47,8 +47,7 @@ function execSync(cmd) {
 
 const PLUGIN_VERSION = (() => {
     try {
-        const dir = import.meta.dirname ?? fromFileUrl(new URL(".", import.meta.url))
-        return JSON.parse(Deno.readTextFileSync(join(dir, ".claude-plugin", "plugin.json"))).version
+        return JSON.parse(Deno.readTextFileSync(sibling(import.meta, ".claude-plugin/plugin.json"))).version
     } catch {
         return "unknown"
     }
@@ -150,7 +149,7 @@ const toolExecutor = createToolExecutor(
 )
 
 // === Commands ===
-const COMMANDS_DIR = join(import.meta.dirname ?? fromFileUrl(new URL(".", import.meta.url)), "commands")
+const COMMANDS_DIR = sibling(import.meta, "commands")
 const CUSTOM_COMMANDS_DIR = join(HOME, ".claude", "telegram", "custom_commands")
 
 function getCommandState() {
