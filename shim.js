@@ -15,7 +15,7 @@ import {
     join, fromFileUrl,
 } from "./imports.js"
 import {
-    IPC_SOCK, STATE_DIR,
+    IPC_SOCK, STATE_DIR, STOPPED_FILE,
     sendIpc, parseIpcMessages, dbg,
 } from "./lib/protocol.js"
 import { getBotToken } from "./lib/config.js"
@@ -335,6 +335,15 @@ async function connectToServer() {
     return await Deno.connect({ transport: "unix", path: IPC_SOCK })
 }
 
+function isServerStopped() {
+    try {
+        Deno.statSync(STOPPED_FILE)
+        return true
+    } catch {
+        return false
+    }
+}
+
 async function ensureServerRunning() {
     // Try to connect to an existing server
     try {
@@ -343,6 +352,12 @@ async function ensureServerRunning() {
         return
     } catch {
         // Server not running
+    }
+
+    // Don't spawn if user explicitly stopped the server via `cbg stop`
+    if (isServerStopped()) {
+        dbg("SHIM", "server.stopped file present, not spawning")
+        return
     }
 
     // Use a lock file to prevent multiple shims from starting servers simultaneously
@@ -427,11 +442,15 @@ async function setupConnection() {
 
         dbg("SHIM", "server connection lost")
         serverConn = null
-        setTimeout(() => {
-            setupConnection().catch(err => {
-                dbg("SHIM", "reconnection failed:", err)
-            })
-        }, 2000)
+        if (!isServerStopped()) {
+            setTimeout(() => {
+                setupConnection().catch(err => {
+                    dbg("SHIM", "reconnection failed:", err)
+                })
+            }, 2000)
+        } else {
+            dbg("SHIM", "server.stopped file present, not reconnecting")
+        }
     }
 
     readLoop()

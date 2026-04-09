@@ -8,7 +8,7 @@ import { readConfig, getConfig, setConfig } from "./lib/config.js"
 import { startService, stopService, restartService, serviceStatus } from "./lib/daemon.js"
 import { createSession, attachSession, listDtachSockets } from "./lib/dtach.js"
 import { onboard, isOnboarded } from "./lib/onboard.js"
-import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE } from "./lib/protocol.js"
+import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE, STOPPED_FILE, STATE_DIR } from "./lib/protocol.js"
 import { configPath, configDir } from "./lib/config.js"
 import { removeShim } from "./lib/shim.js"
 
@@ -65,6 +65,8 @@ switch (cmd) {
 
     case "start": {
         await ensureOnboarded()
+        // Clear the stopped flag so shims can spawn/reconnect
+        try { Deno.removeSync(STOPPED_FILE) } catch { /* ignore */ }
         console.log(c.dim("  Starting cbg daemon..."))
         const out = startService()
         if (out.trim()) {
@@ -76,16 +78,36 @@ switch (cmd) {
 
     case "stop": {
         console.log(c.dim("  Stopping cbg daemon..."))
+
+        // Signal shims to not respawn the server
+        Deno.mkdirSync(STATE_DIR, { recursive: true })
+        Deno.writeTextFileSync(STOPPED_FILE, String(Date.now()))
+
+        // Stop the systemd/launchd service
         const out = stopService()
         if (out.trim()) {
             console.log(c.dim("  " + out.trim()))
         }
-        console.log(c.green("  \u2714 Done."))
+
+        // Kill the server by PID
+        try {
+            const pidStr = Deno.readTextFileSync(PID_FILE).trim()
+            const pid = parseInt(pidStr)
+            if (pid > 0) {
+                new Deno.Command("kill", { args: [String(pid)], stdout: "null", stderr: "null" }).outputSync()
+            }
+        } catch {
+            // not running
+        }
+
+        console.log(c.green("  \u2714 Stopped. Shims will not respawn the server."))
+        console.log(c.dim("  Run ") + c.white("cbg start") + c.dim(" to resume."))
         break
     }
 
     case "restart": {
         await ensureOnboarded()
+        try { Deno.removeSync(STOPPED_FILE) } catch { /* ignore */ }
         console.log(c.dim("  Restarting cbg daemon..."))
         const out = restartService()
         if (out.trim()) {
