@@ -40,6 +40,7 @@ export const commands = {
     const home = state.homedir()
     const stateDir = join(state.homedir(), '.claude', 'channels', 'telegram')
     const dtachSock = join(stateDir, `dtach-${sessionId}.sock`)
+    const logFile = join(stateDir, `dtach-${sessionId}.log`)
 
     // Strip env vars that would confuse the child Claude session
     const cleanEnv = { ...process.env }
@@ -62,7 +63,7 @@ export const commands = {
       if (launcher === 'dtach') {
         // -n = create detached, -E = disable detach char, -z = disable suspend
         execSync(
-          `dtach -n "${dtachSock}" -Ez bash -c 'cd "${home}" && ${claudeCmd}'`,
+          `dtach -n "${dtachSock}" -Ez script -q "${logFile}" bash -c 'cd "${home}" && ${claudeCmd}'`,
           { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
         )
       } else if (launcher === 'zellij') {
