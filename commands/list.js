@@ -42,15 +42,15 @@ function sessionBlock(s, { shortPath, isActive }) {
     } else {
         lines.push(`  \u2022 \uD83D\uDCC2 dir: \`${esc(sp)}\``)
     }
-    if (s.lastReply) {
-        const preview = s.lastReply.length > 80
-            ? s.lastReply.slice(0, 77) + '\\.\\.\\.'
-            : s.lastReply
-        lines.push(`  \u2022 \uD83D\uDCAC ${esc(preview)}`)
+    if (s.recentMessages && s.recentMessages.length > 0) {
+        for (const msg of s.recentMessages) {
+            const icon = msg.role === "bot" ? "\uD83E\uDD16" : "\uD83D\uDDE3"
+            lines.push(`  ${icon} _${esc(msg.text)}_`)
+        }
     }
 
     // Chat command at the bottom
-    lines.push(`  \u2022 /chat\\_${s.id}`)
+    lines.push(`  \u2022 /chat\\_${esc(s.id)}`)
 
     return lines.join('\n')
 }

@@ -196,12 +196,31 @@ loadCommands(COMMANDS_DIR, CUSTOM_COMMANDS_DIR).catch(() => {})
 
 // === Message delivery ===
 
+function truncMsg(text, max = 50) {
+    if (text.length <= max) {
+        return text
+    }
+    return text.slice(0, max - 3) + "..."
+}
+
+function pushRecentMessage(session, role, text) {
+    if (!session.info.recentMessages) {
+        session.info.recentMessages = []
+    }
+    session.info.recentMessages.push({ role, text: truncMsg(text) })
+    // Keep only the last 2
+    if (session.info.recentMessages.length > 2) {
+        session.info.recentMessages.shift()
+    }
+}
+
 function deliverToSession(sessionId, content, meta) {
     const session = sessions.get(sessionId)
     if (!session) {
         return false
     }
     session.info.lastActive = Date.now()
+    pushRecentMessage(session, "human", content)
     sendIpc(session.conn, { type: "channel_event", content, meta })
     return true
 }
@@ -228,6 +247,7 @@ function deliverToFocused(content, meta) {
         return deliverToFocused(content, meta)
     }
     session.info.lastActive = Date.now()
+    pushRecentMessage(session, "human", content)
     sendIpc(session.conn, { type: "channel_event", content, meta })
     return true
 }
@@ -365,10 +385,8 @@ function handleShimMessage(conn, msg) {
                     const session = sessions.get(sessionId)
                     if (session) {
                         const raw = args.text ?? ""
-                        const stripped = raw.replace(/^\/chat_[a-z0-9_-]+\n/, "")
-                        session.info.lastReply = stripped.length > 120
-                            ? stripped.slice(0, 117) + "..."
-                            : stripped
+                        const stripped = raw.replace(/^\/chat_[a-zA-Z0-9_]+\n/, "")
+                        pushRecentMessage(session, "bot", stripped)
                     }
                 }
 
