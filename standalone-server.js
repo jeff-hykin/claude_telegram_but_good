@@ -762,7 +762,7 @@ bot.on("message:text", async (ctx) => {
     dbg("EVENT", "message:text received:", text, "from:", ctx.from?.id)
 
     // /switch_<id> or /chat_<id>
-    const switchMatch = /^\/(?:switch|chat)_([a-zA-Z0-9_]+)$/i.exec(text)
+    const switchMatch = /^\/(?:switch|chat)_([a-zA-Z0-9_]+)/i.exec(text)
     if (switchMatch) {
         const access = loadAccess(BOOT_ACCESS)
         const senderId = String(ctx.from?.id)
@@ -770,7 +770,7 @@ bot.on("message:text", async (ctx) => {
             return
         }
 
-        const targetId = switchMatch[1].toLowerCase()
+        const targetId = switchMatch[1]
         const sessionList = allSessions()
         const target = sessionList.find(s => s.id === targetId)
         if (!target) {
