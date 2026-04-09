@@ -3,11 +3,11 @@
  * cbg — CLI for Claude Telegram Bot (claude_telegram_but_good)
  */
 
-import { stringifyYaml, Select, Confirm, colors, join, sibling } from "./imports.js"
+import { stringifyYaml, Select, Confirm, colors, join } from "./imports.js"
 import { readConfig, getConfig, setConfig } from "./lib/config.js"
 import { startService, stopService, restartService, serviceStatus } from "./lib/daemon.js"
 import { createSession, attachSession, listDtachSockets } from "./lib/dtach.js"
-import { onboard, isOnboarded } from "./lib/onboard.js"
+import { onboard, isOnboarded, installAndSymlinkPlugin } from "./lib/onboard.js"
 import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE, STOPPED_FILE, STATE_DIR } from "./lib/protocol.js"
 import { configPath, configDir } from "./lib/config.js"
 import { installShim, removeShim, isShimInstalled } from "./lib/shim.js"
@@ -43,6 +43,7 @@ function printUsage() {
         ["config",           "Print all config as YAML"],
         ["config <key>",     "Print a single config value"],
         ["config <key> <v>", "Set a config value (value is YAML-parsed)"],
+        ["authorize",        "Generate a one-time pairing code for a new user"],
         ["reinstall",        "Stop, re-symlink plugin + reshim, start"],
         ["uninstall",        "Stop services and remove the claude shim"],
     ]
@@ -239,6 +240,21 @@ switch (cmd) {
         break
     }
 
+    case "authorize": {
+        const otp = Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("")
+        const otpFile = join(STATE_DIR, "pending_otp.json")
+        Deno.mkdirSync(STATE_DIR, { recursive: true })
+        Deno.writeTextFileSync(otpFile, JSON.stringify({ code: otp }))
+        console.log()
+        console.log(c.bold.white("  Pairing code generated."))
+        console.log()
+        console.log(c.dim("  Have the new user send this to your bot on Telegram:"))
+        console.log()
+        console.log(c.bold.cyan(`    /approve_user one_time_password:${otp}`))
+        console.log()
+        break
+    }
+
     case "reinstall": {
         const HOME = Deno.env.get("HOME")
         console.log()
@@ -261,41 +277,19 @@ switch (cmd) {
         } catch { /* not running */ }
         console.log(c.green("  \u2714 Daemon stopped."))
 
-        // Re-symlink plugin (both cache and marketplace source)
-        console.log(c.dim("  Re-symlinking plugin..."))
-        const pluginSrcDir = sibling(import.meta, ".")
-
-        // Symlink cache dir
-        const cacheBase = join(HOME, ".claude", "plugins", "cache", "claude-plugins-official", "telegram")
-        try {
-            for (const entry of Deno.readDirSync(cacheBase)) {
-                const cachePath = join(cacheBase, entry.name)
-                try { Deno.removeSync(cachePath, { recursive: true }) } catch { /* ignore */ }
-                Deno.symlinkSync(pluginSrcDir, cachePath)
-            }
-            console.log(c.green("  \u2714 Plugin cache symlinked."))
-        } catch (err) {
-            console.log(c.yellow("  \u26A0 Plugin cache symlink failed: " + err))
-        }
-
-        // Symlink marketplace source dir
-        const pluginDir = join(
-            HOME, ".claude", "plugins", "marketplaces",
-            "claude-plugins-official", "external_plugins", "telegram",
-        )
-        try {
-            try { Deno.removeSync(pluginDir, { recursive: true }) } catch { /* ignore */ }
-            Deno.mkdirSync(join(pluginDir, ".."), { recursive: true })
-            Deno.symlinkSync(pluginSrcDir, pluginDir)
-            console.log(c.green("  \u2714 Plugin source symlinked."))
-        } catch (err) {
-            console.log(c.yellow("  \u26A0 Plugin source symlink failed: " + err))
+        // Reinstall plugin via Claude CLI, then symlink over the result
+        console.log(c.dim("  Reinstalling plugin..."))
+        const pluginResult = installAndSymlinkPlugin()
+        if (pluginResult.ok) {
+            console.log(c.green("  \u2714 Plugin symlinked."))
+        } else {
+            console.log(c.yellow("  \u26A0 " + pluginResult.error))
         }
 
         // Update hook script
         console.log(c.dim("  Updating hook script..."))
         const hookDst = join(HOME, ".claude", "channels", "telegram", "bin", "hook")
-        const hookSrc = sibling(import.meta, "run/hook")
+        const hookSrc = join(HOME, ".local", "share", "cbg", "plugin", "run", "hook")
         try {
             Deno.mkdirSync(join(hookDst, ".."), { recursive: true })
             Deno.writeTextFileSync(hookDst, Deno.readTextFileSync(hookSrc))
