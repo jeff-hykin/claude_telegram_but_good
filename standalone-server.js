@@ -666,8 +666,8 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
         ).catch(() => {})
     } else {
         const tip = getRandomTip()
-        const tipText = tip ? `\n_${tip}_` : ""
-        bot.api.sendMessage(chat_id, `working on it${tipText}`, { parse_mode: "Markdown" }).catch(() => {})
+        const tipText = tip ? `\n_did you know: ${tip}_` : ""
+        bot.api.sendMessage(chat_id, `💬 thinkin${tipText}`, { parse_mode: "Markdown" }).catch(() => {})
     }
 }
 

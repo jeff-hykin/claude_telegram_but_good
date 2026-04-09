@@ -1,5 +1,9 @@
 import { execSync } from 'node:child_process'
 
+export const tips = [
+    "use /cancel to stop the current request",
+]
+
 export const commands = {
   cancel: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

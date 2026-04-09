@@ -1,5 +1,7 @@
 import { recordMessage } from './_shared.js'
 
+export const tips = []
+
 export const commands = {
   // Called on every inbound text message (before command dispatch)
   __onMessage: async (ctx, bot, state) => {

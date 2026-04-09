@@ -2,6 +2,12 @@ import { execSync } from 'node:child_process'
 import { writeFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+export const tips = [
+    "/spawn <name> gives your session a title so it's easy to find later.",
+    "Sessions launched with /spawn run headless — use /peek to see what they're doing.",
+    "Spawned sessions can be re-attached from the terminal with `cbg resume` when you're back at your computer.",
+]
+
 export const commands = {
   spawn: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

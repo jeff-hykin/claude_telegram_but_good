@@ -23,8 +23,17 @@ try {
     hook = data.hook_event_name ?? "unknown"
     tool = data.tool_name ?? "unknown"
     session = data.session_id ?? "unknown"
-    inputPreview = JSON.stringify(data.tool_input ?? "").slice(0, 200)
-    outputPreview = JSON.stringify(data.tool_response ?? "").slice(0, 200)
+    // Extract key fields for formatting, keep it small but parseable
+    const ti = data.tool_input ?? {}
+    const compact = {}
+    if (ti.file_path) { compact.file_path = ti.file_path }
+    if (ti.command) { compact.command = String(ti.command).slice(0, 300) }
+    if (ti.description) { compact.description = String(ti.description).slice(0, 100) }
+    if (ti.pattern) { compact.pattern = String(ti.pattern).slice(0, 100) }
+    if (ti.path) { compact.path = ti.path }
+    if (ti.prompt) { compact.prompt = String(ti.prompt).slice(0, 200) }
+    inputPreview = JSON.stringify(compact)
+    outputPreview = JSON.stringify(data.tool_response ?? "").slice(0, 300)
     isError = !!data.tool_response?.error
 } catch (e) {
     log(`JSON parse failed: ${e instanceof Error ? e.message : String(e)}`)

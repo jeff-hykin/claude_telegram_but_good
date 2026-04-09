@@ -1,5 +1,9 @@
 import { shared } from './_shared.js'
 
+export const tips = [
+    "/pause suspends the whole claude process — it won't use resources until you /resume.",
+]
+
 const pausedSessions = shared.pausedSessions
 
 export const commands = {

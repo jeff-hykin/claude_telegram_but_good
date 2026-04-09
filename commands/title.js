@@ -1,6 +1,11 @@
 import { execSync } from 'node:child_process'
 import { shared } from './_shared.js'
 
+export const tips = [
+    "/title without any argument will auto-generate a title",
+    "use /title <name> to label your claude sessions",
+]
+
 function autoTitle(session) {
   const parts = []
   const dirName = session.cwd.split('/').filter(Boolean).pop() || session.cwd

@@ -1,3 +1,5 @@
+export const tips = []
+
 export const commands = {
   start: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

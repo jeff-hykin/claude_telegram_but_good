@@ -1,3 +1,7 @@
+export const tips = [
+    "/cron shows all scheduled tasks — set them up with the /schedule skill.",
+]
+
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 

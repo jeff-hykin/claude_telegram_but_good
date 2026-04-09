@@ -1,3 +1,13 @@
+export const tips = [
+    "Claude can send you whole files, even massive ones",
+    "You attach files and claude will see them",
+    "Send a photo and Claude will see it — great for screenshots of errors.",
+    "You can run multiple sessions at once and switch between them with /list.",
+    "Use `claude --no-tele` to start a session that's hidden from Telegram.",
+    "cbg resume lets you attach to a running session from the terminal.",
+    "if there's a bug in this tool, tell claude to use cbg reinstall after fixing it",
+]
+
 export const commands = {
   help: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

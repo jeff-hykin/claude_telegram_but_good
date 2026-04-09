@@ -1,5 +1,7 @@
 import { execSync } from 'node:child_process'
 
+export const tips = []
+
 function listClaudeSessions() {
   try {
     const raw = execSync('ps aux', { encoding: 'utf8', timeout: 5000 })

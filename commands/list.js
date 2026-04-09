@@ -1,5 +1,11 @@
 import { shared } from './_shared.js'
 
+export const tips = [
+    "Tap a session ID from /list to switch to it.",
+    "Reply to a /chat_<id> message to talk to that session without switching focus.",
+    "Telegram-replying to a message will always send the response to the session it came from (even if its not your currently-active session)",
+]
+
 // MarkdownV2 requires escaping these characters
 function esc(s) {
     return s.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1')
