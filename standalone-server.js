@@ -665,9 +665,20 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
             "No sessions connected. Use /spawn <name> to start a new one."
         ).catch(() => {})
     } else {
+        const verbs = [
+            "Pondering", "Cogitating", "Ruminating", "Deliberating", "Musing",
+            "Contemplating", "Noodling", "Percolating", "Brainstorming", "Scheming",
+            "Theorizing", "Hypothesizing", "Marinating", "Gestating", "Fermenting",
+            "Synthesizing", "Extrapolating", "Interpolating", "Confabulating", "Philosophizing",
+            "Introspecting", "Daydreaming", "Woolgathering", "Spit-balling", "Riffing",
+            "Ideating", "Cerebrating", "Meditating", "Mulling", "Stewing",
+            "Perambulating", "Galvanizing", "Concocting", "Tinkering", "Whittling",
+            "Excavating", "Deciphering", "Untangling", "Spelunking", "Cartographing",
+        ]
+        const verb = verbs[Math.floor(Math.random() * verbs.length)]
         const tip = getRandomTip()
-        const tipText = tip ? `\n_did you know: ${tip}_` : ""
-        bot.api.sendMessage(chat_id, `💬 thinkin${tipText}`, { parse_mode: "Markdown" }).catch(() => {})
+        const tipText = tip ? `\n_${tip}_` : ""
+        bot.api.sendMessage(chat_id, `_${verb}..._${tipText}`, { parse_mode: "Markdown" }).catch(() => {})
     }
 }
 
