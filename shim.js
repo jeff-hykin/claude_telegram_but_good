@@ -21,6 +21,7 @@ import {
 import { getBotToken } from "./lib/config.js"
 import { generateName } from "./lib/names.js"
 
+
 function randomHex(bytes) {
     const arr = new Uint8Array(bytes)
     crypto.getRandomValues(arr)

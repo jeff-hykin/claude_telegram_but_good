@@ -671,7 +671,7 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
             "Theorizing", "Hypothesizing", "Marinating", "Gestating", "Fermenting",
             "Synthesizing", "Extrapolating", "Interpolating", "Confabulating", "Philosophizing",
             "Introspecting", "Daydreaming", "Woolgathering", "Spit-balling", "Riffing",
-            "Ideating", "Cerebrating", "Meditating", "Mulling", "Stewing",
+            "Ideating", "Cerebrating", "Meditating", "Mulling", "Stewing", "Elucidating",
             "Perambulating", "Galvanizing", "Concocting", "Tinkering", "Whittling",
             "Excavating", "Deciphering", "Untangling", "Spelunking", "Cartographing",
         ]

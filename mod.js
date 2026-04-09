@@ -261,20 +261,35 @@ switch (cmd) {
         } catch { /* not running */ }
         console.log(c.green("  \u2714 Daemon stopped."))
 
-        // Re-symlink plugin
+        // Re-symlink plugin (both cache and marketplace source)
         console.log(c.dim("  Re-symlinking plugin..."))
+        const pluginSrcDir = sibling(import.meta, ".")
+
+        // Symlink cache dir
+        const cacheBase = join(HOME, ".claude", "plugins", "cache", "claude-plugins-official", "telegram")
+        try {
+            for (const entry of Deno.readDirSync(cacheBase)) {
+                const cachePath = join(cacheBase, entry.name)
+                try { Deno.removeSync(cachePath, { recursive: true }) } catch { /* ignore */ }
+                Deno.symlinkSync(pluginSrcDir, cachePath)
+            }
+            console.log(c.green("  \u2714 Plugin cache symlinked."))
+        } catch (err) {
+            console.log(c.yellow("  \u26A0 Plugin cache symlink failed: " + err))
+        }
+
+        // Symlink marketplace source dir
         const pluginDir = join(
             HOME, ".claude", "plugins", "marketplaces",
             "claude-plugins-official", "external_plugins", "telegram",
         )
-        const pluginSrcDir = sibling(import.meta, ".")
         try {
             try { Deno.removeSync(pluginDir, { recursive: true }) } catch { /* ignore */ }
             Deno.mkdirSync(join(pluginDir, ".."), { recursive: true })
             Deno.symlinkSync(pluginSrcDir, pluginDir)
-            console.log(c.green("  \u2714 Plugin symlinked."))
+            console.log(c.green("  \u2714 Plugin source symlinked."))
         } catch (err) {
-            console.log(c.yellow("  \u26A0 Plugin symlink failed: " + err))
+            console.log(c.yellow("  \u26A0 Plugin source symlink failed: " + err))
         }
 
         // Update hook script

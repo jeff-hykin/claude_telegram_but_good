@@ -69,7 +69,7 @@ export const commands = {
       if (launcher === 'dtach') {
         // -n = create detached, -E = disable detach char, -z = disable suspend
         execSync(
-          `dtach -n "${dtachSock}" -Ez script -q "${logFile}" bash -c 'cd "${home}" && ${claudeCmd}'`,
+          `dtach -n "${dtachSock}" -Ez bash -c 'cd "${home}" && ${claudeCmd}'`,
           { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
         )
       } else if (launcher === 'zellij') {
