@@ -25,7 +25,7 @@ function sessionBlock(s, { shortPath, isActive }) {
 
     // Title
     const title = shared.titles.get(s.id) || s.title || s.id
-    const marker = isActive ? " \u25B6" : ""
+    const marker = isActive ? " [active]" : ""
     lines.push(`<b>${esc(title)}${marker}</b>`)
 
     // Details as a bullet list with emojis
@@ -49,8 +49,7 @@ function sessionBlock(s, { shortPath, isActive }) {
     }
 
     // Chat command at the bottom
-    const label = isActive ? " (active)" : ""
-    lines.push(`/chat_${s.id}${label}`)
+    lines.push(`/chat_${s.id}`)
 
     return lines.join('\n')
 }
