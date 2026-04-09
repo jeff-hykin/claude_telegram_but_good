@@ -12,6 +12,7 @@ This is a Telegram channel plugin for Claude Code, implemented as a Deno project
 - No semicolons
 - All `if`/`for` bodies use braces
 - Prefer `for...of` and `for...in` over C-style `for`
+- Never silently swallow errors. `catch { /* ignore */ }` and `.catch(() => {})` are unacceptable — always log via `dbg()` so failures are diagnosable. Use `catch (e) { dbg("LABEL", "what failed:", e) }` instead.
 
 ## Entry Points
 
