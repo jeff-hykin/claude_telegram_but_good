@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# Claude Code PreToolUse/PostToolUse hook
+
+# make sure deno is on the path for the hook
+export PATH="$PATH:$HOME/.deno/bin/deno"
+# if you change this also change protocol.js LOCAL_REPO
+exec deno run -A "$HOME/.local/share/cbg/plugin/lib/hook.js"

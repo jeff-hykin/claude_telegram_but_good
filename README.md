@@ -18,7 +18,7 @@ I made this fork of the offical telegram support cause my team and I were annoye
 ```sh
 # Install deno if you don't have it
 curl -fsSL https://deno.land/install.sh | sh
-
+export PATH="$PATH:$HOME/.deno/bin/deno"
 # Install the `cbg` command
 deno install -Agfr -n cbg https://raw.githubusercontent.com/jeff-hykin/claude_telegram_but_good/refs/heads/master/mod.js
 

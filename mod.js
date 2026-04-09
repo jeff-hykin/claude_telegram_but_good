@@ -8,7 +8,7 @@ import { readConfig, getConfig, setConfig } from "./lib/config.js"
 import { startService, stopService, restartService, serviceStatus } from "./lib/daemon.js"
 import { createSession, attachSession, listDtachSockets } from "./lib/dtach.js"
 import { onboard, isOnboarded, installAndSymlinkPlugin, generateHookScript } from "./lib/onboard.js"
-import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE, STOPPED_FILE, STATE_DIR } from "./lib/protocol.js"
+import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE, STOPPED_FILE, STATE_DIR, LOCAL_REPO, HOOK_PATH } from "./lib/protocol.js"
 import { configPath, configDir } from "./lib/config.js"
 import { installShim, removeShim, isShimInstalled } from "./lib/shim.js"
 
@@ -274,17 +274,24 @@ switch (cmd) {
             console.log(c.yellow("  \u26A0 " + pluginResult.error))
         }
 
-        // Update hook script
-        console.log(c.dim("  Updating hook script..."))
-        const hookDst = join(HOME, ".claude", "channels", "telegram", "bin", "hook")
-        const hookJsPath = join(HOME, ".local", "share", "cbg", "plugin", "lib", "hook.js")
+        // Update hook path in settings.json
+        console.log(c.dim("  Updating hook path..."))
         try {
-            Deno.mkdirSync(join(hookDst, ".."), { recursive: true })
-            Deno.writeTextFileSync(hookDst, generateHookScript(hookJsPath))
-            Deno.chmodSync(hookDst, 0o755)
-            console.log(c.green("  \u2714 Hook updated."))
+            const settingsPath = join(HOME, ".claude", "settings.json")
+            const settings = JSON.parse(Deno.readTextFileSync(settingsPath))
+            for (const event of ["PreToolUse", "PostToolUse"]) {
+                for (const matcher of (settings.hooks?.[event] ?? [])) {
+                    for (const h of (matcher.hooks ?? [])) {
+                        if (h.command && h.command !== HOOK_PATH && h.command.includes("hook")) {
+                            h.command = HOOK_PATH
+                        }
+                    }
+                }
+            }
+            Deno.writeTextFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n")
+            console.log(c.green("  \u2714 Hook path updated."))
         } catch (err) {
-            console.log(c.yellow("  \u26A0 Hook update failed: " + err))
+            console.log(c.yellow("  \u26A0 Hook path update failed: " + err))
         }
 
         // Reinstall shim
