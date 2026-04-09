@@ -622,6 +622,33 @@ bot.on("callback_query:data", async (ctx) => {
             return
         }
         pendingCommandErrors.delete(errorId)
+
+        // Immediately acknowledge
+        await ctx.answerCallbackQuery({ text: "Fixing! One moment..." }).catch(() => {})
+        const cbMsg = ctx.callbackQuery.message
+        if (cbMsg && "text" in cbMsg && cbMsg.text) {
+            await ctx.editMessageText(`${cbMsg.text}\n\n\uD83D\uDD27 Sending to Claude for debugging...`).catch(() => {})
+        }
+
+        // If no session is connected, spawn one
+        if (sessions.size === 0) {
+            const spawnHandler = getHotCommands().get("spawn")
+            if (spawnHandler) {
+                try {
+                    await spawnHandler(ctx, bot, getCommandState())
+                } catch (e) {
+                    dbg("CMDERR", "failed to auto-spawn session:", e)
+                }
+                // Wait for the session to register
+                for (let i = 0; i < 20; i++) {
+                    if (sessions.size > 0) {
+                        break
+                    }
+                    await new Promise(r => setTimeout(r, 500))
+                }
+            }
+        }
+
         let isCustom = false
         try {
             Deno.statSync(join(HOME, ".claude", "telegram", "custom_commands", errInfo.cmdName + ".js"))
@@ -646,11 +673,9 @@ bot.on("callback_query:data", async (ctx) => {
             user: ctx.from.username ?? String(ctx.from.id),
             user_id: String(ctx.from.id),
         }
-        deliverToFocused(debugMsg, meta)
-        await ctx.answerCallbackQuery({ text: "Sent to Claude for debugging." }).catch(() => {})
-        const msg = ctx.callbackQuery.message
-        if (msg && "text" in msg && msg.text) {
-            await ctx.editMessageText(`${msg.text}\n\n\uD83D\uDD27 Sent to Claude for debugging.`).catch(() => {})
+        const delivered = deliverToFocused(debugMsg, meta)
+        if (!delivered) {
+            await bot.api.sendMessage(chat_id, "Could not deliver to a Claude session. Try /spawn first, then click the fix button again.").catch(() => {})
         }
         return
     }
