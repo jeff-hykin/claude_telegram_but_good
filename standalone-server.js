@@ -19,11 +19,12 @@ import {
     loadAccess, readAccessFile, saveAccess, gate, checkApprovals,
     assertAllowedChat,
 } from "./lib/access.js"
-import { loadCommands, getHotCommands } from "./lib/commands.js"
+import { loadCommands, getHotCommands, getRandomTip } from "./lib/commands.js"
 import { createToolExecutor } from "./lib/telegram-api.js"
 import {
     formatPreToolUse, formatPostToolUse,
     setActiveToolMessage, getActiveToolMessage, clearActiveToolMessage,
+    getLastHookMessage, setLastHookMessage, clearLastHookMessage,
 } from "./lib/hooks.js"
 import { getBotToken } from "./lib/config.js"
 import { generateName } from "./lib/names.js"
@@ -423,18 +424,50 @@ function handleShimMessage(conn, msg) {
 // === Hook event handling ===
 
 async function handleHookEvent(msg) {
+    // Only show hooks from the focused session
+    if (msg.sessionId !== focusedSessionId) return
+
     const access = loadAccess(BOOT_ACCESS)
     const sessionTitle = getSessionTitle(msg.sessionId)
+
+    const MD = { parse_mode: "Markdown" }
+
+    async function sendOrEdit(chat_id, text) {
+        const last = getLastHookMessage(chat_id)
+        // Try to append to the last hook message if same session and under limit
+        if (last && last.sessionId === msg.sessionId) {
+            const combined = last.text + "\n" + text
+            if (combined.length < 3000) {
+                try {
+                    await bot.api.editMessageText(chat_id, last.messageId, combined, MD)
+                    setLastHookMessage(chat_id, last.messageId, combined, msg.sessionId)
+                    return last.messageId
+                } catch {
+                    // edit failed, fall through to send new
+                }
+            }
+        }
+        // Send new message
+        try {
+            const sent = await bot.api.sendMessage(chat_id, text, MD)
+            setLastHookMessage(chat_id, sent.message_id, text, msg.sessionId)
+            return sent.message_id
+        } catch {
+            try {
+                const sent = await bot.api.sendMessage(chat_id, text)
+                setLastHookMessage(chat_id, sent.message_id, text, msg.sessionId)
+                return sent.message_id
+            } catch { return null }
+        }
+    }
 
     if (msg.hook === "PreToolUse") {
         const text = formatPreToolUse(msg, sessionTitle)
         if (!text) return
         for (const chat_id of access.allowFrom) {
-            try {
-                const sent = await bot.api.sendMessage(chat_id, text)
-                setActiveToolMessage(msg.sessionId, msg.tool_name, chat_id, sent.message_id)
-            } catch (e) {
-                dbg("HOOK", "failed to send PreToolUse:", e)
+            const msgId = await sendOrEdit(chat_id, text)
+            if (msgId) {
+                setActiveToolMessage(msg.sessionId, msg.tool_name, chat_id, msgId)
             }
         }
     } else if (msg.hook === "PostToolUse") {
@@ -443,12 +476,25 @@ async function handleHookEvent(msg) {
         for (const chat_id of access.allowFrom) {
             const active = getActiveToolMessage(msg.sessionId, msg.tool_name)
             if (active && active.chatId === chat_id) {
-                try {
-                    await bot.api.editMessageText(chat_id, active.messageId, text)
-                    clearActiveToolMessage(msg.sessionId, msg.tool_name)
-                } catch {
-                    await bot.api.sendMessage(chat_id, text).catch(() => {})
+                // Edit the specific PreToolUse message with the result
+                const last = getLastHookMessage(chat_id)
+                if (last && last.messageId === active.messageId) {
+                    // The active message IS the last hook message — replace the last line
+                    const lines = last.text.split("\n")
+                    // Remove the PreToolUse line (last line) and append PostToolUse
+                    lines.pop()
+                    lines.push(text)
+                    const combined = lines.join("\n")
+                    try {
+                        await bot.api.editMessageText(chat_id, active.messageId, combined, MD)
+                        setLastHookMessage(chat_id, active.messageId, combined, msg.sessionId)
+                    } catch {
+                        await sendOrEdit(chat_id, text)
+                    }
+                } else {
+                    await sendOrEdit(chat_id, text)
                 }
+                clearActiveToolMessage(msg.sessionId, msg.tool_name)
             }
         }
     }
@@ -618,6 +664,10 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
             chat_id,
             "No sessions connected. Use /spawn <name> to start a new one."
         ).catch(() => {})
+    } else {
+        const tip = getRandomTip()
+        const tipText = tip ? `\n_${tip}_` : ""
+        bot.api.sendMessage(chat_id, `working on it${tipText}`, { parse_mode: "Markdown" }).catch(() => {})
     }
 }
 
