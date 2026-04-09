@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { writeFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const commands = {
@@ -29,7 +29,14 @@ export const commands = {
     const title = ctx.message?.text?.replace(/^\/spawn\s*/, '').trim() || undefined
 
     const sessionName = `claude-${sessionId}`
-    const claudeCmd = 'claude --dangerously-skip-permissions --channels plugin:telegram@claude-plugins-official'
+    // Read permission args from config file
+    let permArgs = ''
+    try {
+        permArgs = readFileSync(join(state.homedir(), '.claude', 'channels', 'telegram', 'permission_args'), 'utf8').trim()
+    } catch {
+        // no permission config — use defaults
+    }
+    const claudeCmd = `claude ${permArgs} --channels plugin:telegram@claude-plugins-official`.replace(/  +/g, ' ').trim()
     const home = state.homedir()
     const stateDir = join(state.homedir(), '.claude', 'channels', 'telegram')
     const dtachSock = join(stateDir, `dtach-${sessionId}.sock`)
