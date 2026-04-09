@@ -1,6 +1,42 @@
 import { execSync } from 'node:child_process'
-import { writeFileSync, readFileSync } from 'node:fs'
+import { writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+
+/**
+ * After dtach spawns Claude, poll the log file for the "trust this folder"
+ * prompt. If detected, send Enter to accept it.
+ */
+function watchForTrustPrompt(dtachSock, logFile, maxWaitMs = 15000) {
+    const start = Date.now()
+    const poll = () => {
+        if (Date.now() - start > maxWaitMs) { return }
+        try {
+            if (!existsSync(logFile)) {
+                setTimeout(poll, 500)
+                return
+            }
+            const raw = readFileSync(logFile, 'utf8')
+            // Strip escape sequences to get plain text
+            const text = raw
+                .replace(/\x1b\[\d*C/g, ' ')
+                .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
+                .replace(/\x1b\[[0-9;?]*[a-zA-Z~]/g, '')
+                .replace(/\x1b[>=<]/g, '')
+                .replace(/\x1b[()][0-9A-Za-z]/g, '')
+                .replace(/\x1b./g, '')
+                .replace(/[\x00-\x08\x0e-\x1f\x7f]/g, '')
+            if (/trust this folder|trust this project|Yes,?\s*I\s*trust/i.test(text)) {
+                // Send Enter key via dtach -p
+                try {
+                    execSync(`printf '\\n' | dtach -p "${dtachSock}"`, { timeout: 3000 })
+                } catch { /* ignore */ }
+                return
+            }
+        } catch { /* file not ready yet */ }
+        setTimeout(poll, 500)
+    }
+    setTimeout(poll, 1000)
+}
 
 export const tips = [
     "/spawn <name> gives your session a title so it's easy to find later.",
@@ -94,6 +130,11 @@ export const commands = {
           `tmux new-session -d -s "${sessionName}" -c "${home}" '${claudeCmd}'`,
           { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
         )
+      }
+
+      // Watch for trust prompt and auto-accept it (dtach only)
+      if (launcher === 'dtach') {
+          watchForTrustPrompt(dtachSock, logFile)
       }
 
       const displayTitle = title ? ` (${title})` : ''
