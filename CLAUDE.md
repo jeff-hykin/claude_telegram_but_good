@@ -13,6 +13,7 @@ This is a Telegram channel plugin for Claude Code, implemented as a Deno project
 - All `if`/`for` bodies use braces
 - Prefer `for...of` and `for...in` over C-style `for`
 - Never silently swallow errors. `catch { /* ignore */ }` and `.catch(() => {})` are unacceptable — always log via `dbg()` so failures are diagnosable. Use `catch (e) { dbg("LABEL", "what failed:", e) }` instead.
+- All Telegram messages use `parse_mode: "HTML"`, never Markdown or MarkdownV2. Use `<i>`, `<b>`, `<code>`, `<pre>` for formatting. Escape user content with `&amp;`, `&lt;`, `&gt;`. Telegram's Markdown parser is unreliable with mixed formatting.
 
 ## Entry Points
 

@@ -5,10 +5,10 @@
 
 import { stringifyYaml, Select, Confirm, colors, join } from "./imports.js"
 import { readConfig, getConfig, setConfig } from "./lib/config.js"
-import { startService, stopService, restartService, serviceStatus } from "./lib/daemon.js"
+import { startService, stopService, restartService, serviceStatus, removeService } from "./lib/daemon.js"
 import { createSession, attachSession, listDtachSockets } from "./lib/dtach.js"
-import { onboard, isOnboarded, installAndSymlinkPlugin, ensureSettingsJson } from "./lib/onboard.js"
-import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE, STOPPED_FILE, STATE_DIR, LOCAL_REPO } from "./lib/protocol.js"
+import { onboard, isOnboarded, installAndSymlinkPlugin, ensureSettingsJson, removeFromSettingsJson } from "./lib/onboard.js"
+import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE, STOPPED_FILE, STATE_DIR, LOCAL_REPO, dbg } from "./lib/protocol.js"
 import { CONFIG_DIR, CONFIG_FILE } from "./lib/protocol.js"
 import { installShim, removeShim, isShimInstalled } from "./lib/shim.js"
 
@@ -316,18 +316,16 @@ switch (cmd) {
         console.log(c.bold.white("  Uninstalling cbg..."))
         console.log(c.dim("  " + "\u2500".repeat(40)))
 
-        // Stop the daemon
-        console.log(c.dim("  Stopping daemon..."))
+        // Stop and remove the service (launchd/systemd)
+        console.log(c.dim("  Stopping and removing service..."))
         try {
-            const out = stopService()
-            if (out.trim()) {
-                console.log(c.dim("    " + out.trim()))
-            }
-        } catch {
-            // may not be running
+            removeService()
+            console.log(c.green("  \u2714 ") + "Service removed.")
+        } catch (e) {
+            console.log(c.yellow("  \u26A0 ") + "Service removal: " + e)
         }
 
-        // Kill server by PID
+        // Kill server by PID (in case it was running outside the service)
         try {
             const pidStr = Deno.readTextFileSync(PID_FILE).trim()
             const pid = parseInt(pidStr)
@@ -335,8 +333,17 @@ switch (cmd) {
                 new Deno.Command("kill", { args: [String(pid)], stdout: "null", stderr: "null" }).outputSync()
                 console.log(c.green("  \u2714 ") + `Killed server ${c.dim(`(PID ${pid})`)}`)
             }
-        } catch {
-            // not running or no pid file
+        } catch (e) {
+            dbg("UNINSTALL", "kill server by PID:", e)
+        }
+
+        // Remove hooks and plugin from settings.json
+        console.log(c.dim("  Removing hooks from settings.json..."))
+        try {
+            removeFromSettingsJson()
+            console.log(c.green("  \u2714 ") + "Hooks and plugin removed from settings.json.")
+        } catch (e) {
+            console.log(c.yellow("  \u26A0 ") + "settings.json cleanup: " + e)
         }
 
         // Remove the claude shim
@@ -355,8 +362,8 @@ switch (cmd) {
             default: false,
         })
         if (removeToken) {
-            try { Deno.removeSync(CONFIG_DIR, { recursive: true }) } catch { /* ignore */ }
-            try { Deno.removeSync(ENV_FILE) } catch { /* ignore */ }
+            try { Deno.removeSync(CONFIG_DIR, { recursive: true }) } catch (e) { dbg("UNINSTALL", "remove config:", e) }
+            try { Deno.removeSync(ENV_FILE) } catch (e) { dbg("UNINSTALL", "remove env:", e) }
             console.log(c.green("  \u2714 ") + "Bot token and config dir removed.")
         }
 
@@ -366,8 +373,27 @@ switch (cmd) {
             default: false,
         })
         if (removeAccess) {
-            try { Deno.removeSync(ACCESS_FILE) } catch { /* ignore */ }
+            try { Deno.removeSync(ACCESS_FILE) } catch (e) { dbg("UNINSTALL", "remove access:", e) }
             console.log(c.green("  \u2714 ") + "Access file removed.")
+        }
+
+        // Remove state dir (sockets, logs, pid files)
+        console.log(c.dim("  Removing state directory..."))
+        try { Deno.removeSync(STATE_DIR, { recursive: true }) } catch (e) { dbg("UNINSTALL", "remove state dir:", e) }
+        console.log(c.green("  \u2714 ") + "State directory removed.")
+
+        // Remove installed repo (unless it's a symlink to a dev repo)
+        try {
+            const stat = Deno.lstatSync(LOCAL_REPO)
+            if (stat.isSymlink) {
+                Deno.removeSync(LOCAL_REPO)
+                console.log(c.green("  \u2714 ") + "Dev symlink removed (source repo untouched).")
+            } else {
+                Deno.removeSync(LOCAL_REPO, { recursive: true })
+                console.log(c.green("  \u2714 ") + "Installed repo removed.")
+            }
+        } catch (e) {
+            dbg("UNINSTALL", "remove local repo:", e)
         }
 
         // Remove the cbg binary itself

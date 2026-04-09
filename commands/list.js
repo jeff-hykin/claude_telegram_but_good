@@ -6,9 +6,8 @@ export const tips = [
     "Replying to a message that has /chat_<id> at the top will always send the response to that chat (even if its not your currently-active session)",
 ]
 
-// MarkdownV2 requires escaping these characters
 function esc(s) {
-    return s.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1')
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 function timeAgo(ts) {
@@ -32,8 +31,8 @@ function sessionBlock(s, { shortPath, isActive }) {
 
     // Title as bold
     const title = shared.titles.get(s.id) || s.title || s.id
-    const marker = isActive ? " \\[active\\]" : ""
-    lines.push(`*${esc(title)}*${marker}`)
+    const marker = isActive ? " [active]" : ""
+    lines.push(`<b>${esc(title)}</b>${marker}`)
 
     // Bullet list with emojis
     const active = timeAgo(s.lastActive)
@@ -44,23 +43,23 @@ function sessionBlock(s, { shortPath, isActive }) {
         lines.push(`  \u2022 \uD83D\uDD52 started: ${esc(timeAgo(s.connectedAt))}`)
     }
     if (s.gitBranch) {
-        lines.push(`  \u2022 \uD83C\uDF3F branch: \`${esc(s.gitBranch)}\``)
+        lines.push(`  \u2022 \uD83C\uDF3F branch: <code>${esc(s.gitBranch)}</code>`)
     }
     const sp = shortPath(s.cwd)
     if (sp === "~") {
-        lines.push(`  \u2022 \uD83D\uDCC2 dir: \`\\(home dir\\)\``)
+        lines.push(`  \u2022 \uD83D\uDCC2 dir: <code>(home dir)</code>`)
     } else {
-        lines.push(`  \u2022 \uD83D\uDCC2 dir: \`${esc(sp)}\``)
+        lines.push(`  \u2022 \uD83D\uDCC2 dir: <code>${esc(sp)}</code>`)
     }
     if (s.recentMessages && s.recentMessages.length > 0) {
         for (const msg of s.recentMessages) {
-            const icon = msg.role === "bot" ? "🤖" : "🗣"
-            lines.push(`  ${icon} _${esc(msg.text.replace(/\n+/g," "))}_`)
+            const icon = msg.role === "bot" ? "\uD83E\uDD16" : "\uD83D\uDDE3"
+            lines.push(`  ${icon} <i>${esc(msg.text.replace(/\n+/g, " "))}</i>`)
         }
     }
 
     // Chat command at the bottom
-    lines.push(`  \u2022 /chat\\_${esc(s.id)}`)
+    lines.push(`  \u2022 /chat_${esc(s.id)}`)
 
     return lines.join('\n')
 }
@@ -100,7 +99,7 @@ export const commands = {
         for (const s of others) {
             parts.push(sessionBlock(s, { shortPath, isActive: false }))
         }
-        await ctx.reply(parts.join('\n\n'), { parse_mode: 'MarkdownV2' })
+        await ctx.reply(parts.join('\n\n'), { parse_mode: 'HTML' })
         return true
     },
 }

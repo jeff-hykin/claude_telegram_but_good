@@ -25,6 +25,8 @@ export const commands = {
 
     state.letClaudeHandle(ctx,
       `Please make a new telegram command by using the new_command MCP tool you have access to. ` +
+      `All Telegram messages must use parse_mode "HTML" (not Markdown). ` +
+      `Use <i>, <b>, <code>, <pre> for formatting and escape user content with &amp; &lt; &gt;. ` +
       `Here is the user's description of what that new command should do:\n\n${arg}`
     )
     return true

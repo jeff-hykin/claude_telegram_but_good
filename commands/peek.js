@@ -132,12 +132,11 @@ export const commands = {
         }
 
         // Try with code block formatting, fall back to plain text
+        const escHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         try {
-            // Escape backticks inside the body so they don't break the code block
-            const safeBody = body.replace(/`/g, "'")
-            await ctx.reply(`${header}\n\`\`\`\n${safeBody}\n\`\`\``, { parse_mode: 'Markdown' })
-        } catch {
-            // Plain text fallback
+            await ctx.reply(`${escHtml(header)}\n<pre>${escHtml(body)}</pre>`, { parse_mode: 'HTML' })
+        } catch (e) {
+            state.dbg("PEEK", "HTML send failed, falling back to plain:", e)
             await ctx.reply(`${header}\n${body}`)
         }
         return true

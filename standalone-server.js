@@ -448,7 +448,7 @@ async function handleHookEvent(msg) {
     const access = loadAccess(BOOT_ACCESS)
     const sessionTitle = getSessionTitle(msg.sessionId)
 
-    const MD = { parse_mode: "Markdown" }
+    const MD = { parse_mode: "HTML" }
 
     async function sendOrEdit(chat_id, text) {
         const last = getLastHookMessage(chat_id)
@@ -636,8 +636,8 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
         ]
         const verb = verbs[Math.floor(Math.random() * verbs.length)]
         const tip = getRandomTip()
-        const tipText = tip ? `\n\n_did you know:_ ${tip}` : ""
-        bot.api.sendMessage(chat_id, `_${verb}..._${tipText}`, { parse_mode: "Markdown" }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+        const tipText = tip ? `\n\n<i>did you know:</i> ${tip}` : ""
+        bot.api.sendMessage(chat_id, `<i>${verb}...</i>${tipText}`, { parse_mode: "HTML" }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
     }
 }
 
