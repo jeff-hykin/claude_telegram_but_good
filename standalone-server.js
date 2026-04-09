@@ -428,6 +428,7 @@ async function handleHookEvent(msg) {
 
     if (msg.hook === "PreToolUse") {
         const text = formatPreToolUse(msg, sessionTitle)
+        if (!text) return
         for (const chat_id of access.allowFrom) {
             try {
                 const sent = await bot.api.sendMessage(chat_id, text)
@@ -438,6 +439,7 @@ async function handleHookEvent(msg) {
         }
     } else if (msg.hook === "PostToolUse") {
         const text = formatPostToolUse(msg, sessionTitle)
+        if (!text) return
         for (const chat_id of access.allowFrom) {
             const active = getActiveToolMessage(msg.sessionId, msg.tool_name)
             if (active && active.chatId === chat_id) {

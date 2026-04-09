@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs'
 
 const DEFAULT_LINES = 40
 
+// Claude Code UI section markers
+const SECTION_MARKERS = /[◯✻✳✶✢←⏺]/
+
 /**
  * Strip all terminal escape sequences from raw terminal output
  * and extract just the words, discarding layout/positioning.
@@ -33,6 +36,29 @@ function extractWords(raw) {
     // Extract words (sequences of non-whitespace printable chars)
     const words = text.match(/\S+/g) || []
     return words.join(' ')
+}
+
+/**
+ * Split text on Claude Code section markers into sections,
+ * each starting with the marker character.
+ */
+function splitSections(text) {
+    const sections = []
+    let current = ""
+    for (const word of text.split(' ')) {
+        if (word.length === 1 && SECTION_MARKERS.test(word)) {
+            if (current.trim()) {
+                sections.push(current.trim())
+            }
+            current = word + " "
+        } else {
+            current += word + " "
+        }
+    }
+    if (current.trim()) {
+        sections.push(current.trim())
+    }
+    return sections
 }
 
 export const commands = {
@@ -110,27 +136,41 @@ export const commands = {
             return true
         }
 
-        // Take the last N words worth of content (approximate lines as ~10 words each)
+        // Take the last N words worth of content
         const wordList = words.split(' ')
         const approxWords = lineCount * 10
         const tail = wordList.slice(-approxWords).join(' ')
 
         const header = `${session.id}${session.title ? ` (${session.title})` : ''}:`
+
+        // Split on section markers and format each as a code block
+        const sections = splitSections(tail)
+        const blocks = sections.map(s => {
+            const safe = s.replace(/`/g, "'")
+            return `\`\`\`\n${safe}\n\`\`\``
+        })
+
+        let body = blocks.join("\n")
         // Telegram message limit is 4096 chars
-        let body = tail
-        if (header.length + body.length + 10 > 4096) {
-            body = body.slice(-(4096 - header.length - 10))
-            body = '...' + body
+        if (header.length + body.length + 2 > 4096) {
+            // Trim from the front, keeping later sections
+            while (blocks.length > 1 && header.length + blocks.join("\n").length + 2 > 4096) {
+                blocks.shift()
+            }
+            body = "...\n" + blocks.join("\n")
+            if (header.length + body.length + 2 > 4096) {
+                body = body.slice(-(4096 - header.length - 10))
+                body = "..." + body
+            }
         }
 
-        // Try with code block formatting, fall back to plain text
         try {
-            // Escape backticks inside the body so they don't break the code block
-            const safeBody = body.replace(/`/g, "'")
-            await ctx.reply(`${header}\n\`\`\`\n${safeBody}\n\`\`\``, { parse_mode: 'Markdown' })
+            await ctx.reply(`${header}\n${body}`, { parse_mode: 'Markdown' })
         } catch {
             // Plain text fallback
-            await ctx.reply(`${header}\n${body}`)
+            const plain = sections.join("\n\n")
+            const trimmed = plain.slice(-4000)
+            await ctx.reply(`${header}\n${trimmed}`)
         }
         return true
     },
