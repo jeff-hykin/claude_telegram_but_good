@@ -30,6 +30,10 @@ function sessionBlock(s, { shortPath, isActive }) {
     lines.push(`*${esc(title)}*${marker}`)
 
     // Bullet list with emojis
+    const active = timeAgo(s.lastActive)
+    if (active) {
+        lines.push(`  \u2022 \u26A1 active: ${esc(active)}`)
+    }
     if (s.connectedAt) {
         lines.push(`  \u2022 \uD83D\uDD52 started: ${esc(timeAgo(s.connectedAt))}`)
     }

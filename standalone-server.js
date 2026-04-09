@@ -396,6 +396,11 @@ function handleShimMessage(conn, msg) {
         }
 
         case "hook_event": {
+            // Update lastActive on any tool call activity
+            const hookSession = sessions.get(msg.sessionId)
+            if (hookSession) {
+                hookSession.info.lastActive = Date.now()
+            }
             void handleHookEvent(msg)
             break
         }
