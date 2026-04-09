@@ -1,7 +1,8 @@
 import { shared } from './_shared.js'
 
+// MarkdownV2 requires escaping these characters
 function esc(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    return s.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1')
 }
 
 function timeAgo(ts) {
@@ -23,33 +24,33 @@ function timeAgo(ts) {
 function sessionBlock(s, { shortPath, isActive }) {
     const lines = []
 
-    // Title
+    // Title as bold
     const title = shared.titles.get(s.id) || s.title || s.id
-    const marker = isActive ? " [active]" : ""
-    lines.push(`<b>${esc(title)}${marker}</b>`)
+    const marker = isActive ? " \\[active\\]" : ""
+    lines.push(`*${esc(title)}*${marker}`)
 
-    // Details as a bullet list with emojis
+    // Bullet list with emojis
     if (s.connectedAt) {
-        lines.push(`  \u23F1 started: ${timeAgo(s.connectedAt)}`)
+        lines.push(`  \u2022 \u23F1 started: ${esc(timeAgo(s.connectedAt))}`)
     }
     if (s.gitBranch) {
-        lines.push(`  \uD83C\uDF3F branch: <code>${esc(s.gitBranch)}</code>`)
+        lines.push(`  \u2022 \uD83C\uDF3F branch: \`${esc(s.gitBranch)}\``)
     }
     const sp = shortPath(s.cwd)
     if (sp === "~") {
-        lines.push(`  \uD83D\uDCC2 dir: <code>(home dir)</code>`)
+        lines.push(`  \u2022 \uD83D\uDCC2 dir: \`\\(home dir\\)\``)
     } else {
-        lines.push(`  \uD83D\uDCC2 dir: <code>${esc(sp)}</code>`)
+        lines.push(`  \u2022 \uD83D\uDCC2 dir: \`${esc(sp)}\``)
     }
     if (s.lastReply) {
         const preview = s.lastReply.length > 80
-            ? s.lastReply.slice(0, 77) + '...'
+            ? s.lastReply.slice(0, 77) + '\\.\\.\\.'
             : s.lastReply
-        lines.push(`  \uD83D\uDCAC ${esc(preview)}`)
+        lines.push(`  \u2022 \uD83D\uDCAC ${esc(preview)}`)
     }
 
     // Chat command at the bottom
-    lines.push(`/chat_${s.id}`)
+    lines.push(`/chat\\_${s.id}`)
 
     return lines.join('\n')
 }
@@ -89,7 +90,7 @@ export const commands = {
         for (const s of others) {
             parts.push(sessionBlock(s, { shortPath, isActive: false }))
         }
-        await ctx.reply(parts.join('\n\n'), { parse_mode: 'HTML' })
+        await ctx.reply(parts.join('\n\n'), { parse_mode: 'MarkdownV2' })
         return true
     },
 }
