@@ -30,6 +30,17 @@ import { generateName } from "./lib/names.js"
 
 const HOME = Deno.env.get("HOME")
 
+// Log uncaught errors to the log file so crashes are diagnosable
+globalThis.addEventListener("unhandledrejection", (e) => {
+    const err = e.reason
+    const msg = err instanceof Error ? err.stack ?? err.message : String(err)
+    dbg("FATAL", "unhandled rejection:", msg)
+})
+globalThis.addEventListener("error", (e) => {
+    const msg = e.error instanceof Error ? e.error.stack ?? e.error.message : String(e.error ?? e.message)
+    dbg("FATAL", "uncaught error:", msg)
+})
+
 function randomHex(bytes) {
     const arr = new Uint8Array(bytes)
     crypto.getRandomValues(arr)
@@ -962,12 +973,20 @@ if (!STATIC) {
 
 try { Deno.removeSync(IPC_SOCK) } catch { /* ignore */ }
 
-const listener = Deno.listen({ transport: "unix", path: IPC_SOCK })
+let listener = Deno.listen({ transport: "unix", path: IPC_SOCK })
 dbg("IPC", "listening on", IPC_SOCK)
 
 ;(async () => {
-    for await (const conn of listener) {
-        handleConnection(conn)
+    while (true) {
+        try {
+            const conn = await listener.accept()
+            handleConnection(conn)
+        } catch (err) {
+            if (err instanceof Deno.errors.BadResource) {
+                break // listener closed (shutdown)
+            }
+            dbg("IPC", "accept error (continuing):", err instanceof Error ? err.message : String(err))
+        }
     }
 })()
 

@@ -3,14 +3,14 @@
  * cbg — CLI for Claude Telegram Bot (claude_telegram_but_good)
  */
 
-import { stringifyYaml, Select, Confirm, colors } from "./imports.js"
+import { stringifyYaml, Select, Confirm, colors, join, sibling } from "./imports.js"
 import { readConfig, getConfig, setConfig } from "./lib/config.js"
 import { startService, stopService, restartService, serviceStatus } from "./lib/daemon.js"
 import { createSession, attachSession, listDtachSockets } from "./lib/dtach.js"
 import { onboard, isOnboarded } from "./lib/onboard.js"
 import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE, STOPPED_FILE, STATE_DIR } from "./lib/protocol.js"
 import { configPath, configDir } from "./lib/config.js"
-import { removeShim } from "./lib/shim.js"
+import { installShim, removeShim, isShimInstalled } from "./lib/shim.js"
 
 const c = colors
 const [cmd, ...args] = Deno.args
@@ -43,6 +43,7 @@ function printUsage() {
         ["config",           "Print all config as YAML"],
         ["config <key>",     "Print a single config value"],
         ["config <key> <v>", "Set a config value (value is YAML-parsed)"],
+        ["reinstall",        "Stop, re-symlink plugin + reshim, start"],
         ["uninstall",        "Stop services and remove the claude shim"],
     ]
 
@@ -235,6 +236,78 @@ switch (cmd) {
             setConfig(args[0], args.slice(1).join(" "))
             console.log(c.green("  \u2714 Set ") + c.white(args[0]))
         }
+        break
+    }
+
+    case "reinstall": {
+        const HOME = Deno.env.get("HOME")
+        console.log()
+        console.log(c.bold.white("  Reinstalling cbg..."))
+        console.log(c.dim("  " + "\u2500".repeat(40)))
+
+        // Stop daemon
+        console.log(c.dim("  Stopping daemon..."))
+        Deno.mkdirSync(STATE_DIR, { recursive: true })
+        Deno.writeTextFileSync(STOPPED_FILE, String(Date.now()))
+        try {
+            stopService()
+        } catch { /* may not be running */ }
+        try {
+            const pidStr = Deno.readTextFileSync(PID_FILE).trim()
+            const pid = parseInt(pidStr)
+            if (pid > 0) {
+                new Deno.Command("kill", { args: [String(pid)], stdout: "null", stderr: "null" }).outputSync()
+            }
+        } catch { /* not running */ }
+        console.log(c.green("  \u2714 Daemon stopped."))
+
+        // Re-symlink plugin
+        console.log(c.dim("  Re-symlinking plugin..."))
+        const pluginDir = join(
+            HOME, ".claude", "plugins", "marketplaces",
+            "claude-plugins-official", "external_plugins", "telegram",
+        )
+        const pluginSrcDir = sibling(import.meta, ".")
+        try {
+            try { Deno.removeSync(pluginDir, { recursive: true }) } catch { /* ignore */ }
+            Deno.mkdirSync(join(pluginDir, ".."), { recursive: true })
+            Deno.symlinkSync(pluginSrcDir, pluginDir)
+            console.log(c.green("  \u2714 Plugin symlinked."))
+        } catch (err) {
+            console.log(c.yellow("  \u26A0 Plugin symlink failed: " + err))
+        }
+
+        // Update hook script
+        console.log(c.dim("  Updating hook script..."))
+        const hookDst = join(HOME, ".claude", "channels", "telegram", "bin", "hook")
+        const hookSrc = sibling(import.meta, "run/hook")
+        try {
+            Deno.mkdirSync(join(hookDst, ".."), { recursive: true })
+            Deno.writeTextFileSync(hookDst, Deno.readTextFileSync(hookSrc))
+            Deno.chmodSync(hookDst, 0o755)
+            console.log(c.green("  \u2714 Hook updated."))
+        } catch (err) {
+            console.log(c.yellow("  \u26A0 Hook update failed: " + err))
+        }
+
+        // Reinstall shim
+        console.log(c.dim("  Reinstalling claude shim..."))
+        const shimResult = installShim()
+        if (shimResult.ok) {
+            console.log(c.green("  \u2714 ") + shimResult.message)
+        } else {
+            console.log(c.yellow("  \u26A0 ") + shimResult.message)
+        }
+
+        // Start daemon
+        try { Deno.removeSync(STOPPED_FILE) } catch { /* ignore */ }
+        console.log(c.dim("  Starting daemon..."))
+        const out = startService()
+        if (out.trim()) {
+            console.log(c.dim("  " + out.trim()))
+        }
+        console.log(c.green("  \u2714 Done."))
+        console.log()
         break
     }
 

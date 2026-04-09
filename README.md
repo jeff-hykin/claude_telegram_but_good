@@ -20,7 +20,7 @@ I made this fork of the offical telegram support cause my team and I were annoye
 curl -fsSL https://deno.land/install.sh | sh
 
 # Install the `cbg` command
-deno install -A -g -n cbg https://raw.githubusercontent.com/jeff-hykin/claude_telegram_but_good/refs/heads/master/mod.js
+deno install -Agfr -n cbg https://raw.githubusercontent.com/jeff-hykin/claude_telegram_but_good/refs/heads/master/mod.js
 
 # Run onboarding (will help setup a bot)
 cbg onboard

@@ -456,9 +456,13 @@ function handleServerMessage(msg) {
     switch (msg.type) {
         case "channel_event":
             dbg("SHIM", "received channel event:", msg.content)
-            void mcp.notification({
+            mcp.notification({
                 method: "notifications/claude/channel",
                 params: { content: msg.content, meta: msg.meta },
+            }).then(() => {
+                dbg("SHIM", "channel notification sent ok")
+            }).catch((err) => {
+                dbg("SHIM", "channel notification FAILED:", err instanceof Error ? err.message : String(err))
             })
             break
 

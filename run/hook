@@ -1,37 +1,56 @@
-#!/usr/bin/env sh
-# Claude Code PreToolUse/PostToolUse hook — forwards events to cbg server
-SOCK="$HOME/.claude/channels/telegram/ipc.sock"
-LOG="$HOME/claud_telegram.log"
-INPUT=$(cat)
-if command -v jq >/dev/null 2>&1; then
-    HOOK=$(echo "$INPUT" | jq -r '.hook_event_name // "unknown"')
-    TOOL=$(echo "$INPUT" | jq -r '.tool_name // "unknown"')
-    SESSION=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
-    INPUT_PREVIEW=$(echo "$INPUT" | jq -r '.tool_input | tostring' | head -c 200)
-    OUTPUT_PREVIEW=$(echo "$INPUT" | jq -r '.tool_response | tostring // ""' | head -c 200)
-    IS_ERROR=$(echo "$INPUT" | jq -r 'if .tool_response.error then "true" else "false" end')
-else
-    HOOK=$(echo "$INPUT" | grep -o '"hook_event_name":"[^"]*"' | cut -d'"' -f4)
-    TOOL=$(echo "$INPUT" | grep -o '"tool_name":"[^"]*"' | cut -d'"' -f4)
-    SESSION=$(echo "$INPUT" | grep -o '"session_id":"[^"]*"' | cut -d'"' -f4)
-    INPUT_PREVIEW="" OUTPUT_PREVIEW="" IS_ERROR="false"
-fi
-echo "[HOOK $(date -Iseconds)] hook=$HOOK tool=$TOOL session=$SESSION" >> "$LOG"
-if [ -S "$SOCK" ]; then
-    INPUT_ESC=$(echo "$INPUT_PREVIEW" | sed 's/"/\\"/g' | tr -d '\n')
-    OUTPUT_ESC=$(echo "$OUTPUT_PREVIEW" | sed 's/"/\\"/g' | tr -d '\n')
-    MSG=$(printf '{"type":"hook_event","sessionId":"%s","hook":"%s","tool_name":"%s","input_preview":"%s","output_preview":"%s","is_error":%s}\n' \
-        "$SESSION" "$HOOK" "$TOOL" "$INPUT_ESC" "$OUTPUT_ESC" "$IS_ERROR")
-    # Send via python3 (universally available), fallback to socat/nc
-    python3 -c "
-import socket, sys
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-try:
-    s.connect('$SOCK')
-    s.sendall(sys.argv[1].encode() + b'\n')
-except: pass
-finally: s.close()
-" "$MSG" 2>/dev/null \
-    || socat - UNIX-CONNECT:"$SOCK" <<< "$MSG" 2>/dev/null \
-    || true
-fi
+#!/usr/bin/env -S deno run -A
+// Claude Code PreToolUse/PostToolUse hook — forwards events to cbg server
+
+const HOME = Deno.env.get("HOME")
+const SOCK = HOME + "/.claude/channels/telegram/ipc.sock"
+const LOG = HOME + "/claud_telegram.log"
+
+let logDirReady = false
+function log(msg) {
+    try {
+        if (!logDirReady) { Deno.mkdirSync(LOG + "/..", { recursive: true }); logDirReady = true }
+        Deno.writeTextFileSync(LOG, `[HOOK ${new Date().toISOString()}] ${msg}\n`, { append: true, create: true })
+    } catch {}
+}
+
+const input = await new Response(Deno.stdin.readable).text()
+
+let hook = "unknown", tool = "unknown", session = "unknown"
+let inputPreview = "", outputPreview = "", isError = false
+
+try {
+    const data = JSON.parse(input)
+    hook = data.hook_event_name ?? "unknown"
+    tool = data.tool_name ?? "unknown"
+    session = data.session_id ?? "unknown"
+    inputPreview = JSON.stringify(data.tool_input ?? "").slice(0, 200)
+    outputPreview = JSON.stringify(data.tool_response ?? "").slice(0, 200)
+    isError = !!data.tool_response?.error
+} catch (e) {
+    log(`JSON parse failed: ${e instanceof Error ? e.message : String(e)}`)
+}
+
+log(`hook=${hook} tool=${tool} session=${session}`)
+
+try {
+    const conn = await Deno.connect({ transport: "unix", path: SOCK })
+    const msg = JSON.stringify({
+        type: "hook_event",
+        sessionId: session,
+        hook,
+        tool_name: tool,
+        input_preview: inputPreview,
+        output_preview: outputPreview,
+        is_error: isError,
+    })
+    await conn.write(new TextEncoder().encode(msg + "\n"))
+    try { await conn.closeWrite() } catch { /* ignore */ }
+    const buf = new Uint8Array(1)
+    await Promise.race([
+        conn.read(buf),
+        new Promise(r => setTimeout(r, 500)),
+    ])
+    conn.close()
+} catch (e) {
+    log(`IPC send failed: ${e instanceof Error ? e.message : String(e)}`)
+}
