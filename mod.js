@@ -7,7 +7,7 @@ import { stringifyYaml, Select, Confirm, colors, join } from "./imports.js"
 import { readConfig, getConfig, setConfig } from "./lib/config.js"
 import { startService, stopService, restartService, serviceStatus } from "./lib/daemon.js"
 import { createSession, attachSession, listDtachSockets } from "./lib/dtach.js"
-import { onboard, isOnboarded, installAndSymlinkPlugin } from "./lib/onboard.js"
+import { onboard, isOnboarded, installAndSymlinkPlugin, generateHookScript } from "./lib/onboard.js"
 import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE, STOPPED_FILE, STATE_DIR } from "./lib/protocol.js"
 import { configPath, configDir } from "./lib/config.js"
 import { installShim, removeShim, isShimInstalled } from "./lib/shim.js"
@@ -277,10 +277,10 @@ switch (cmd) {
         // Update hook script
         console.log(c.dim("  Updating hook script..."))
         const hookDst = join(HOME, ".claude", "channels", "telegram", "bin", "hook")
-        const hookSrc = join(HOME, ".local", "share", "cbg", "plugin", "run", "hook")
+        const hookJsPath = join(HOME, ".local", "share", "cbg", "plugin", "lib", "hook.js")
         try {
             Deno.mkdirSync(join(hookDst, ".."), { recursive: true })
-            Deno.writeTextFileSync(hookDst, Deno.readTextFileSync(hookSrc))
+            Deno.writeTextFileSync(hookDst, generateHookScript(hookJsPath))
             Deno.chmodSync(hookDst, 0o755)
             console.log(c.green("  \u2714 Hook updated."))
         } catch (err) {
