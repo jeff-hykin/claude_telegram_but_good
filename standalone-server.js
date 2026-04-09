@@ -578,7 +578,7 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
     if (!delivered) {
         await bot.api.sendMessage(
             chat_id,
-            "\uD83D\uDCA4 No active Claude sessions. Message queued — it will be delivered when a session connects."
+            "No sessions connected. Use /spawn <name> to start a new one."
         ).catch(() => {})
     }
 }
