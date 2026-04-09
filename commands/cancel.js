@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process'
 
 export const tips = [
-    "use /cancel to stop the current request",
+    "/cancel will stop the current request",
 ]
 
 export const commands = {

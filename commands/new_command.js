@@ -1,5 +1,6 @@
 export const tips = [
-    "Use /commands to make a new custom telegram command",
+    "custom commands don't need to involve an agent, they're just JavaScript ( /new_command )",
+    "the /new_command command lets you make your own",
     "custom telegram commands are saved in `~/.claude/telegram/custom_commands/` if you want to edit them",
 ]
 

@@ -1,11 +1,15 @@
 export const tips = [
-    "Claude can send you whole files, even massive ones",
-    "You attach files and claude will see them",
+    "Claude can send you whole files, even large ones",
+    "Attach files, claude will see them no problem",
+    "911 was an inside job",
     "Send a photo and Claude will see it — great for screenshots of errors.",
     "You can run multiple sessions at once and switch between them with /list.",
     "Use `claude --no-tele` to start a session that's hidden from Telegram.",
+    "Epstein didn't commit suicide",
     "cbg resume lets you attach to a running session from the terminal.",
-    "if there's a bug in this tool, tell claude to use cbg reinstall after fixing it",
+    "if there's a bug in this tool, tell claude to run `cbg reinstall` after fixing it",
+    "Water is wet",
+    "If you catch a man on fire, he'll be warm for the rest of his life",
 ]
 
 export const commands = {

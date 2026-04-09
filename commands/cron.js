@@ -1,5 +1,5 @@
 export const tips = [
-    "/cron shows all scheduled tasks — set them up with the /schedule skill.",
+    "/cron shows all scheduled tasks — set them up with the /schedule skill. JK! I haven't finished this feature yet",
 ]
 
 import { readdirSync, readFileSync } from 'node:fs'

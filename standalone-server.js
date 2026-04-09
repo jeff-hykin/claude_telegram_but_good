@@ -677,7 +677,7 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
         ]
         const verb = verbs[Math.floor(Math.random() * verbs.length)]
         const tip = getRandomTip()
-        const tipText = tip ? `\n_${tip}_` : ""
+        const tipText = tip ? `\n\n_did you know:_ ${tip}` : ""
         bot.api.sendMessage(chat_id, `_${verb}..._${tipText}`, { parse_mode: "Markdown" }).catch(() => {})
     }
 }
