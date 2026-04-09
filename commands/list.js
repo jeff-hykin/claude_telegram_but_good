@@ -29,10 +29,15 @@ function sessionBlock(s, { shortPath, isActive }) {
     lines.push(`<b>${esc(title)}${marker}</b>`)
 
     // Details
-    lines.push(`<pre>${esc(shortPath(s.cwd))}</pre>`)
+    const sp = shortPath(s.cwd)
+    if (sp === "~") {
+        lines.push(`<pre>(home dir)</pre>`)
+    } else {
+        lines.push(`<pre>${esc(sp)}</pre>`)
+    }
     const details = []
     if (s.gitBranch) {
-        details.push(esc(s.gitBranch))
+        details.push(`branch: ${esc(s.gitBranch)}`)
     }
     if (s.connectedAt) {
         details.push(`started ${timeAgo(s.connectedAt)}`)
