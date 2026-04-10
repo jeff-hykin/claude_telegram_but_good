@@ -57,8 +57,8 @@ export const commands = {
         try { Deno.removeSync(OTP_FILE) } catch { /* ignore */ }
 
         await ctx.reply(
-            `Approved! Your user ID (${senderId}) has been added.\n\n` +
-            'You can now send messages to Claude through this bot.'
+            `Approved! (Your user ID is ${senderId})\n\n` +
+            'All your (new) claude cli sessions will be accessable to you here.\nUse /list to see them\nUse /spawn if you want to create one from here'
         )
         return true
     },
