@@ -21,6 +21,16 @@ import {
 } from "./lib/protocol.js"
 import { getBotToken } from "./lib/config.js"
 import { generateName } from "./lib/names.js"
+import { ensureOfficialPluginPatched } from "./lib/plugin-patch.js"
+
+// Self-heal the official telegram plugin's .mcp.json files. If the upstream
+// plugin updated since onboard, a new cache dir may have an unpatched entry
+// that would launch upstream instead of this shim on the next session.
+try {
+    ensureOfficialPluginPatched()
+} catch (e) {
+    dbg("SHIM", "plugin patch check failed:", e)
+}
 
 /**
  * Minimal duck-typed schema that satisfies the MCP SDK's
