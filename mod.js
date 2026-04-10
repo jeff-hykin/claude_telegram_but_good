@@ -262,7 +262,6 @@ switch (cmd) {
     }
 
     case "reinstall": {
-        const HOME = Deno.env.get("HOME")
         console.log()
         console.log(c.bold.white("  Reinstalling cbg..."))
         console.log(c.dim("  " + "\u2500".repeat(40)))

@@ -1,11 +1,9 @@
 export const tips = []
 
-import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
-import { join } from 'node:path'
-// Dynamic import with cache-busting so hot-reload picks up edits to protocol.js
 const { STATE_DIR, ACCESS_FILE } = await import(`../lib/protocol.js#${Math.random()}`)
+const { saveAccess } = await import(`../lib/access.js#${Math.random()}`)
 
-const OTP_FILE = join(STATE_DIR, 'pending_otp.json')
+const OTP_FILE = `${STATE_DIR}/pending_otp.json`
 
 export const commands = {
     approve_user: async (ctx, bot, state) => {
@@ -33,7 +31,7 @@ export const commands = {
         // Read the pending OTP
         let pending
         try {
-            pending = JSON.parse(readFileSync(OTP_FILE, 'utf8'))
+            pending = JSON.parse(Deno.readTextFileSync(OTP_FILE))
         } catch {
             await ctx.reply('No approval is pending. Run `cbg onboard` first.')
             return true
@@ -52,11 +50,11 @@ export const commands = {
             access.allowFrom.push(senderId)
         }
 
-        // Save access.json
-        writeFileSync(ACCESS_FILE, JSON.stringify(access, null, 2) + '\n')
+        // Save access.json atomically
+        saveAccess(access)
 
         // Delete the OTP file (one-time use)
-        try { unlinkSync(OTP_FILE) } catch {}
+        try { Deno.removeSync(OTP_FILE) } catch { /* ignore */ }
 
         await ctx.reply(
             `Approved! Your user ID (${senderId}) has been added.\n\n` +

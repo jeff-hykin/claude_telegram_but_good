@@ -12,9 +12,10 @@
 
 import { Bot, GrammyError, InlineKeyboard, join, sibling } from "./imports.js"
 import {
-    STATE_DIR, IPC_SOCK, PID_FILE, INBOX_DIR, CUSTOM_COMMANDS_DIR,
+    HOME, STATE_DIR, IPC_SOCK, PID_FILE, INBOX_DIR, CUSTOM_COMMANDS_DIR,
     ACCESS_FILE,
     sendIpc, parseIpcMessages, dbg,
+    randomHex, execSync, getPluginVersion,
 } from "./lib/protocol.js"
 import {
     loadAccess, readAccessFile, saveAccess, gate, checkApprovals,
@@ -25,12 +26,10 @@ import { createToolExecutor } from "./lib/telegram-api.js"
 import {
     formatPreToolUse, formatPostToolUse,
     setActiveToolMessage, getActiveToolMessage, clearActiveToolMessage,
-    getLastHookMessage, setLastHookMessage, clearLastHookMessage,
+    getLastHookMessage, setLastHookMessage,
 } from "./lib/hooks.js"
 import { getBotToken } from "./lib/config.js"
 import { generateName } from "./lib/names.js"
-
-const HOME = Deno.env.get("HOME")
 
 // Log uncaught errors to the log file so crashes are diagnosable
 globalThis.addEventListener("unhandledrejection", (e) => {
@@ -43,29 +42,10 @@ globalThis.addEventListener("error", (e) => {
     dbg("FATAL", "uncaught error:", msg)
 })
 
-function randomHex(bytes) {
-    const arr = new Uint8Array(bytes)
-    crypto.getRandomValues(arr)
-    return Array.from(arr, b => b.toString(16).padStart(2, "0")).join("")
-}
+// Fire-and-forget error handler for non-critical API calls. Usage: .catch(ff)
+const ff = (e) => dbg("TG-API", "fire-and-forget failed:", e)
 
-function execSync(cmd) {
-    const result = new Deno.Command("sh", {
-        args: ["-c", cmd],
-        stdout: "piped",
-        stderr: "piped",
-    }).outputSync()
-    return new TextDecoder().decode(result.stdout).trim()
-}
-
-const PLUGIN_VERSION = (() => {
-    try {
-        return JSON.parse(Deno.readTextFileSync(sibling(import.meta, ".claude-plugin/plugin.json"))).version
-    } catch (e) {
-        dbg("SERVER", "failed to read plugin version:", e)
-        return "unknown"
-    }
-})()
+const PLUGIN_VERSION = getPluginVersion(import.meta)
 
 const TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN") ?? getBotToken()
 const STATIC = Deno.env.get("TELEGRAM_ACCESS_MODE") === "static"
@@ -133,8 +113,25 @@ const bot = new Bot(TOKEN)
 let botUsername = ""
 
 const PERMISSION_REPLY_RE = /^\s*(y|yes|n|no)\s+([a-km-z]{5})\s*$/i
-const pendingPermissions = new Map()
-const pendingCommandErrors = new Map()
+const pendingPermissions = new Map()  // request_id -> { tool_name, description, input_preview, sessionId, createdAt }
+const pendingCommandErrors = new Map()  // errorId -> { cmdName, error, stack, text, createdAt }
+
+// Sweep expired entries every 5 minutes
+const PENDING_TTL_MS = 10 * 60 * 1000  // 10 min for permissions
+const ERROR_TTL_MS = 30 * 60 * 1000    // 30 min for command errors
+setInterval(() => {
+    const now = Date.now()
+    for (const [id, p] of pendingPermissions) {
+        if (p.createdAt && now - p.createdAt > PENDING_TTL_MS) {
+            pendingPermissions.delete(id)
+        }
+    }
+    for (const [id, e] of pendingCommandErrors) {
+        if (e.createdAt && now - e.createdAt > ERROR_TTL_MS) {
+            pendingCommandErrors.delete(id)
+        }
+    }
+}, 5 * 60 * 1000)
 
 const BOOT_ACCESS = STATIC
     ? (() => {
@@ -244,26 +241,28 @@ function deliverToSession(sessionId, content, meta) {
     return true
 }
 
+function queueMessage(content, meta) {
+    messageQueue.push({ content, meta })
+    if (messageQueue.length > MAX_QUEUE_SIZE) {
+        messageQueue.shift()
+    }
+    dbg("QUEUE", "queued message, queue size:", messageQueue.length)
+}
+
 function deliverToFocused(content, meta) {
     if (!focusedSessionId) {
-        messageQueue.push({ content, meta })
-        if (messageQueue.length > MAX_QUEUE_SIZE) {
-            messageQueue.shift()
-        }
-        dbg("QUEUE", "queued message, queue size:", messageQueue.length)
+        queueMessage(content, meta)
         return false
     }
-    const session = sessions.get(focusedSessionId)
+    let session = sessions.get(focusedSessionId)
     if (!session) {
+        // Focused session is gone — pick another one if available
         focusedSessionId = sessions.size > 0 ? sessions.keys().next().value : null
-        if (!focusedSessionId) {
-            messageQueue.push({ content, meta })
-            if (messageQueue.length > MAX_QUEUE_SIZE) {
-                messageQueue.shift()
-            }
-            return false
-        }
-        return deliverToFocused(content, meta)
+        session = focusedSessionId ? sessions.get(focusedSessionId) : null
+    }
+    if (!session) {
+        queueMessage(content, meta)
+        return false
     }
     session.info.lastActive = Date.now()
     pushRecentMessage(session, "human", content)
@@ -329,7 +328,9 @@ function handleShimMessage(conn, msg) {
 
         case "permission_request": {
             const { request_id, tool_name, description, input_preview } = msg
-            pendingPermissions.set(request_id, { tool_name, description, input_preview })
+            // Track which session originated this request so replies go to the right place
+            const originSessionId = [...sessions.entries()].find(([, s]) => s.conn === conn)?.[0] ?? focusedSessionId
+            pendingPermissions.set(request_id, { tool_name, description, input_preview, sessionId: originSessionId, createdAt: Date.now() })
             const access = loadAccess(BOOT_ACCESS)
             const text = `\uD83D\uDD10 Permission: ${tool_name}`
             const keyboard = new InlineKeyboard()
@@ -347,7 +348,10 @@ function handleShimMessage(conn, msg) {
         }
 
         case "permission_reply": {
-            const target = sessions.get(focusedSessionId ?? "")
+            // Route to the session that originated the request, not just the focused one
+            const perm = pendingPermissions.get(msg.request_id)
+            const targetId = perm?.sessionId ?? focusedSessionId
+            const target = sessions.get(targetId ?? "")
             if (target) {
                 sendIpc(target.conn, { type: "permission_reply", request_id: msg.request_id, behavior: msg.behavior })
             }
@@ -446,7 +450,6 @@ async function handleHookEvent(msg) {
     if (shimId !== focusedSessionId) return
 
     const access = loadAccess(BOOT_ACCESS)
-    const sessionTitle = getSessionTitle(msg.sessionId)
 
     const MD = { parse_mode: "HTML" }
 
@@ -481,7 +484,7 @@ async function handleHookEvent(msg) {
     }
 
     if (msg.hook === "PreToolUse") {
-        const text = formatPreToolUse(msg, sessionTitle)
+        const text = formatPreToolUse(msg)
         if (!text) return
         for (const chat_id of access.allowFrom) {
             const msgId = await sendOrEdit(chat_id, text)
@@ -490,7 +493,7 @@ async function handleHookEvent(msg) {
             }
         }
     } else if (msg.hook === "PostToolUse") {
-        const text = formatPostToolUse(msg, sessionTitle)
+        const text = formatPostToolUse(msg)
         if (!text) return
         for (const chat_id of access.allowFrom) {
             const active = getActiveToolMessage(msg.sessionId, msg.tool_name)
@@ -555,22 +558,26 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
         const request_id = permMatch[2].toLowerCase()
         const behavior = permMatch[1].toLowerCase().startsWith("y") ? "allow" : "deny"
 
-        const target = sessions.get(focusedSessionId ?? "")
+        // Route to the session that originated the request
+        const perm = pendingPermissions.get(request_id)
+        const targetId = perm?.sessionId ?? focusedSessionId
+        const target = sessions.get(targetId ?? "")
         if (target) {
             sendIpc(target.conn, { type: "permission_reply", request_id, behavior })
         }
+        pendingPermissions.delete(request_id)
 
         if (msgId != null) {
             const emoji = behavior === "allow" ? "\u2705" : "\u274C"
             void bot.api.setMessageReaction(chat_id, msgId, [
                 { type: "emoji", emoji },
-            ]).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+            ]).catch(ff)
         }
         return
     }
 
     // Typing indicator
-    void bot.api.sendChatAction(chat_id, "typing").catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+    void bot.api.sendChatAction(chat_id, "typing").catch(ff)
 
     // Ack reaction
     if (access.ackReaction && msgId != null) {
@@ -578,7 +585,7 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
             .setMessageReaction(chat_id, msgId, [
                 { type: "emoji", emoji: access.ackReaction },
             ])
-            .catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+            .catch(ff)
     }
 
     const imagePath = downloadImage ? await downloadImage() : undefined
@@ -622,7 +629,7 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
         await bot.api.sendMessage(
             chat_id,
             "No sessions connected. Use /spawn <name> to start a new one."
-        ).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+        ).catch(ff)
     } else {
         const verbs = [
             "Pondering", "Cogitating", "Ruminating", "Deliberating", "Musing",
@@ -637,7 +644,7 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
         const verb = verbs[Math.floor(Math.random() * verbs.length)]
         const tip = getRandomTip()
         const tipText = tip ? `\n\n<i>did you know:</i> ${tip}` : ""
-        bot.api.sendMessage(chat_id, `<i>${verb}...</i>${tipText}`, { parse_mode: "HTML" }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+        bot.api.sendMessage(chat_id, `<i>${verb}...</i>${tipText}`, { parse_mode: "HTML" }).catch(ff)
     }
 }
 
@@ -670,22 +677,22 @@ bot.on("callback_query:data", async (ctx) => {
         const access = loadAccess(BOOT_ACCESS)
         const senderId = String(ctx.from.id)
         if (!access.allowFrom.includes(senderId)) {
-            await ctx.answerCallbackQuery({ text: "Not authorized." }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+            await ctx.answerCallbackQuery({ text: "Not authorized." }).catch(ff)
             return
         }
         const errorId = errMatch[1]
         const errInfo = pendingCommandErrors.get(errorId)
         if (!errInfo) {
-            await ctx.answerCallbackQuery({ text: "Error details expired." }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+            await ctx.answerCallbackQuery({ text: "Error details expired." }).catch(ff)
             return
         }
         pendingCommandErrors.delete(errorId)
 
         // Immediately acknowledge
-        await ctx.answerCallbackQuery({ text: "Fixing! One moment..." }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+        await ctx.answerCallbackQuery({ text: "Fixing! One moment..." }).catch(ff)
         const cbMsg = ctx.callbackQuery.message
         if (cbMsg && "text" in cbMsg && cbMsg.text) {
-            await ctx.editMessageText(`${cbMsg.text}\n\n\uD83D\uDD27 Sending to Claude for debugging...`).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+            await ctx.editMessageText(`${cbMsg.text}\n\n\uD83D\uDD27 Sending to Claude for debugging...`).catch(ff)
         }
 
         // If no session is connected, spawn one
@@ -733,20 +740,20 @@ bot.on("callback_query:data", async (ctx) => {
         }
         const delivered = deliverToFocused(debugMsg, meta)
         if (!delivered) {
-            await bot.api.sendMessage(chat_id, "Could not deliver to a Claude session. Try /spawn first, then click the fix button again.").catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+            await bot.api.sendMessage(chat_id, "Could not deliver to a Claude session. Try /spawn first, then click the fix button again.").catch(ff)
         }
         return
     }
 
     const m = /^perm:(allow|deny|more):([a-km-z]{5})$/.exec(data)
     if (!m) {
-        await ctx.answerCallbackQuery().catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+        await ctx.answerCallbackQuery().catch(ff)
         return
     }
     const access = loadAccess(BOOT_ACCESS)
     const senderId = String(ctx.from.id)
     if (!access.allowFrom.includes(senderId)) {
-        await ctx.answerCallbackQuery({ text: "Not authorized." }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+        await ctx.answerCallbackQuery({ text: "Not authorized." }).catch(ff)
         return
     }
     const [, behavior, request_id] = m
@@ -754,7 +761,7 @@ bot.on("callback_query:data", async (ctx) => {
     if (behavior === "more") {
         const details = pendingPermissions.get(request_id)
         if (!details) {
-            await ctx.answerCallbackQuery({ text: "Details no longer available." }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+            await ctx.answerCallbackQuery({ text: "Details no longer available." }).catch(ff)
             return
         }
         const { tool_name, description, input_preview } = details
@@ -773,22 +780,24 @@ bot.on("callback_query:data", async (ctx) => {
         const keyboard = new InlineKeyboard()
             .text("\u2705 Allow", `perm:allow:${request_id}`)
             .text("\u274C Deny", `perm:deny:${request_id}`)
-        await ctx.editMessageText(expanded, { reply_markup: keyboard }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
-        await ctx.answerCallbackQuery().catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+        await ctx.editMessageText(expanded, { reply_markup: keyboard }).catch(ff)
+        await ctx.answerCallbackQuery().catch(ff)
         return
     }
 
-    // Route permission reply to focused session
-    const target = sessions.get(focusedSessionId ?? "")
+    // Route permission reply to the originating session
+    const perm = pendingPermissions.get(request_id)
+    const targetId = perm?.sessionId ?? focusedSessionId
+    const target = sessions.get(targetId ?? "")
     if (target) {
         sendIpc(target.conn, { type: "permission_reply", request_id, behavior })
     }
     pendingPermissions.delete(request_id)
     const label = behavior === "allow" ? "\u2705 Allowed" : "\u274C Denied"
-    await ctx.answerCallbackQuery({ text: label }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+    await ctx.answerCallbackQuery({ text: label }).catch(ff)
     const msg = ctx.callbackQuery.message
     if (msg && "text" in msg && msg.text) {
-        await ctx.editMessageText(`${msg.text}\n\n${label}`).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+        await ctx.editMessageText(`${msg.text}\n\n${label}`).catch(ff)
     }
 })
 
@@ -859,10 +868,10 @@ bot.on("message:text", async (ctx) => {
                 const errStack = err instanceof Error ? err.stack ?? "" : ""
                 dbg("HOT", `command ${cmdName} error:`, err)
                 const errorId = randomHex(3)
-                pendingCommandErrors.set(errorId, { cmdName, error: errMsg, stack: errStack, text })
+                pendingCommandErrors.set(errorId, { cmdName, error: errMsg, stack: errStack, text, createdAt: Date.now() })
                 const keyboard = new InlineKeyboard()
                     .text("\uD83D\uDD27 Ask Claude to fix", `cmderr:fix:${errorId}`)
-                await ctx.reply(`\u26A0\uFE0F /${cmdName} failed: ${errMsg}`, { reply_markup: keyboard }).catch((e) => dbg("TG-API", "fire-and-forget failed:", e))
+                await ctx.reply(`\u26A0\uFE0F /${cmdName} failed: ${errMsg}`, { reply_markup: keyboard }).catch(ff)
             }
         }
     }
@@ -1049,6 +1058,16 @@ void (async () => {
             }
             if (err instanceof Error && err.message === "Aborted delay") {
                 return
+            }
+            // Retry transient network errors with backoff (up to 5 attempts)
+            const isNetworkError = err instanceof TypeError || (err instanceof Error && /fetch|network|ECONNREFUSED|ETIMEDOUT/i.test(err.message))
+            if (isNetworkError && attempt < 5) {
+                const delay = Math.min(2000 * attempt, 15000)
+                Deno.stderr.writeSync(new TextEncoder().encode(
+                    `telegram server: network error, retrying in ${delay / 1000}s (attempt ${attempt})\n`
+                ))
+                await new Promise(r => setTimeout(r, delay))
+                continue
             }
             Deno.stderr.writeSync(new TextEncoder().encode(`telegram server: polling failed: ${err}\n`))
             return

@@ -17,16 +17,10 @@ import {
 import {
     IPC_SOCK, STATE_DIR, STOPPED_FILE, LOG_FILE,
     sendIpc, parseIpcMessages, dbg,
+    randomHex, findClaudePid, getPluginVersion,
 } from "./lib/protocol.js"
 import { getBotToken } from "./lib/config.js"
 import { generateName } from "./lib/names.js"
-
-
-function randomHex(bytes) {
-    const arr = new Uint8Array(bytes)
-    crypto.getRandomValues(arr)
-    return Array.from(arr, b => b.toString(16).padStart(2, "0")).join("")
-}
 
 /**
  * Minimal duck-typed schema that satisfies the MCP SDK's
@@ -43,15 +37,7 @@ function notificationSchema(method) {
     }
 }
 
-const HOME = Deno.env.get("HOME")
-
-const PLUGIN_VERSION = (() => {
-    try {
-        return JSON.parse(Deno.readTextFileSync(sibling(import.meta, ".claude-plugin/plugin.json"))).version
-    } catch {
-        return "unknown"
-    }
-})()
+const PLUGIN_VERSION = getPluginVersion(import.meta)
 
 const SESSION_ID = (() => {
     const f = join(STATE_DIR, "next_session.json")
@@ -74,42 +60,7 @@ const SESSION_ID = (() => {
 
 const SESSION_CWD = Deno.env.get("SESSION_CWD") ?? Deno.cwd()
 
-const SESSION_PID = (() => {
-    const sh = (cmd) => {
-        try {
-            const result = new Deno.Command("sh", {
-                args: ["-c", cmd],
-                stdout: "piped",
-                stderr: "piped",
-            }).outputSync()
-            return new TextDecoder().decode(result.stdout).trim()
-        } catch {
-            return ""
-        }
-    }
-    const getppid = (pid) => {
-        const r = sh(`ps -o ppid= -p ${pid}`)
-        return r ? parseInt(r) : -1
-    }
-    const getcomm = (pid) => sh(`ps -o comm= -p ${pid}`) || "?"
-
-    let pid = Deno.pid
-    for (let i = 0; i < 10; i++) {
-        pid = getppid(pid)
-        if (pid <= 1) {
-            break
-        }
-        const comm = getcomm(pid)
-        dbg("SHIM", `ancestry walk: pid=${pid} comm=${comm}`)
-        if (/\bclaude\b/i.test(comm)) {
-            dbg("SHIM", `found Claude Code at PID ${pid}`)
-            return pid
-        }
-    }
-    const ppid = getppid(Deno.pid)
-    dbg("SHIM", "could not find claude in ancestry, falling back to ppid:", ppid)
-    return ppid > 0 ? ppid : Deno.pid
-})()
+const SESSION_PID = findClaudePid(Deno.pid)
 
 const SESSION_START = Date.now()
 
@@ -387,8 +338,24 @@ async function ensureServerRunning() {
         Deno.writeTextFileSync(lockFile, String(Deno.pid), { createNew: true })
         weStarted = true
     } catch {
-        // Another shim is already starting the server — just wait for it
-        dbg("SHIM", "another shim is starting the server, waiting...")
+        // Check if the lock holder is still alive — if not, reclaim the lock
+        try {
+            const holderPid = parseInt(Deno.readTextFileSync(lockFile).trim())
+            if (holderPid > 0) {
+                const alive = new Deno.Command("kill", {
+                    args: ["-0", String(holderPid)],
+                    stdout: "null", stderr: "null",
+                }).outputSync().success
+                if (!alive) {
+                    dbg("SHIM", "stale server.starting lock from dead PID", holderPid, "— reclaiming")
+                    Deno.writeTextFileSync(lockFile, String(Deno.pid))
+                    weStarted = true
+                }
+            }
+        } catch { /* ignore */ }
+        if (!weStarted) {
+            dbg("SHIM", "another shim is starting the server, waiting...")
+        }
     }
 
     if (weStarted) {
@@ -541,6 +508,8 @@ function shutdown() {
         sendIpc(serverConn, { type: "unregister", sessionId: SESSION_ID })
         try { serverConn.close() } catch { /* ignore */ }
     }
+    // Clean up shim lock file
+    try { Deno.removeSync(join(STATE_DIR, `shim-${SESSION_PID}.pid`)) } catch { /* ignore */ }
     setTimeout(() => Deno.exit(0), 1000)
 }
 Deno.addSignalListener("SIGTERM", shutdown)
