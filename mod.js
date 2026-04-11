@@ -108,29 +108,6 @@ switch (cmd) {
     }
 
     case "restart": {
-        // Restart is dangerous: it cuts the IPC connection of every live shim
-        // and (until KillMode=process is rolled out) kills /new'd sessions
-        // outright. Claude sessions kept blindly running it during debug
-        // sessions and taking out their siblings, so we now require an
-        // explicit confirmation token. The phrase is annoying on purpose so
-        // an LLM won't paste it without thinking.
-        const CONFIRM_TOKEN = "yes-disconnect-everyone"
-        if (!args.includes(CONFIRM_TOKEN)) {
-            console.log()
-            console.log(c.bold.yellow("  ⚠ cbg restart will:"))
-            console.log(c.dim("    • drop the IPC connection of every live Telegram shim"))
-            console.log(c.dim("    • on older systemd units (KillMode=control-group), also"))
-            console.log(c.dim("      terminate every claude session that was spawned via"))
-            console.log(c.dim("      Telegram /new"))
-            console.log()
-            console.log(c.dim("  If you're sure, run:"))
-            console.log("    " + c.white(`cbg restart ${CONFIRM_TOKEN}`))
-            console.log()
-            console.log(c.dim("  In most cases you actually want one of:"))
-            console.log("    " + c.white("cbg status") + c.dim("           — check what's running"))
-            console.log("    " + c.white("/reload") + c.dim(" (in Telegram) — hot-reload commands without dropping sessions"))
-            Deno.exit(1)
-        }
         await ensureOnboarded()
         console.log(c.dim("  Restarting cbg daemon..."))
         killAllServers({ markStopped: false })
