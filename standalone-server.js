@@ -28,6 +28,7 @@ import {
     formatPreToolUse, formatPostToolUse,
     setActiveToolMessage, getActiveToolMessage, clearActiveToolMessage,
     getLastHookMessage, setLastHookMessage, clearLastHookMessage,
+    appendHookItem, replaceLastHookItem,
 } from "./lib/hooks.js"
 import { getBotToken } from "./lib/config.js"
 import { generateName } from "./lib/names.js"
@@ -524,29 +525,30 @@ async function handleHookEvent(msg) {
 
     async function sendOrEdit(chat_id, text) {
         const last = getLastHookMessage(chat_id)
-        // Try to append to the last hook message if same session and under limit
+        // If we already own a hook message for this session, scroll the
+        // existing message instead of starting a new one. appendHookItem
+        // handles the overflow by dropping items from the top.
         if (last && last.sessionId === msg.sessionId) {
-            const combined = last.text + "\n" + text
-            if (combined.length < 3000) {
-                try {
-                    await bot.api.editMessageText(chat_id, last.messageId, combined, MD)
-                    setLastHookMessage(chat_id, last.messageId, combined, msg.sessionId)
-                    return last.messageId
-                } catch (e) {
-                    dbg("HOOK", "edit failed, sending new message:", e)
-                }
+            const items = appendHookItem(chat_id, msg.sessionId, text)
+            const combined = items.join("\n")
+            try {
+                await bot.api.editMessageText(chat_id, last.messageId, combined, MD)
+                setLastHookMessage(chat_id, last.messageId, items, msg.sessionId)
+                return last.messageId
+            } catch (e) {
+                dbg("HOOK", "edit failed, sending new message:", e)
             }
         }
-        // Send new message
+        // No existing hook message, or the edit failed — send a fresh one.
         try {
             const sent = await bot.api.sendMessage(chat_id, text, MD)
-            setLastHookMessage(chat_id, sent.message_id, text, msg.sessionId)
+            setLastHookMessage(chat_id, sent.message_id, [text], msg.sessionId)
             return sent.message_id
         } catch (e) {
             dbg("HOOK", "sendMessage with markdown failed, retrying plain:", e)
             try {
                 const sent = await bot.api.sendMessage(chat_id, text)
-                setLastHookMessage(chat_id, sent.message_id, text, msg.sessionId)
+                setLastHookMessage(chat_id, sent.message_id, [text], msg.sessionId)
                 return sent.message_id
             } catch (e2) { dbg("HOOK", "sendMessage plain also failed:", e2); return null }
         }
@@ -567,18 +569,16 @@ async function handleHookEvent(msg) {
         for (const chat_id of access.allowFrom) {
             const active = getActiveToolMessage(msg.sessionId, msg.tool_name)
             if (active && active.chatId === chat_id) {
-                // Edit the specific PreToolUse message with the result
+                // Replace the in-flight PreToolUse stub with the PostToolUse
+                // result, in place. replaceLastHookItem handles scrolling if
+                // the upgraded item pushes us over COLLAPSE_LIMIT.
                 const last = getLastHookMessage(chat_id)
                 if (last && last.messageId === active.messageId) {
-                    // The active message IS the last hook message — replace the last line
-                    const lines = last.text.split("\n")
-                    // Remove the PreToolUse line (last line) and append PostToolUse
-                    lines.pop()
-                    lines.push(text)
-                    const combined = lines.join("\n")
+                    const items = replaceLastHookItem(chat_id, msg.sessionId, text)
+                    const combined = items.join("\n")
                     try {
                         await bot.api.editMessageText(chat_id, active.messageId, combined, MD)
-                        setLastHookMessage(chat_id, active.messageId, combined, msg.sessionId)
+                        setLastHookMessage(chat_id, active.messageId, items, msg.sessionId)
                     } catch (e) {
                         dbg("HOOK", "editMessageText failed, falling back to sendOrEdit:", e)
                         await sendOrEdit(chat_id, text)
