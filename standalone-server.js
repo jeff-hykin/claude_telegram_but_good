@@ -31,6 +31,14 @@ import {
 } from "./lib/hooks.js"
 import { getBotToken } from "./lib/config.js"
 import { generateName } from "./lib/names.js"
+import {
+    recordInbound as trackerRecordInbound,
+    recordOutbound as trackerRecordOutbound,
+    isPending as trackerIsPending,
+    getAll as trackerGetAll,
+    markNudged as trackerMarkNudged,
+    dropSession as trackerDropSession,
+} from "./lib/message-tracker.js"
 
 // Log uncaught errors to the log file so crashes are diagnosable
 globalThis.addEventListener("unhandledrejection", (e) => {
@@ -273,6 +281,9 @@ function deliverToSession(sessionId, content, meta) {
     session.info.lastActive = Date.now()
     pushRecentMessage(session, "human", content)
     sendIpc(session.conn, { type: "channel_event", content, meta })
+    if (meta?.message_id != null) {
+        trackerRecordInbound(sessionId, { messageId: meta.message_id, chatId: meta.chat_id, text: content })
+    }
     return true
 }
 
@@ -302,6 +313,9 @@ function deliverToFocused(content, meta) {
     session.info.lastActive = Date.now()
     pushRecentMessage(session, "human", content)
     sendIpc(session.conn, { type: "channel_event", content, meta })
+    if (meta?.message_id != null) {
+        trackerRecordInbound(focusedSessionId, { messageId: meta.message_id, chatId: meta.chat_id, text: content })
+    }
     return true
 }
 
@@ -353,6 +367,7 @@ function handleShimMessage(conn, msg) {
         case "unregister": {
             dbg("IPC", "session unregistered:", msg.sessionId)
             sessions.delete(msg.sessionId)
+            trackerDropSession(msg.sessionId)
             if (focusedSessionId === msg.sessionId) {
                 focusedSessionId = sessions.size > 0 ? sessions.keys().next().value : null
             }
@@ -440,11 +455,12 @@ function handleShimMessage(conn, msg) {
                 // Track last reply text per session (strip the /chat_ header)
                 if (name === "reply" && !result.isError && sessionId) {
                     const session = sessions.get(sessionId)
+                    const raw = args.text ?? ""
+                    const stripped = raw.replace(/^\/chat_[a-zA-Z0-9_]+\n/, "")
                     if (session) {
-                        const raw = args.text ?? ""
-                        const stripped = raw.replace(/^\/chat_[a-zA-Z0-9_]+\n/, "")
                         pushRecentMessage(session, "bot", stripped)
                     }
+                    trackerRecordOutbound(sessionId, { text: stripped })
                 }
 
                 sendIpc(conn, { type: "tool_response", requestId, result })
@@ -1072,6 +1088,7 @@ async function handleConnection(conn) {
     if (sessionId) {
         dbg("IPC", "session disconnected:", sessionId)
         sessions.delete(sessionId)
+        trackerDropSession(sessionId)
         if (focusedSessionId === sessionId) {
             focusedSessionId = sessions.size > 0 ? sessions.keys().next().value : null
             dbg("IPC", "focus moved to:", focusedSessionId ?? "none")
@@ -1161,5 +1178,89 @@ function shutdown() {
 }
 Deno.addSignalListener("SIGTERM", shutdown)
 Deno.addSignalListener("SIGINT", shutdown)
+
+// === Nudge watchdog ===
+//
+// If a Telegram message arrives but Claude never replies, Claude is sometimes
+// just done thinking and forgot to call the reply tool. We detect this by
+// watching the per-session message tracker: when a session has a pending
+// inbound (older than NUDGE_WAIT_MS) and is not currently producing output
+// (dtach log file size unchanged for NUDGE_IDLE_MS), inject a reminder into
+// the session's stdin via dtach -p. One nudge per pending message.
+
+const NUDGE_WAIT_MS = 45_000
+const NUDGE_IDLE_MS = 5_000
+const NUDGE_SCAN_MS = 5_000
+const NUDGE_TEXT = "[automated reminder] You received a Telegram message but haven't replied yet. Please call the telegram reply tool now to respond to the user."
+
+function logSize(dtachSocket) {
+    try {
+        const logPath = dtachSocket.replace(/\.sock$/, ".log")
+        return Deno.statSync(logPath).size
+    } catch {
+        return null
+    }
+}
+
+async function maybeNudge(sessionId) {
+    const session = sessions.get(sessionId)
+    if (!session) {
+        return
+    }
+    const dtachSocket = session.info.dtachSocket
+    if (!dtachSocket) {
+        dbg("NUDGE", `session ${sessionId} has no dtach socket — skipping`)
+        return
+    }
+    const before = logSize(dtachSocket)
+    if (before == null) {
+        dbg("NUDGE", `session ${sessionId} log file missing — skipping`)
+        return
+    }
+    await new Promise((r) => setTimeout(r, NUDGE_IDLE_MS))
+    if (!trackerIsPending(sessionId)) {
+        dbg("NUDGE", `session ${sessionId} replied during idle window — skipping`)
+        return
+    }
+    const after = logSize(dtachSocket)
+    if (after !== before) {
+        dbg("NUDGE", `session ${sessionId} log size changed (${before} -> ${after}) — still active, not nudging`)
+        return
+    }
+    dbg("NUDGE", `nudging session ${sessionId} — log idle and reply still missing`)
+    try {
+        const proc = new Deno.Command("dtach", {
+            args: ["-p", dtachSocket],
+            stdin: "piped",
+            stdout: "null",
+            stderr: "null",
+        }).spawn()
+        const w = proc.stdin.getWriter()
+        await w.write(new TextEncoder().encode(NUDGE_TEXT + "\n"))
+        await w.close()
+        await proc.status
+        trackerMarkNudged(sessionId)
+    } catch (e) {
+        dbg("NUDGE", `dtach -p failed for session ${sessionId}:`, e)
+    }
+}
+
+setInterval(() => {
+    const all = trackerGetAll()
+    const now = Date.now()
+    for (const [sessionId, entry] of Object.entries(all)) {
+        if (entry.nudged) {
+            continue
+        }
+        if (!trackerIsPending(sessionId)) {
+            continue
+        }
+        const age = now - entry.lastInbound.ts
+        if (age < NUDGE_WAIT_MS) {
+            continue
+        }
+        void maybeNudge(sessionId)
+    }
+}, NUDGE_SCAN_MS)
 
 dbg("SERVER", "standalone server ready")
