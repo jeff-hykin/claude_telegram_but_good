@@ -4,6 +4,10 @@ export const tips = [
     "/cancel will stop the current request",
 ]
 
+export const descriptions = {
+  cancel: "Stop the current request in the focused session",
+}
+
 export const commands = {
   cancel: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

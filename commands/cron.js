@@ -45,6 +45,10 @@ function readScheduledTasks(homeDir) {
   return tasks
 }
 
+export const descriptions = {
+  cron: "List scheduled tasks",
+}
+
 export const commands = {
   cron: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

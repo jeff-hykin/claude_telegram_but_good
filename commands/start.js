@@ -1,5 +1,9 @@
 export const tips = []
 
+export const descriptions = {
+  start: "Welcome and pairing instructions",
+}
+
 export const commands = {
   start: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

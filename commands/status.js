@@ -28,6 +28,10 @@ function listClaudeSessions() {
   }
 }
 
+export const descriptions = {
+  status: "Check your pairing status",
+}
+
 export const commands = {
   status: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

@@ -3,6 +3,13 @@ export const tips = [
     "if you ever want a nuclear option, try /fkill_all",
 ]
 
+export const descriptions = {
+  kill: "Ask the focused session to stop (SIGINT)",
+  fkill: "Force kill the focused session (SIGTERM)",
+  fkill_all: "Force kill all Claude sessions",
+  relay_shutdown: "Shut down the Telegram relay (sessions keep running)",
+}
+
 export const commands = {
   kill: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

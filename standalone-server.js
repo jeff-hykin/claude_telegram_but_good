@@ -21,7 +21,7 @@ import {
     loadAccess, readAccessFile, saveAccess, gate, checkApprovals,
     assertAllowedChat,
 } from "./lib/access.js"
-import { loadCommands, getHotCommands, getRandomTip } from "./lib/commands.js"
+import { loadCommands, getHotCommands, getRandomTip, getCommandDescriptions } from "./lib/commands.js"
 import { createToolExecutor } from "./lib/telegram-api.js"
 import {
     formatPreToolUse, formatPostToolUse,
@@ -208,7 +208,38 @@ function getCommandState() {
     }
 }
 
-loadCommands(COMMANDS_DIR, CUSTOM_COMMANDS_DIR).catch((err) => { dbg("HOT", "loadCommands FAILED:", err) })
+// Descriptions for commands registered directly on `bot` (not loaded from commands/).
+const BUILTIN_DESCRIPTIONS = {
+    reload: "Hot-reload command handlers",
+}
+
+async function publishCommandMenu() {
+    if (!bot?.api) {
+        return
+    }
+    if (initialLoadPromise) {
+        await initialLoadPromise
+    }
+    const merged = new Map(Object.entries(BUILTIN_DESCRIPTIONS))
+    for (const [name, desc] of getCommandDescriptions()) {
+        merged.set(name, desc)
+    }
+    const entries = []
+    for (const [name, desc] of merged) {
+        if (/^[a-z][a-z0-9_]{0,31}$/.test(name)) {
+            entries.push({ command: name, description: desc.slice(0, 256) })
+        }
+    }
+    entries.sort((a, b) => a.command.localeCompare(b.command))
+    try {
+        await bot.api.setMyCommands(entries, { scope: { type: "all_private_chats" } })
+        dbg("COMMANDS", `published ${entries.length} commands to Telegram menu`)
+    } catch (e) {
+        dbg("COMMANDS", "setMyCommands failed:", e)
+    }
+}
+
+let initialLoadPromise = loadCommands(COMMANDS_DIR, CUSTOM_COMMANDS_DIR).catch((err) => { dbg("HOT", "loadCommands FAILED:", err) })
 
 // === Message delivery ===
 
@@ -368,6 +399,7 @@ function handleShimMessage(conn, msg) {
             void (async () => {
                 if (name === "reload") {
                     const { loaded, errors } = await loadCommands(COMMANDS_DIR, CUSTOM_COMMANDS_DIR)
+                    publishCommandMenu()
                     const parts = [`Reloaded: ${loaded} command(s)`]
                     if (errors.length > 0) {
                         parts.push(`\nErrors:\n${errors.join("\n")}`)
@@ -386,6 +418,7 @@ function handleShimMessage(conn, msg) {
                     Deno.mkdirSync(CUSTOM_COMMANDS_DIR, { recursive: true })
                     Deno.writeTextFileSync(join(CUSTOM_COMMANDS_DIR, filename), code)
                     const { loaded, errors } = await loadCommands(COMMANDS_DIR, CUSTOM_COMMANDS_DIR)
+                    publishCommandMenu()
                     const parts = [`Wrote ${join(CUSTOM_COMMANDS_DIR, filename)}\nReloaded: ${loaded} command(s)`]
                     if (errors.length > 0) {
                         parts.push(`\nErrors:\n${errors.join("\n")}`)
@@ -660,6 +693,7 @@ bot.command("reload", async (ctx) => {
     }
 
     const { loaded, errors } = await loadCommands(COMMANDS_DIR, CUSTOM_COMMANDS_DIR)
+    publishCommandMenu()
     const parts = [`Reloaded: ${loaded} command(s)`]
     if (errors.length > 0) {
         parts.push(`\nErrors:\n${errors.join("\n")}`)
@@ -1033,17 +1067,7 @@ void (async () => {
                     Deno.stderr.writeSync(new TextEncoder().encode(
                         `telegram server: polling as @${info.username} (standalone)\n`
                     ))
-                    bot.api.setMyCommands(
-                        [
-                            { command: "start", description: "Welcome and setup guide" },
-                            { command: "help", description: "What this bot can do" },
-                            { command: "status", description: "Check your pairing status" },
-                            { command: "list", description: "Show connected sessions" },
-                            { command: "spawn", description: "Launch a new Claude Code session" },
-                            { command: "reload", description: "Hot-reload command handlers" },
-                        ],
-                        { scope: { type: "all_private_chats" } },
-                    ).catch((e) => dbg("COMMANDS", "setMyCommands failed:", e))
+                    publishCommandMenu()
                 },
             })
             return

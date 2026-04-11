@@ -1,9 +1,14 @@
 Todo:
-- git check
+- fix the update fix
+- DONE: improve "how to use" (list sessions) messages
+- DONE: git check
 - allow picking which branch to install (reinstall)
 - make sure the uninstall fully works (restore telegram plugin)
+- Please do an in-depth critical codebase review. Ignore the aspect of patching the official installer (its simply necessary) but in terms of flawed logic, possible bugs, redundant/duplicated code, dead code, etc
+- no magic numbers (3000)
 - sanity check on `tee` and `script` (and any other commands)
-- full logic/sanity check, codebase review
 - fix (create) the resume command
+- add back the "ask claude to fix" 
 - add /schedule skill and cron stuff
 - add heartbeat stuff
+- improve the peek formatting

@@ -25,6 +25,10 @@ function autoTitle(session) {
   return parts.join(' ')
 }
 
+export const descriptions = {
+  title: "Label the focused session",
+}
+
 export const commands = {
   title: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

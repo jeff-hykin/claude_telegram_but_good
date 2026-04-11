@@ -8,6 +8,10 @@ export const tips = [
     `custom telegram commands are saved in \`${CUSTOM_COMMANDS_DIR}/\` if you want to edit them`,
 ]
 
+export const descriptions = {
+  new_command: "Create a new custom Telegram command",
+}
+
 export const commands = {
   new_command: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

@@ -43,6 +43,10 @@ function extractWords(raw) {
     return words.join(' ')
 }
 
+export const descriptions = {
+    peek: "Show recent output of a session",
+}
+
 export const commands = {
     peek: async (ctx, bot, state) => {
         if (ctx.chat?.type !== 'private') return true

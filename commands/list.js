@@ -64,6 +64,10 @@ function sessionBlock(s, { shortPath, isActive }) {
     return lines.join('\n')
 }
 
+export const descriptions = {
+    list: "Show connected Claude Code sessions",
+}
+
 export const commands = {
     list: async (ctx, bot, state) => {
         if (ctx.chat?.type !== 'private') {
@@ -82,7 +86,7 @@ export const commands = {
 
         const sessions = state.allSessions()
         if (sessions.length === 0) {
-            await ctx.reply('No sessions connected.')
+            await ctx.reply('No sessions connected. Use /spawn to make one from here')
             return true
         }
 

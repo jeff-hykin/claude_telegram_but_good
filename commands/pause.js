@@ -7,6 +7,11 @@ export const tips = [
 
 const pausedSessions = shared.pausedSessions
 
+export const descriptions = {
+  pause: "Suspend the focused session (SIGTSTP)",
+  resume: "Resume a paused session (SIGCONT)",
+}
+
 export const commands = {
   pause: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

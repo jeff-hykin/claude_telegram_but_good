@@ -46,6 +46,10 @@ export const tips = [
     "Spawned sessions can be re-attached from the terminal with `cbg resume` when you're back at your computer.",
 ]
 
+export const descriptions = {
+  spawn: "Launch a new Claude Code session",
+}
+
 export const commands = {
   spawn: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

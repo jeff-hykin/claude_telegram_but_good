@@ -12,6 +12,10 @@ export const tips = [
     "If you catch a man on fire, he'll be warm for the rest of his life",
 ]
 
+export const descriptions = {
+  help: "What this bot can do",
+}
+
 export const commands = {
   help: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true

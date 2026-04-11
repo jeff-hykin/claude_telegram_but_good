@@ -1,5 +1,9 @@
 export const tips = []
 
+export const descriptions = {
+  version: "Show the telegram plugin version",
+}
+
 export const commands = {
   version: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true
