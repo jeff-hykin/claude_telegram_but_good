@@ -26,6 +26,7 @@ import { fromFileUrl as _fromFileUrl } from "https://esm.sh/jsr/@std/path@1.1.4"
 export {
     join,
     extname,
+    basename,
     SEPARATOR,
     fromFileUrl,
     toFileUrl,
