@@ -41,17 +41,17 @@ function watchForTrustPrompt(dtachSock, logFile, maxWaitMs = 15000) {
 }
 
 export const tips = [
-    "/spawn <name> gives your session a title so it's easy to find later.",
-    "Sessions launched with /spawn run headless — use /peek to see what they're doing.",
-    "Spawned sessions can be re-attached from the terminal with `cbg resume` when you're back at your computer.",
+    "/new <name> gives your session a title so it's easy to find later.",
+    "Sessions launched with /new run headless — use /peek to see what they're doing.",
+    "New sessions can be re-attached from the terminal with `cbg resume` when you're back at your computer.",
 ]
 
 export const descriptions = {
-  spawn: "Launch a new Claude Code session",
+  new: "Launch a new Claude Code session",
 }
 
 export const commands = {
-  spawn: async (ctx, bot, state) => {
+  new: async (ctx, bot, state) => {
     if (ctx.chat?.type !== 'private') return true
     const access = state.loadAccess()
     const senderId = String(ctx.from?.id)
@@ -65,7 +65,7 @@ export const commands = {
 
     // Pre-assign the session ID so we know the switch command ahead of time
     const sessionId = state.generateName()
-    const title = ctx.message?.text?.replace(/^\/spawn\s*/, '').trim() || undefined
+    const title = ctx.message?.text?.replace(/^\/new\s*/, '').trim() || undefined
 
     // Read permission args from config file
     let permArgs = ''
@@ -115,7 +115,7 @@ export const commands = {
       watchForTrustPrompt(dtachSock, logFile)
 
       const displayTitle = title ? ` (${title})` : ''
-      await ctx.reply(`Spawned: /chat_${sessionId}${displayTitle}`)
+      await ctx.reply(`Created: /chat_${sessionId}${displayTitle}`)
 
       setTimeout(() => {
         state.setFocusedSession(sessionId)
@@ -130,8 +130,8 @@ export const commands = {
       } else {
         detail = String(err)
       }
-      state.dbg('SPAWN', 'failed:', detail)
-      await ctx.reply(`Failed to spawn via dtach:\n${detail}`)
+      state.dbg('NEW', 'failed:', detail)
+      await ctx.reply(`Failed to create new session via dtach:\n${detail}`)
     }
     return true
   },

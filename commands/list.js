@@ -86,7 +86,7 @@ export const commands = {
 
         const sessions = state.allSessions()
         if (sessions.length === 0) {
-            await ctx.reply('No sessions connected. Use /spawn to make one from here')
+            await ctx.reply('No sessions connected. Use /new/new to make one from here')
             return true
         }
 

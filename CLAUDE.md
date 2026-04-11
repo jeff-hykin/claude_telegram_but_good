@@ -62,7 +62,7 @@ All under `~/.local/share/cbg/state/`:
 - `access.json` — allowlist, pairing codes, policies
 - `ipc.sock` — Unix socket for shim <-> server communication
 - `server.pid` — PID of the standalone server
-- `next_session.json` — Transient file written by `/spawn` to pre-assign a session ID to a new shim
+- `next_session.json` — Transient file written by `/new/new` to pre-assign a session ID to a new shim
 - `dtach-*.sock` — dtach session sockets
 
 ## Session Model

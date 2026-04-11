@@ -12,35 +12,91 @@ const SECTION_MARKERS = /[◯✻✳✶✢←⏺]/
 
 /**
  * Strip all terminal escape sequences from raw terminal output
- * and extract just the words, discarding layout/positioning.
+ * and extract just the meaningful content, discarding layout/positioning.
  */
 function extractWords(raw) {
     let text = raw
-        // Replace cursor-forward (e.g. \x1b[1C, \x1b[2C) with a space
-        .replace(/\x1b\[\d*C/g, ' ')
+        // Clear screen commands
+        .replace(/\x1b\[2J|\x1b\[H|\x1bc/g, '\n---\n')
+        // Cursor positioning - these move text around, creating the garbled effect
+        .replace(/\x1b\[\d+;\d+[Hf]/g, ' ')  // Absolute positioning
+        .replace(/\x1b\[\d*[ABCD]/g, ' ')     // Up/down/left/right
+        .replace(/\x1b\[\d*[KJ]/g, ' ')       // Erase line/screen
+        .replace(/\x1b\[\d*C/g, ' ')          // Cursor forward
+        .replace(/\x1b\[[\d;]*[mG]/g, '')     // Colors, graphics, column positioning
         // OSC sequences: \x1b] ... (ST or BEL terminated)
         .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
-        // CSI sequences: \x1b[ ... letter/tilde
-        .replace(/\x1b\[[0-9;?]*[a-zA-Z~]/g, '')
-        // DEC private: \x1b > \x1b = \x1b < etc
-        .replace(/\x1b[>=<]/g, '')
+        // CSI sequences: \x1b[ ... letter/tilde (catch-all for remaining)
+        .replace(/\x1b\[[0-9;?]*[a-zA-Z~@]/g, '')
+        // DEC private sequences
+        .replace(/\x1b[>=<#]/g, '')
         // Charset sequences
         .replace(/\x1b[()][0-9A-Za-z]/g, '')
-        // Any remaining escape + char
+        // Any remaining escape sequences
         .replace(/\x1b./g, '')
         // Control chars (keep \t \n \r)
-        .replace(/[\x00-\x08\x0e-\x1f\x7f]/g, '')
-        // DEC query responses that lost their \x1b prefix (e.g. >0q, >4m, <u)
+        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
+        // DEC query responses that lost their prefix
         .replace(/>[0-9]+[a-z]/g, '')
         .replace(/<[a-z]/g, '')
-        // Collapse runs of box-drawing / line chars into a single separator
-        .replace(/[─━│┃┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬═║]{3,}/g, '---')
-        // Collapse runs of block elements (logo art)
-        .replace(/[▐▌▛▜▘▝▗▖█▀▄▞▟▙▚░▒▓]{2,}/g, '')
 
-    // Extract words (sequences of non-whitespace printable chars)
-    const words = text.match(/\S+/g) || []
-    return words.join(' ')
+    // Split into lines and clean each line
+    const lines = text.split(/\r?\n/)
+    const cleanLines = []
+
+    for (const line of lines) {
+        const cleaned = line
+            // Remove isolated single characters that look like cursor artifacts
+            .replace(/\b[✻✶*✢·⏵◯⎿❯]\s+[a-z]\s+/g, ' ')
+            // Remove number/symbol fragments like "1 2 3 4 5"
+            .replace(/\b[\d✻✶*✢·]+(?:\s+[\d✻✶*✢·])*\b/g, ' ')
+            // Collapse runs of symbols/box-drawing
+            .replace(/[─━│┃┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬═║]{3,}/g, ' --- ')
+            .replace(/[▐▌▛▜▘▝▗▖█▀▄▞▟▙▚░▒▓]{2,}/g, '')
+            // Clean up excessive whitespace
+            .replace(/\s+/g, ' ')
+            .trim()
+
+        if (cleaned && cleaned.length > 2) {
+            cleanLines.push(cleaned)
+        }
+    }
+
+    return cleanLines.join(' ')
+}
+
+// Claude Code streams thinking tokens by re-rendering the same region on
+// every tick, so the raw log contains many overlapping copies of the same
+// thinking block with progressively more text. Within a run of consecutive
+// "Thinking…" markers (no tool-use / section marker between them), keep
+// only the last copy — that one has the final, fullest text.
+function collapseThinking(text) {
+    const OTHER_SECTION = /[⏺◯✳✶✢←]/
+    const markers = []
+    const re = /Thinking…/g
+    let m
+    while ((m = re.exec(text)) !== null) {
+        markers.push(m.index)
+    }
+    if (markers.length < 2) return text
+
+    const toRemove = []
+    for (let i = 0; i < markers.length - 1; i++) {
+        const between = text.slice(markers[i] + 'Thinking…'.length, markers[i + 1])
+        if (!OTHER_SECTION.test(between)) {
+            toRemove.push([markers[i], markers[i + 1]])
+        }
+    }
+    if (toRemove.length === 0) return text
+
+    let out = ''
+    let cursor = 0
+    for (const [s, e] of toRemove) {
+        out += text.slice(cursor, s)
+        cursor = e
+    }
+    out += text.slice(cursor)
+    return out
 }
 
 export const descriptions = {
@@ -116,7 +172,7 @@ export const commands = {
             return true
         }
 
-        const words = extractWords(content)
+        const words = collapseThinking(extractWords(content))
         if (!words) {
             await ctx.reply(`Log file for session "${session.id}" is empty.`)
             return true

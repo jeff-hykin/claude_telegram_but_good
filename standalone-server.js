@@ -14,7 +14,7 @@ import { Bot, GrammyError, InlineKeyboard, join, sibling } from "./imports.js"
 import {
     HOME, STATE_DIR, IPC_SOCK, PID_FILE, INBOX_DIR, CUSTOM_COMMANDS_DIR,
     ACCESS_FILE,
-    sendIpc, parseIpcMessages, dbg,
+    sendIpc, parseIpcMessages, dbg, logMessage,
     randomHex, execSync, getPluginVersion,
     UNKNOWN_CLAUDE_PID,
 } from "./lib/protocol.js"
@@ -577,6 +577,16 @@ function safeName(s) {
 
 async function handleInbound(ctx, text, downloadImage, attachment) {
     dbg("INBOUND", "text:", text, "from:", ctx.from?.id, "chat:", ctx.chat?.id)
+    logMessage({
+        direction: "in",
+        chat_id: ctx.chat?.id != null ? String(ctx.chat.id) : undefined,
+        chat_type: ctx.chat?.type,
+        message_id: ctx.message?.message_id,
+        user_id: ctx.from?.id != null ? String(ctx.from.id) : undefined,
+        user: ctx.from?.username ?? (ctx.from?.id != null ? String(ctx.from.id) : undefined),
+        text,
+        has_attachment: !!attachment,
+    })
     const result = gate(ctx, botUsername, BOOT_ACCESS)
     dbg("INBOUND", "gate result:", result.action)
 
@@ -674,7 +684,7 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
     if (!delivered) {
         await bot.api.sendMessage(
             chat_id,
-            "No sessions connected. Use /spawn <name> to start a new one."
+            "No sessions connected. Use /new/new <name> to start a new one."
         ).catch(ff)
     } else {
         const verbs = [
@@ -787,7 +797,7 @@ bot.on("callback_query:data", async (ctx) => {
         }
         const delivered = deliverToFocused(debugMsg, meta)
         if (!delivered) {
-            await bot.api.sendMessage(chat_id, "Could not deliver to a Claude session. Try /spawn first, then click the fix button again.").catch(ff)
+            await bot.api.sendMessage(chat_id, "Could not deliver to a Claude session. Try /new/new first, then click the fix button again.").catch(ff)
         }
         return
     }
