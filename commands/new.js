@@ -105,9 +105,17 @@ export const commands = {
     }))
 
     try {
-      // -n = create detached, -E = disable detach char, -z = disable suspend
+      // -n = create detached, -E = disable detach char, -z = disable suspend.
+      // `script` syntax differs by platform: macOS/BSD takes the logfile as a
+      // positional arg followed by the command; util-linux requires -c "cmd"
+      // with the logfile last. Mixing them silently fails — dtach -n still
+      // exits 0 because the fork succeeded.
+      const inner = `cd "${home}" && ${claudeCmd}`
+      const scriptPart = process.platform === 'darwin'
+        ? `script -q "${logFile}" bash -c '${inner}'`
+        : `script -q -c '${inner}' "${logFile}"`
       execSync(
-        `dtach -n "${dtachSock}" -Ez script -q "${logFile}" bash -c 'cd "${home}" && ${claudeCmd}'`,
+        `dtach -n "${dtachSock}" -Ez ${scriptPart}`,
         { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
       )
 
