@@ -5,7 +5,7 @@
 
 import { stringifyYaml, Select, Confirm, colors, join } from "./imports.js"
 import { readConfig, getConfig, setConfig } from "./lib/config.js"
-import { startService, stopService, restartService, serviceStatus, removeService } from "./lib/daemon.js"
+import { startService, stopService, restartService, serviceStatus, removeService, isDaemonRunning } from "./lib/daemon.js"
 import { createSession, attachSession, listDtachSockets } from "./lib/dtach.js"
 import { onboard, isOnboarded, installAndSymlinkPlugin, ensureSettingsJson, removeFromSettingsJson } from "./lib/onboard.js"
 import { PID_FILE, IPC_SOCK, ACCESS_FILE, ENV_FILE, STOPPED_FILE, STATE_DIR, LOCAL_REPO, dbg } from "./lib/protocol.js"
@@ -265,6 +265,24 @@ switch (cmd) {
         console.log()
         console.log(c.bold.white("  Reinstalling cbg..."))
         console.log(c.dim("  " + "\u2500".repeat(40)))
+
+        if (isDaemonRunning()) {
+            console.log()
+            console.log(c.yellow("  \u26A0 The cbg daemon is currently running."))
+            console.log(c.yellow("    Reinstalling will stop it and break all existing shim connections"))
+            console.log(c.yellow("    (every Claude session attached to this daemon will lose its Telegram link"))
+            console.log(c.yellow("    until that session is restarted)."))
+            console.log()
+            const proceed = await Confirm.prompt({
+                message: c.dim("  Continue with reinstall?"),
+                default: false,
+            })
+            if (!proceed) {
+                console.log(c.dim("  Aborted."))
+                console.log()
+                break
+            }
+        }
 
         // Stop daemon
         console.log(c.dim("  Stopping daemon..."))

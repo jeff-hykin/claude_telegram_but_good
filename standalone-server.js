@@ -16,6 +16,7 @@ import {
     ACCESS_FILE,
     sendIpc, parseIpcMessages, dbg,
     randomHex, execSync, getPluginVersion,
+    UNKNOWN_CLAUDE_PID,
 } from "./lib/protocol.js"
 import {
     loadAccess, readAccessFile, saveAccess, gate, checkApprovals,
@@ -462,25 +463,37 @@ function handleShimMessage(conn, msg) {
 const pidToShimSession = new Map()
 
 async function handleHookEvent(msg) {
-    // Resolve Claude PID to shim session ID
-    let shimId = msg.claudePid ? pidToShimSession.get(msg.claudePid) : undefined
-    if (!shimId && msg.claudePid) {
-        // Look up by PID — shims register with the Claude process PID
-        for (const [id, s] of sessions) {
-            if (s.info.pid === msg.claudePid) {
-                shimId = id
-                pidToShimSession.set(msg.claudePid, id)
-                dbg("HOOK", `mapped Claude PID ${msg.claudePid} -> shim ${id}`)
-                break
+    // Fail-safe: hooks that couldn't determine their Claude PID send the
+    // UNKNOWN sentinel. We display these unconditionally rather than dropping
+    // them on the focused-session check, so a broken PID walk never silently
+    // hides activity from the user.
+    const isUnknown = msg.claudePid === UNKNOWN_CLAUDE_PID
+
+    // Resolve Claude PID to shim session ID (skipped for UNKNOWN events)
+    let shimId
+    if (!isUnknown) {
+        shimId = msg.claudePid ? pidToShimSession.get(msg.claudePid) : undefined
+        if (!shimId && msg.claudePid) {
+            // Look up by PID — shims register with the Claude process PID
+            for (const [id, s] of sessions) {
+                if (s.info.pid === msg.claudePid) {
+                    shimId = id
+                    pidToShimSession.set(msg.claudePid, id)
+                    dbg("HOOK", `mapped Claude PID ${msg.claudePid} -> shim ${id}`)
+                    break
+                }
             }
         }
-    }
-    if (!shimId) {
-        dbg("HOOK", `no shim found for Claude PID ${msg.claudePid}, session ${msg.sessionId}`)
+        if (!shimId) {
+            dbg("HOOK", `no shim found for Claude PID ${msg.claudePid}, session ${msg.sessionId}`)
+        }
+    } else {
+        dbg("HOOK", `UNKNOWN claudePid sentinel, session ${msg.sessionId} — using fail-safe display path`)
     }
 
-    // Only show hooks from the focused session
-    if (shimId !== focusedSessionId) return
+    // Only show hooks from the focused session — bypassed for UNKNOWN events
+    // so they always reach the user.
+    if (!isUnknown && shimId !== focusedSessionId) return
 
     const access = loadAccess(BOOT_ACCESS)
 
