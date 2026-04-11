@@ -4,7 +4,7 @@ const { shared } = await import(`./_shared.js#${Math.random()}`)
 
 export const tips = [
     "/title without any argument will auto-generate a title",
-    "use /title <name> to label your claude sessions",
+    "use /title &lt;name&gt; to label your claude sessions",
 ]
 
 function autoTitle(session) {

@@ -3,7 +3,7 @@ const { shared } = await import(`./_shared.js#${Math.random()}`)
 
 export const tips = [
     "Tap a session ID from /list to switch to it.",
-    "Replying to a message that has /chat_<id> at the top will always send the response to that chat (even if its not your currently-active session)",
+    "Replying to a message that has /chat_&lt;id&gt; at the top will always send the response to that chat (even if its not your currently-active session)",
 ]
 
 function esc(s) {

@@ -41,9 +41,9 @@ function watchForTrustPrompt(dtachSock, logFile, maxWaitMs = 15000) {
 }
 
 export const tips = [
-    "/new <name> gives your session a title so it's easy to find later.",
+    "/new &lt;name&gt; gives your session a title so it's easy to find later.",
     "Sessions launched with /new run headless — use /peek to see what they're doing.",
-    "New sessions can be re-attached from the terminal with `cbg resume` when you're back at your computer.",
+    "New sessions can be re-attached from the terminal with <code>cbg resume</code> when you're back at your computer.",
 ]
 
 export const descriptions = {

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 
 export const tips = [
     "/peek shows what a session is doing right now — no need to attach.",
-    "/peek 100 shows more output, /peek <session_id> peeks at a specific session.",
+    "/peek 100 shows more output, /peek &lt;session_id&gt; peeks at a specific session.",
 ]
 
 const DEFAULT_LINES = 40
