@@ -27,7 +27,7 @@ import { createToolExecutor } from "./lib/telegram-api.js"
 import {
     formatPreToolUse, formatPostToolUse,
     setActiveToolMessage, getActiveToolMessage, clearActiveToolMessage,
-    getLastHookMessage, setLastHookMessage,
+    getLastHookMessage, setLastHookMessage, clearLastHookMessage,
 } from "./lib/hooks.js"
 import { getBotToken } from "./lib/config.js"
 import { generateName } from "./lib/names.js"
@@ -88,6 +88,9 @@ Deno.writeTextFileSync(PID_FILE, String(Deno.pid))
 // === Session registry ===
 const sessions = new Map()
 let focusedSessionId = null
+// /chat_<id> can race a new shim — remember the user's intent so the
+// session gets focused as soon as it registers.
+let pendingFocusId = null
 
 const messageQueue = []
 const MAX_QUEUE_SIZE = 50
@@ -326,7 +329,11 @@ function handleShimMessage(conn, msg) {
                 `telegram server: session ${info.id} connected (PID ${info.pid}, ${info.cwd})\n`
             ))
 
-            if (!focusedSessionId) {
+            if (pendingFocusId === info.id) {
+                focusedSessionId = info.id
+                pendingFocusId = null
+                dbg("IPC", "applied pending focus to session:", info.id)
+            } else if (!focusedSessionId) {
                 focusedSessionId = info.id
                 dbg("IPC", "auto-focused session:", info.id)
             }
@@ -668,6 +675,11 @@ async function handleInbound(ctx, text, downloadImage, attachment) {
         } : {}),
     }
 
+    // A new user message ends any hook-message append run — subsequent
+    // hook events should land in a fresh message below the user, not edit
+    // the bot status that sat above their message.
+    clearLastHookMessage(chat_id)
+
     // If this is a telegram-reply to a bot message, extract the session ID
     let delivered = false
     if (replyTo && replyTo.from?.id === bot.botInfo.id && replyTo.text) {
@@ -876,6 +888,19 @@ bot.on("message:text", async (ctx) => {
         const sessionList = allSessions()
         const target = sessionList.find(s => s.id === targetId)
         if (!target) {
+            // The session might still be booting after /new — if a dtach
+            // socket exists for that id, queue the focus and apply it on
+            // register instead of telling the user it doesn't exist.
+            let pending = false
+            try {
+                Deno.statSync(join(STATE_DIR, `dtach-${targetId}.sock`))
+                pending = true
+            } catch (e) { dbg("ROUTE", "no dtach socket for", targetId, ":", e) }
+            if (pending) {
+                pendingFocusId = targetId
+                await ctx.reply(`Session ${targetId} is still starting — will switch as soon as it connects.`)
+                return
+            }
             await ctx.reply(`Session "${targetId}" not found. Use /list to see available sessions.`)
             return
         }

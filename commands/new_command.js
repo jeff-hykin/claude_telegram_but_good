@@ -5,7 +5,7 @@ const { CUSTOM_COMMANDS_DIR } = await import(`../lib/protocol.js#${Math.random()
 export const tips = [
     "custom commands don't need to involve an agent, they're just JavaScript ( /new_command )",
     "the /new_command command lets you make your own",
-    `custom telegram commands are saved in \`${CUSTOM_COMMANDS_DIR}/\` if you want to edit them`,
+    `custom telegram commands are saved in <code>${CUSTOM_COMMANDS_DIR}/</code> if you want to edit them`,
 ]
 
 export const descriptions = {

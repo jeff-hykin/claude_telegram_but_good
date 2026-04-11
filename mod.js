@@ -15,10 +15,12 @@ import { installShim, removeShim, isShimInstalled } from "./lib/shim.js"
 const c = colors
 const [cmd, ...args] = Deno.args
 
-function killAllServers() {
+function killAllServers({ markStopped = true } = {}) {
     Deno.mkdirSync(STATE_DIR, { recursive: true })
-    Deno.writeTextFileSync(STOPPED_FILE, String(Date.now()))
-    try { stopService() } catch { /* may not be running */ }
+    if (markStopped) {
+        Deno.writeTextFileSync(STOPPED_FILE, String(Date.now()))
+    }
+    try { stopService() } catch (e) { dbg("CBG", "stopService failed (may not be running):", e) }
     try {
         const pidStr = Deno.readTextFileSync(PID_FILE).trim()
         const pid = parseInt(pidStr)
@@ -108,8 +110,8 @@ switch (cmd) {
     case "restart": {
         await ensureOnboarded()
         console.log(c.dim("  Restarting cbg daemon..."))
-        killAllServers()
-        try { Deno.removeSync(STOPPED_FILE) } catch { /* ignore */ }
+        killAllServers({ markStopped: false })
+        try { Deno.removeSync(STOPPED_FILE) } catch (e) { dbg("CBG", "remove STOPPED_FILE failed:", e) }
         const out = restartService()
         if (out.trim()) {
             console.log(c.dim("  " + out.trim()))

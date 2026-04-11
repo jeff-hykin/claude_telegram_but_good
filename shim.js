@@ -196,7 +196,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
                     text: { type: "string" },
                     reply_to: { type: "string", description: "Message ID to thread under." },
                     files: { type: "array", items: { type: "string" }, description: "Absolute file paths to attach." },
-                    format: { type: "string", enum: ["text", "markdownv2"], description: "Rendering mode. Default: 'text'." },
+                    format: { type: "string", enum: ["text", "html", "markdownv2"], description: "Rendering mode. Default: 'text'. Use 'html' for <b>, <i>, <code>, <pre> formatting (escape user content with &amp; &lt; &gt;)." },
                 },
                 required: ["chat_id", "text"],
             },
@@ -234,7 +234,7 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
                     chat_id: { type: "string" },
                     message_id: { type: "string" },
                     text: { type: "string" },
-                    format: { type: "string", enum: ["text", "markdownv2"] },
+                    format: { type: "string", enum: ["text", "html", "markdownv2"] },
                 },
                 required: ["chat_id", "message_id", "text"],
             },
@@ -435,15 +435,23 @@ async function setupConnection() {
 
         dbg("SHIM", "server connection lost")
         serverConn = null
-        if (!isServerStopped()) {
-            setTimeout(() => {
-                setupConnection().catch(err => {
-                    dbg("SHIM", "reconnection failed:", err)
-                })
-            }, 2000)
-        } else {
-            dbg("SHIM", "server.stopped file present, not reconnecting")
+        // Always schedule a retry. `cbg restart` briefly leaves
+        // server.stopped on disk while it kills + relaunches the daemon, so
+        // a one-shot bail here would strand the shim until Claude restarts.
+        // setupConnection itself respects server.stopped via
+        // ensureServerRunning, so retrying is safe.
+        const retry = () => {
+            if (isServerStopped()) {
+                dbg("SHIM", "server.stopped file present, retrying in 2s")
+                setTimeout(retry, 2000)
+                return
+            }
+            setupConnection().catch(err => {
+                dbg("SHIM", "reconnection failed, retrying in 2s:", err)
+                setTimeout(retry, 2000)
+            })
         }
+        setTimeout(retry, 2000)
     }
 
     readLoop()
