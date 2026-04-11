@@ -74,7 +74,11 @@ export const commands = {
     } catch {
         // no permission config — use defaults
     }
-    const claudeCmd = `claude ${permArgs} --channels plugin:telegram@claude-plugins-official`.replace(/  +/g, ' ').trim()
+    // `--no-tele` is the first arg so the cbg shim wrapper at
+    // ~/.local/bin/claude execs the real binary directly. Without it the
+    // wrapper would re-wrap us in another dtach session AND overwrite
+    // next_session.json — stripping the pre-assigned session id.
+    const claudeCmd = `claude --no-tele ${permArgs} --channels plugin:telegram@claude-plugins-official`.replace(/  +/g, ' ').trim()
     const home = state.homedir()
     const dtachSock = join(STATE_DIR, `dtach-${sessionId}.sock`)
     const logFile = join(STATE_DIR, `dtach-${sessionId}.log`)
@@ -86,6 +90,10 @@ export const commands = {
         delete cleanEnv[key]
       }
     }
+    // Force /bin/bash so script -c doesn't run our command through the user's
+    // login shell. zsh users with interactive prompts in .zshrc (e.g. Gas
+    // Town's "Add to Gas Town?" prompt) would block forever waiting for input.
+    cleanEnv.SHELL = '/bin/bash'
 
     // Pre-accept the workspace trust dialog for the target directory
     try {
@@ -110,10 +118,12 @@ export const commands = {
       // positional arg followed by the command; util-linux requires -c "cmd"
       // with the logfile last. Mixing them silently fails — dtach -n still
       // exits 0 because the fork succeeded.
+      // -f flushes after each write so watchForTrustPrompt can see output
+      // live; without it the log only appears when script exits.
       const inner = `cd "${home}" && ${claudeCmd}`
       const scriptPart = process.platform === 'darwin'
-        ? `script -q "${logFile}" bash -c '${inner}'`
-        : `script -q -c '${inner}' "${logFile}"`
+        ? `script -q -F "${logFile}" bash -c '${inner}'`
+        : `script -fq -c '${inner}' "${logFile}"`
       execSync(
         `dtach -n "${dtachSock}" -Ez ${scriptPart}`,
         { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
