@@ -45,6 +45,13 @@ export { colors } from "https://esm.sh/jsr/@cliffy/ansi@1.0.0/colors"
 // === timeago ===
 export { format as timeago } from "https://esm.sh/timeago.js@4.0.2"
 
+// === unique-names-generator (session name generator) ===
+export {
+    uniqueNamesGenerator,
+    adjectives as nameAdjectives,
+    animals as nameAnimals,
+} from "https://esm.sh/unique-names-generator@4.7.1"
+
 // === helpers ===
 
 /**
