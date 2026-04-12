@@ -40,6 +40,14 @@ import {
     markNudged as trackerMarkNudged,
     dropSession as trackerDropSession,
 } from "./lib/message-tracker.js"
+import { createIdleDetector } from "./lib/idle-detector.js"
+import {
+    rebuildIndex, restoreDefinitionsFromDisk, findActiveTaskForSession,
+    readTask, updateTask, cancelTask, getDefinition, taskPath,
+    appendLog, storeDefinition,
+} from "./lib/long-task.js"
+import { startHttpServer, getHttpPort } from "./lib/long-task-http.js"
+import { runCritic, processVerdict } from "./lib/long-task-critic.js"
 
 // Log uncaught errors to the log file so crashes are diagnosable
 globalThis.addEventListener("unhandledrejection", (e) => {
@@ -487,6 +495,24 @@ function handleShimMessage(conn, msg) {
 const pidToShimSession = new Map()
 
 async function handleHookEvent(msg) {
+    // Stop hooks → idle detector, no Telegram formatting
+    if (msg.hook === "Stop") {
+        let stopShimId = msg.claudePid ? pidToShimSession.get(msg.claudePid) : undefined
+        if (!stopShimId && msg.claudePid) {
+            for (const [id, s] of sessions) {
+                if (s.info.pid === msg.claudePid) {
+                    stopShimId = id
+                    pidToShimSession.set(msg.claudePid, id)
+                    break
+                }
+            }
+        }
+        if (stopShimId) {
+            idleDetector.onSessionStop(stopShimId)
+        }
+        return
+    }
+
     // Fail-safe: hooks that couldn't determine their Claude PID send the
     // UNKNOWN sentinel. We display these unconditionally rather than dropping
     // them on the focused-session check, so a broken PID walk never silently
@@ -929,6 +955,118 @@ bot.on("message:text", async (ctx) => {
         return
     }
 
+    // /task_status_<id>
+    const taskStatusMatch = /^\/task_status_(\w+)/i.exec(text)
+    if (taskStatusMatch) {
+        const access = loadAccess(BOOT_ACCESS)
+        if (!access.allowFrom.includes(String(ctx.from?.id))) { return }
+        const taskId = taskStatusMatch[1]
+        const task = readTask(taskId)
+        if (!task) { await ctx.reply(`Task ${taskId} not found.`); return }
+        const dir = taskPath(taskId)
+        let progressTail = ""
+        try { progressTail = Deno.readTextFileSync(join(dir, "progress.md")).split("\n").slice(-5).join("\n") } catch (e) { dbg("TASK", "no progress.md:", e) }
+        const tEsc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        const age = Math.round((Date.now() - new Date(task.createdAt).getTime()) / 60000)
+        const lines = [
+            `<b>Task: ${tEsc(task.id)}</b>`,
+            `State: ${task.state}`,
+            `Session: ${tEsc(task.worker.sessionId)}`,
+            `Created: ${age} min ago`,
+            `Critic calls: ${task.critic.callCount}`,
+            `Nudges: ${task.nudge.totalNudges}`,
+        ]
+        if (progressTail) {
+            lines.push(``, `<b>Progress (last 5 lines):</b>`, `<pre>${tEsc(progressTail)}</pre>`)
+        }
+        lines.push(``, `/task_view_${taskId}`, `/task_update_${taskId}`, `/task_cancel_${taskId}`)
+        await ctx.reply(lines.join("\n"), { parse_mode: "HTML" })
+        return
+    }
+
+    // /task_view_<id> — send definition as .md file attachment
+    const taskViewMatch = /^\/task_view_(\w+)/i.exec(text)
+    if (taskViewMatch) {
+        const access = loadAccess(BOOT_ACCESS)
+        if (!access.allowFrom.includes(String(ctx.from?.id))) { return }
+        const taskId = taskViewMatch[1]
+        const def = getDefinition(taskId)
+        if (!def) { await ctx.reply("No definition found for that task."); return }
+        const tmpPath = join(STATE_DIR, `${taskId}-definition.md`)
+        Deno.writeTextFileSync(tmpPath, def)
+        try {
+            const { InputFile: TgInputFile } = await import("./imports.js")
+            await ctx.replyWithDocument(new TgInputFile(tmpPath, `${taskId}-definition-of-done.md`))
+        } catch (e) {
+            dbg("TASK", "sendDocument failed:", e)
+            await ctx.reply(`<pre>${def.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").slice(0, 3000)}</pre>`, { parse_mode: "HTML" })
+        }
+        try { Deno.removeSync(tmpPath) } catch (e) { dbg("TASK", "tmp cleanup:", e) }
+        return
+    }
+
+    // /task_update_<id> [new definition]
+    const taskUpdateMatch = /^\/task_update_(\w+)(?:\s+([\s\S]+))?/i.exec(text)
+    if (taskUpdateMatch) {
+        const access = loadAccess(BOOT_ACCESS)
+        if (!access.allowFrom.includes(String(ctx.from?.id))) { return }
+        const taskId = taskUpdateMatch[1]
+        const newDef = taskUpdateMatch[2]?.trim()
+        const task = readTask(taskId)
+        if (!task) { await ctx.reply(`Task ${taskId} not found.`); return }
+        if (!newDef) {
+            const current = getDefinition(taskId)
+            const tEsc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            await ctx.reply(current
+                ? `Current definition:\n<pre>${tEsc(current.slice(0, 3000))}</pre>\n\nReply with /task_update_${taskId} &lt;new definition&gt; to replace it.`
+                : `No definition yet. Reply with /task_update_${taskId} &lt;definition&gt; to set it.`,
+                { parse_mode: "HTML" })
+            return
+        }
+        storeDefinition(taskId, newDef)
+        appendLog(taskId, "critic.log", { event: "definition_updated_by_user" })
+        const session = sessions.get(task.worker.sessionId)
+        if (session?.info.dtachSocket) {
+            try {
+                const proc = new Deno.Command("dtach", {
+                    args: ["-p", session.info.dtachSocket],
+                    stdin: "piped", stdout: "null", stderr: "null",
+                }).spawn()
+                const w = proc.stdin.getWriter()
+                await w.write(new TextEncoder().encode(`[long task ${taskId}] The user has updated the definition of done. Review your progress and adjust.\n`))
+                await w.close()
+                await proc.status
+            } catch (e) { dbg("TASK", "update inject failed:", e) }
+        }
+        await ctx.reply("Definition updated.")
+        return
+    }
+
+    // /task_cancel_<id>
+    const taskCancelMatch = /^\/task_cancel_(\w+)/i.exec(text)
+    if (taskCancelMatch) {
+        const access = loadAccess(BOOT_ACCESS)
+        if (!access.allowFrom.includes(String(ctx.from?.id))) { return }
+        const taskId = taskCancelMatch[1]
+        const task = cancelTask(taskId)
+        if (!task) { await ctx.reply(`Task ${taskId} not found.`); return }
+        const session = sessions.get(task.worker.sessionId)
+        if (session?.info.dtachSocket) {
+            try {
+                const proc = new Deno.Command("dtach", {
+                    args: ["-p", session.info.dtachSocket],
+                    stdin: "piped", stdout: "null", stderr: "null",
+                }).spawn()
+                const w = proc.stdin.getWriter()
+                await w.write(new TextEncoder().encode(`[long task ${taskId} — cancelled] The user has cancelled this task. Stop working on it.\n`))
+                await w.close()
+                await proc.status
+            } catch (e) { dbg("TASK", "cancel inject failed:", e) }
+        }
+        await ctx.reply(`Task ${taskId} cancelled.`)
+        return
+    }
+
     // __onMessage hook (only for approved users)
     const onMsgAccess = loadAccess(BOOT_ACCESS)
     const onMsgSenderId = String(ctx.from?.id)
@@ -1262,5 +1400,150 @@ setInterval(() => {
         void maybeNudge(sessionId)
     }
 }, NUDGE_SCAN_MS)
+
+// === Long task subsystem init ===
+rebuildIndex()
+restoreDefinitionsFromDisk()
+const longTaskHttpPort = startHttpServer()
+if (longTaskHttpPort) {
+    dbg("TASK", `long-task HTTP on port ${longTaskHttpPort}`)
+}
+
+const idleDetector = createIdleDetector()
+
+// Long-task idle handler
+idleDetector.addHandler("long-task", async (sessionId, _source) => {
+    const task = findActiveTaskForSession(sessionId)
+    if (!task) { return }
+    if (task.state !== "in_progress" && task.state !== "awaiting_report") { return }
+
+    const session = sessions.get(sessionId)
+    if (!session?.info.dtachSocket) { return }
+
+    const nudge = { ...task.nudge }
+    nudge.consecutiveIdleStops = (nudge.consecutiveIdleStops || 0) + 1
+    nudge.lastStopAt = new Date().toISOString()
+
+    const threshold = 2
+    if (nudge.consecutiveIdleStops < threshold) {
+        updateTask(task.id, { nudge })
+        return
+    }
+
+    const dir = taskPath(task.id)
+    const hasReport = (() => { try { Deno.statSync(join(dir, "report.md")); return true } catch { return false } })()
+
+    if (hasReport && task.state !== "awaiting_verdict") {
+        // report.md exists — trigger critic
+        nudge.consecutiveIdleStops = 0
+        updateTask(task.id, { state: "awaiting_verdict", nudge })
+        void runCriticFlow(task.id, session.info.dtachSocket, task.createdBy.chatId)
+        return
+    }
+
+    if (!hasReport) {
+        // Nudge worker to write report
+        const nudgeText = `[long task ${task.id}]\nIf you are done, please write $HOME/.cbg/long-tasks/${task.id}/report.md summarizing what you accomplished and why each requirement is met. Include the PWD, branch, files changed, and concrete evidence — the reviewer has no other context.\nIf you are not done, please continue working, logging progress to $HOME/.cbg/long-tasks/${task.id}/progress.md, and write report.md when done.`
+
+        try {
+            const proc = new Deno.Command("dtach", {
+                args: ["-p", session.info.dtachSocket],
+                stdin: "piped", stdout: "null", stderr: "null",
+            }).spawn()
+            const w = proc.stdin.getWriter()
+            await w.write(new TextEncoder().encode(nudgeText + "\n"))
+            await w.close()
+            await proc.status
+        } catch (e) {
+            dbg("TASK", `nudge dtach inject failed: ${e}`)
+        }
+
+        nudge.totalNudges = (nudge.totalNudges || 0) + 1
+        nudge.lastNudgeAt = new Date().toISOString()
+        nudge.consecutiveIdleStops = 0
+        updateTask(task.id, { state: "awaiting_report", nudge })
+        appendLog(task.id, "worker.log", { event: "nudge", source: _source })
+    }
+})
+
+async function runCriticFlow(taskId, dtachSocket, chatId) {
+    const maxRetries = 3
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        const task = readTask(taskId)
+        if (!task || task.state === "cancelled") { return }
+
+        const result = await runCritic(taskId)
+        const taskAfter = readTask(taskId)
+        if (taskAfter) {
+            const critic = { ...taskAfter.critic }
+            critic.callCount = (critic.callCount || 0) + 1
+            critic.lastCallAt = new Date().toISOString()
+            updateTask(taskId, { critic })
+        }
+
+        if (result.verdict === "indecisive" || result.verdict === "error") {
+            if (attempt < maxRetries - 1) {
+                dbg("TASK", `critic indecisive for ${taskId}, retry ${attempt + 1}`)
+                continue
+            }
+            // Max retries — escalate to user
+            const access = loadAccess(BOOT_ACCESS)
+            for (const cid of access.allowFrom) {
+                try {
+                    await bot.api.sendMessage(cid, `Task ${taskId}: critic failed after ${maxRetries} attempts. Please intervene.\n/task_status_${taskId}`)
+                } catch (e) { dbg("TASK", "escalation msg failed:", e) }
+            }
+            updateTask(taskId, { state: "in_progress" })
+            return
+        }
+
+        const { state, injectText, telegramText } = processVerdict(taskId, result.verdict)
+
+        if (injectText && dtachSocket) {
+            try {
+                const proc = new Deno.Command("dtach", {
+                    args: ["-p", dtachSocket],
+                    stdin: "piped", stdout: "null", stderr: "null",
+                }).spawn()
+                const w = proc.stdin.getWriter()
+                await w.write(new TextEncoder().encode(injectText + "\n"))
+                await w.close()
+                await proc.status
+            } catch (e) { dbg("TASK", "verdict inject failed:", e) }
+        }
+
+        if (telegramText) {
+            const access = loadAccess(BOOT_ACCESS)
+            for (const cid of access.allowFrom) {
+                try { await bot.api.sendMessage(cid, telegramText) } catch (e) { dbg("TASK", "telegram msg failed:", e) }
+            }
+        }
+
+        return
+    }
+}
+
+// Long-task idle fallback: check sessions without recent Stop hooks
+const LONG_TASK_FALLBACK_MS = 10 * 60 * 1000
+setInterval(() => {
+    const now = Date.now()
+    for (const [sid, session] of sessions) {
+        const lastStop = idleDetector.getLastStopAt(sid)
+        if (lastStop && (now - lastStop) < LONG_TASK_FALLBACK_MS) { continue }
+        if (!session.info.dtachSocket) { continue }
+        const task = findActiveTaskForSession(sid)
+        if (!task) { continue }
+        const before = logSize(session.info.dtachSocket)
+        if (before == null) { continue }
+        // Defer the actual idle check — we need to wait and re-measure
+        void (async () => {
+            await new Promise(r => setTimeout(r, NUDGE_IDLE_MS))
+            const after = logSize(session.info.dtachSocket)
+            if (after === before) {
+                idleDetector.onSessionIdle(sid)
+            }
+        })()
+    }
+}, 60_000)  // Check every 60 seconds
 
 dbg("SERVER", "standalone server ready")
