@@ -1,21 +1,31 @@
 // tests/long-task-test.js — Unit tests for the long-task subsystem
 //
 // Run: deno test tests/long-task-test.js --allow-all
+//
+// NOTE: We use dynamic imports below so the env vars (HOME, STATE_DIR)
+// are set BEFORE protocol.js / long-task.js load. Static imports are
+// hoisted and would see the real HOME, polluting the user's filesystem.
 
 import { assertEquals, assertExists, assertNotEquals } from "https://deno.land/std@0.224.0/assert/mod.ts"
 
-// Set up a temp HOME so tests don't touch the real filesystem
+// Fresh temp HOME per test run
 const TEST_HOME = Deno.makeTempDirSync({ prefix: "cbg-test-" })
 Deno.env.set("HOME", TEST_HOME)
-// Also override STATE_DIR so protocol.js picks it up
 Deno.env.set("TELEGRAM_STATE_DIR", `${TEST_HOME}/.local/share/cbg/state`)
 
-import {
+// Dynamic import — now env vars are in place
+const lt = await import("../lib/long-task.js")
+const {
     slugify, generateTaskId, createTask, readTask, updateTask,
     findActiveTaskForSession, cancelTask, listAllTasks,
     storeDefinition, getDefinition, deleteDefinition,
-    rebuildIndex, taskPath,
-} from "../lib/long-task.js"
+    rebuildIndex, taskPath, getTaskDir,
+} = lt
+
+Deno.test("task dir is under TEST_HOME", () => {
+    const dir = getTaskDir()
+    assertEquals(dir.startsWith(TEST_HOME), true, `Expected ${dir} to start with ${TEST_HOME}`)
+})
 
 Deno.test("slugify produces PascalCase", () => {
     assertEquals(slugify("fix the auth migration"), "FixTheAuthMigration")
@@ -27,27 +37,25 @@ Deno.test("slugify produces PascalCase", () => {
 Deno.test("generateTaskId has slug + hex suffix", () => {
     const id = generateTaskId("fix auth")
     assertEquals(id.startsWith("FixAuth"), true, `Expected to start with FixAuth, got: ${id}`)
-    // slug + 4 hex chars
     assertEquals(id.length >= 11, true, `Expected length >= 11, got: ${id.length}`)
 })
 
 Deno.test("generateTaskId truncates long titles", () => {
     const id = generateTaskId("this is a very long title that should be truncated at some point to keep ids reasonable")
-    // slug part should be max 30 chars
     assertEquals(id.length <= 34 + 4, true, `Expected length <= 38, got: ${id.length} (${id})`)
 })
 
 Deno.test("createTask + readTask round-trip", () => {
-    const id = generateTaskId("test task one")
+    const id = generateTaskId("round trip")
     createTask({
-        id, title: "test task one", originalPrompt: "do stuff",
-        chatId: "123", sessionId: "ses1", cwd: "/tmp", dtachSocket: "/tmp/sock",
+        id, title: "round trip", originalPrompt: "do stuff",
+        chatId: "123", sessionId: "ses-rt", cwd: "/tmp", dtachSocket: "/tmp/sock",
     })
     const task = readTask(id)
     assertExists(task)
     assertEquals(task.id, id)
     assertEquals(task.state, "defining")
-    assertEquals(task.worker.sessionId, "ses1")
+    assertEquals(task.worker.sessionId, "ses-rt")
     assertEquals(task.worker.cwd, "/tmp")
     assertEquals(task.createdBy.chatId, "123")
     assertExists(task.nudge)
@@ -55,39 +63,37 @@ Deno.test("createTask + readTask round-trip", () => {
 })
 
 Deno.test("updateTask merges fields", () => {
-    const id = generateTaskId("update test")
+    const id = generateTaskId("update")
     createTask({
-        id, title: "update test", originalPrompt: "x",
+        id, title: "update", originalPrompt: "x",
         chatId: "1", sessionId: "ses-update", cwd: "/tmp", dtachSocket: "/tmp/sock",
     })
     updateTask(id, { state: "in_progress" })
     const task = readTask(id)
     assertEquals(task.state, "in_progress")
-    assertEquals(task.title, "update test")
+    assertEquals(task.title, "update")
 })
 
 Deno.test("findActiveTaskForSession returns task and null correctly", () => {
-    const id = generateTaskId("find test")
+    const id = generateTaskId("find")
     createTask({
-        id, title: "find test", originalPrompt: "x",
+        id, title: "find", originalPrompt: "x",
         chatId: "1", sessionId: "ses-find", cwd: "/tmp", dtachSocket: "/tmp/sock",
     })
-    rebuildIndex()
     const found = findActiveTaskForSession("ses-find")
     assertExists(found)
     assertEquals(found.id, id)
 
-    const notFound = findActiveTaskForSession("nonexistent")
+    const notFound = findActiveTaskForSession("nonexistent-session")
     assertEquals(notFound, null)
 })
 
 Deno.test("cancelTask sets state and clears index", () => {
-    const id = generateTaskId("cancel me")
+    const id = generateTaskId("cancelme")
     createTask({
-        id, title: "cancel me", originalPrompt: "x",
+        id, title: "cancelme", originalPrompt: "x",
         chatId: "1", sessionId: "ses-cancel", cwd: "/tmp", dtachSocket: "/tmp/sock",
     })
-    rebuildIndex()
     const before = findActiveTaskForSession("ses-cancel")
     assertExists(before)
 
@@ -101,9 +107,9 @@ Deno.test("cancelTask sets state and clears index", () => {
 })
 
 Deno.test("definition store and retrieve", () => {
-    const id = generateTaskId("def test")
+    const id = generateTaskId("deftest")
     createTask({
-        id, title: "def test", originalPrompt: "x",
+        id, title: "deftest", originalPrompt: "x",
         chatId: "1", sessionId: "ses-def", cwd: "/tmp", dtachSocket: "/tmp/sock",
     })
     storeDefinition(id, "## Done when tests pass\n- All green")
@@ -111,9 +117,9 @@ Deno.test("definition store and retrieve", () => {
 })
 
 Deno.test("deleteDefinition clears RAM", () => {
-    const id = generateTaskId("def del")
+    const id = generateTaskId("defdel")
     createTask({
-        id, title: "def del", originalPrompt: "x",
+        id, title: "defdel", originalPrompt: "x",
         chatId: "1", sessionId: "ses-defdel", cwd: "/tmp", dtachSocket: "/tmp/sock",
     })
     storeDefinition(id, "something")
@@ -122,50 +128,62 @@ Deno.test("deleteDefinition clears RAM", () => {
     assertEquals(getDefinition(id), null)
 })
 
-Deno.test("listAllTasks returns all tasks sorted", () => {
-    // Create two tasks with slight delay
-    const id1 = generateTaskId("list one")
-    const id2 = generateTaskId("list two")
+Deno.test("listAllTasks returns all tasks", () => {
+    const id1 = generateTaskId("listone")
+    const id2 = generateTaskId("listtwo")
     createTask({
-        id: id1, title: "list one", originalPrompt: "a",
+        id: id1, title: "listone", originalPrompt: "a",
         chatId: "1", sessionId: "ses-list1", cwd: "/tmp", dtachSocket: "/tmp/sock",
     })
     createTask({
-        id: id2, title: "list two", originalPrompt: "b",
+        id: id2, title: "listtwo", originalPrompt: "b",
         chatId: "1", sessionId: "ses-list2", cwd: "/tmp", dtachSocket: "/tmp/sock",
     })
     const all = listAllTasks()
-    assertEquals(all.length >= 2, true, `Expected at least 2 tasks, got ${all.length}`)
-    // Most recent first
-    const idx1 = all.findIndex(t => t.id === id1)
-    const idx2 = all.findIndex(t => t.id === id2)
-    assertNotEquals(idx1, -1)
-    assertNotEquals(idx2, -1)
+    const ids = all.map(t => t.id)
+    assertEquals(ids.includes(id1), true)
+    assertEquals(ids.includes(id2), true)
 })
 
 Deno.test("guard: one active task per session via index", () => {
-    const id1 = generateTaskId("guard one")
+    const id1 = generateTaskId("guardone")
     createTask({
-        id: id1, title: "guard one", originalPrompt: "x",
+        id: id1, title: "guardone", originalPrompt: "x",
         chatId: "1", sessionId: "ses-guard", cwd: "/tmp", dtachSocket: "/tmp/sock",
     })
-    rebuildIndex()
     const existing = findActiveTaskForSession("ses-guard")
     assertExists(existing)
     assertEquals(existing.id, id1)
 })
 
-Deno.test("task directory structure created correctly", () => {
-    const id = generateTaskId("dir test")
+Deno.test("cancelled tasks are skipped by findActiveTaskForSession", () => {
+    const id1 = generateTaskId("canfirst")
     createTask({
-        id, title: "dir test", originalPrompt: "x",
+        id: id1, title: "canfirst", originalPrompt: "x",
+        chatId: "1", sessionId: "ses-recycle", cwd: "/tmp", dtachSocket: "/tmp/sock",
+    })
+    cancelTask(id1)
+    // After cancel, same session should have no active task — so a new task can be created
+    const found = findActiveTaskForSession("ses-recycle")
+    assertEquals(found, null)
+})
+
+Deno.test("rebuildIndex is idempotent and excludes terminal tasks", () => {
+    rebuildIndex()
+    // Cancelled tasks from previous test should not be in the index
+    const found = findActiveTaskForSession("ses-recycle")
+    assertEquals(found, null)
+})
+
+Deno.test("task directory structure created correctly", () => {
+    const id = generateTaskId("dirtest")
+    createTask({
+        id, title: "dirtest", originalPrompt: "x",
         chatId: "1", sessionId: "ses-dir", cwd: "/tmp", dtachSocket: "/tmp/sock",
     })
     const dir = taskPath(id)
-    // task.json exists
     const stat = Deno.statSync(`${dir}/task.json`)
     assertEquals(stat.isFile, true)
-    // revisions/ dir exists
     const revStat = Deno.statSync(`${dir}/revisions`)
     assertEquals(revStat.isDirectory, true)
 })

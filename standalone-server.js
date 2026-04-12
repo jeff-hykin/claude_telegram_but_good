@@ -36,7 +36,7 @@ import {
     recordInbound as trackerRecordInbound,
     recordOutbound as trackerRecordOutbound,
     isPending as trackerIsPending,
-    getAll as trackerGetAll,
+    getEntry as trackerGetEntry,
     markNudged as trackerMarkNudged,
     dropSession as trackerDropSession,
 } from "./lib/message-tracker.js"
@@ -1317,18 +1317,26 @@ function shutdown() {
 Deno.addSignalListener("SIGTERM", shutdown)
 Deno.addSignalListener("SIGINT", shutdown)
 
-// === Nudge watchdog ===
+// === Unified idle detection ===
 //
-// If a Telegram message arrives but Claude never replies, Claude is sometimes
-// just done thinking and forgot to call the reply tool. We detect this by
-// watching the per-session message tracker: when a session has a pending
-// inbound (older than NUDGE_WAIT_MS) and is not currently producing output
-// (dtach log file size unchanged for NUDGE_IDLE_MS), inject a reminder into
-// the session's stdin via dtach -p. One nudge per pending message.
+// One scanner, one signal bus. Handlers decide what to act on.
+//
+// Signal sources:
+//   1. Stop hooks → idleDetector.onSessionStop(id)  (immediate, precise)
+//   2. Time-based scanner → idleDetector.onSessionIdle(id)  (fallback)
+//
+// The scanner only runs the log-size check for sessions without a recent
+// Stop hook. Stop hooks are authoritative when available.
+//
+// Handlers (registered below):
+//   - long-task: owns the session when there's an active task
+//   - telegram-reply: only fires when there is NO active long task
+//     (long-task handler takes priority for its sessions)
 
 const NUDGE_WAIT_MS = 45_000
 const NUDGE_IDLE_MS = 5_000
 const NUDGE_SCAN_MS = 5_000
+const STOP_RECENT_MS = 10 * 60 * 1000  // Stop hook considered "recent" for this long
 const NUDGE_TEXT = "[automated reminder] You received a Telegram message but haven't replied yet. Please call the telegram reply tool now to respond to the user."
 
 function logSize(dtachSocket) {
@@ -1340,32 +1348,7 @@ function logSize(dtachSocket) {
     }
 }
 
-async function maybeNudge(sessionId) {
-    const session = sessions.get(sessionId)
-    if (!session) {
-        return
-    }
-    const dtachSocket = session.info.dtachSocket
-    if (!dtachSocket) {
-        dbg("NUDGE", `session ${sessionId} has no dtach socket — skipping`)
-        return
-    }
-    const before = logSize(dtachSocket)
-    if (before == null) {
-        dbg("NUDGE", `session ${sessionId} log file missing — skipping`)
-        return
-    }
-    await new Promise((r) => setTimeout(r, NUDGE_IDLE_MS))
-    if (!trackerIsPending(sessionId)) {
-        dbg("NUDGE", `session ${sessionId} replied during idle window — skipping`)
-        return
-    }
-    const after = logSize(dtachSocket)
-    if (after !== before) {
-        dbg("NUDGE", `session ${sessionId} log size changed (${before} -> ${after}) — still active, not nudging`)
-        return
-    }
-    dbg("NUDGE", `nudging session ${sessionId} — log idle and reply still missing`)
+async function injectDtach(dtachSocket, text, label) {
     try {
         const proc = new Deno.Command("dtach", {
             args: ["-p", dtachSocket],
@@ -1374,32 +1357,15 @@ async function maybeNudge(sessionId) {
             stderr: "null",
         }).spawn()
         const w = proc.stdin.getWriter()
-        await w.write(new TextEncoder().encode(NUDGE_TEXT + "\n"))
+        await w.write(new TextEncoder().encode(text + "\n"))
         await w.close()
         await proc.status
-        trackerMarkNudged(sessionId)
+        return true
     } catch (e) {
-        dbg("NUDGE", `dtach -p failed for session ${sessionId}:`, e)
+        dbg(label ?? "DTACH", `inject failed: ${e}`)
+        return false
     }
 }
-
-setInterval(() => {
-    const all = trackerGetAll()
-    const now = Date.now()
-    for (const [sessionId, entry] of Object.entries(all)) {
-        if (entry.nudged) {
-            continue
-        }
-        if (!trackerIsPending(sessionId)) {
-            continue
-        }
-        const age = now - entry.lastInbound.ts
-        if (age < NUDGE_WAIT_MS) {
-            continue
-        }
-        void maybeNudge(sessionId)
-    }
-}, NUDGE_SCAN_MS)
 
 // === Long task subsystem init ===
 rebuildIndex()
@@ -1411,8 +1377,10 @@ if (longTaskHttpPort) {
 
 const idleDetector = createIdleDetector()
 
-// Long-task idle handler
-idleDetector.addHandler("long-task", async (sessionId, _source) => {
+// Handler 1: long-task owns its session's idle signals.
+// When a task is active for this session, only this handler runs (the
+// telegram-reply handler bails early on the same check).
+idleDetector.addHandler("long-task", async (sessionId, source) => {
     const task = findActiveTaskForSession(sessionId)
     if (!task) { return }
     if (task.state !== "in_progress" && task.state !== "awaiting_report") { return }
@@ -1434,7 +1402,6 @@ idleDetector.addHandler("long-task", async (sessionId, _source) => {
     const hasReport = (() => { try { Deno.statSync(join(dir, "report.md")); return true } catch { return false } })()
 
     if (hasReport && task.state !== "awaiting_verdict") {
-        // report.md exists — trigger critic
         nudge.consecutiveIdleStops = 0
         updateTask(task.id, { state: "awaiting_verdict", nudge })
         void runCriticFlow(task.id, session.info.dtachSocket, task.createdBy.chatId)
@@ -1442,27 +1409,40 @@ idleDetector.addHandler("long-task", async (sessionId, _source) => {
     }
 
     if (!hasReport) {
-        // Nudge worker to write report
         const nudgeText = `[long task ${task.id}]\nIf you are done, please write $HOME/.cbg/long-tasks/${task.id}/report.md summarizing what you accomplished and why each requirement is met. Include the PWD, branch, files changed, and concrete evidence — the reviewer has no other context.\nIf you are not done, please continue working, logging progress to $HOME/.cbg/long-tasks/${task.id}/progress.md, and write report.md when done.`
-
-        try {
-            const proc = new Deno.Command("dtach", {
-                args: ["-p", session.info.dtachSocket],
-                stdin: "piped", stdout: "null", stderr: "null",
-            }).spawn()
-            const w = proc.stdin.getWriter()
-            await w.write(new TextEncoder().encode(nudgeText + "\n"))
-            await w.close()
-            await proc.status
-        } catch (e) {
-            dbg("TASK", `nudge dtach inject failed: ${e}`)
-        }
+        await injectDtach(session.info.dtachSocket, nudgeText, "TASK")
 
         nudge.totalNudges = (nudge.totalNudges || 0) + 1
         nudge.lastNudgeAt = new Date().toISOString()
         nudge.consecutiveIdleStops = 0
         updateTask(task.id, { state: "awaiting_report", nudge })
-        appendLog(task.id, "worker.log", { event: "nudge", source: _source })
+        appendLog(task.id, "worker.log", { event: "nudge", source })
+    }
+})
+
+// Handler 2: telegram-reply reminder. Only fires for sessions WITHOUT
+// an active long task — long-task owns those sessions exclusively.
+idleDetector.addHandler("telegram-reply", async (sessionId, _source) => {
+    // Long-task handler has priority: if there's an active task, bail.
+    if (findActiveTaskForSession(sessionId)) { return }
+
+    const entry = trackerGetEntry(sessionId)
+    if (!entry || entry.nudged) { return }
+    if (!trackerIsPending(sessionId)) { return }
+    if (!entry.lastInbound) { return }
+    const age = Date.now() - entry.lastInbound.ts
+    if (age < NUDGE_WAIT_MS) { return }
+
+    const session = sessions.get(sessionId)
+    if (!session?.info.dtachSocket) {
+        dbg("NUDGE", `session ${sessionId} has no dtach socket — skipping`)
+        return
+    }
+
+    dbg("NUDGE", `nudging session ${sessionId} — pending message, no reply`)
+    const ok = await injectDtach(session.info.dtachSocket, NUDGE_TEXT, "NUDGE")
+    if (ok) {
+        trackerMarkNudged(sessionId)
     }
 })
 
@@ -1486,7 +1466,6 @@ async function runCriticFlow(taskId, dtachSocket, chatId) {
                 dbg("TASK", `critic indecisive for ${taskId}, retry ${attempt + 1}`)
                 continue
             }
-            // Max retries — escalate to user
             const access = loadAccess(BOOT_ACCESS)
             for (const cid of access.allowFrom) {
                 try {
@@ -1497,19 +1476,10 @@ async function runCriticFlow(taskId, dtachSocket, chatId) {
             return
         }
 
-        const { state, injectText, telegramText } = processVerdict(taskId, result.verdict)
+        const { state: _state, injectText, telegramText } = processVerdict(taskId, result.verdict)
 
         if (injectText && dtachSocket) {
-            try {
-                const proc = new Deno.Command("dtach", {
-                    args: ["-p", dtachSocket],
-                    stdin: "piped", stdout: "null", stderr: "null",
-                }).spawn()
-                const w = proc.stdin.getWriter()
-                await w.write(new TextEncoder().encode(injectText + "\n"))
-                await w.close()
-                await proc.status
-            } catch (e) { dbg("TASK", "verdict inject failed:", e) }
+            await injectDtach(dtachSocket, injectText, "TASK")
         }
 
         if (telegramText) {
@@ -1523,19 +1493,25 @@ async function runCriticFlow(taskId, dtachSocket, chatId) {
     }
 }
 
-// Long-task idle fallback: check sessions without recent Stop hooks
-const LONG_TASK_FALLBACK_MS = 10 * 60 * 1000
+// === Unified scanner ===
+//
+// Single setInterval that drives idle detection. For each session with a
+// dtach socket:
+//   1. If a Stop hook fired recently → skip (Stop is authoritative).
+//   2. Otherwise, read log size, wait NUDGE_IDLE_MS, read again.
+//   3. If unchanged → fire onSessionIdle(sessionId).
+//
+// The handlers (long-task, telegram-reply) decide whether to act.
 setInterval(() => {
     const now = Date.now()
     for (const [sid, session] of sessions) {
-        const lastStop = idleDetector.getLastStopAt(sid)
-        if (lastStop && (now - lastStop) < LONG_TASK_FALLBACK_MS) { continue }
         if (!session.info.dtachSocket) { continue }
-        const task = findActiveTaskForSession(sid)
-        if (!task) { continue }
+        const lastStop = idleDetector.getLastStopAt(sid)
+        if (lastStop && (now - lastStop) < STOP_RECENT_MS) { continue }
+
         const before = logSize(session.info.dtachSocket)
         if (before == null) { continue }
-        // Defer the actual idle check — we need to wait and re-measure
+
         void (async () => {
             await new Promise(r => setTimeout(r, NUDGE_IDLE_MS))
             const after = logSize(session.info.dtachSocket)
@@ -1544,6 +1520,6 @@ setInterval(() => {
             }
         })()
     }
-}, 60_000)  // Check every 60 seconds
+}, NUDGE_SCAN_MS)
 
 dbg("SERVER", "standalone server ready")
