@@ -1,5 +1,7 @@
 Todo:
 - add update command
+- add a claude skill called /task to start them from the claude side
+- check if claude code updates will break the shim or not
 - allow picking which branch to install (reinstall)
 - add a system for falling back on a local model
 - add discord support

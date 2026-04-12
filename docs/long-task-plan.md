@@ -32,6 +32,257 @@ against **modification**, not secrecy.
 
 ---
 
+## Diagrams
+
+### State machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> defining : /task command
+
+    defining --> in_progress : worker POSTs definition
+    defining --> cancelled : /task_cancel
+
+    in_progress --> awaiting_report : idle detector nudges
+    in_progress --> cancelled : /task_cancel
+
+    awaiting_report --> awaiting_verdict : report.md appears
+    awaiting_report --> in_progress : worker resumes work
+    awaiting_report --> cancelled : /task_cancel
+
+    awaiting_verdict --> certified : critic writes certification.md
+    awaiting_verdict --> in_progress : critic writes requested_revisions.md
+    awaiting_verdict --> awaiting_clarification : critic flags unclear definition
+    awaiting_verdict --> cancelled : /task_cancel
+
+    awaiting_clarification --> awaiting_verdict : user updates definition
+    awaiting_clarification --> cancelled : /task_cancel
+
+    certified --> [*]
+    cancelled --> [*]
+```
+
+### Task creation & definition locking
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant TG as Telegram
+    participant Server as standalone-server.js
+    participant Worker as Worker Session<br/>(via dtach)
+    participant HTTP as HTTP endpoint<br/>(localhost)
+    participant Disk as Task Dir<br/>($HOME/.cbg/long-tasks/)
+
+    User->>TG: /task fix auth migration
+    TG->>Server: message:text handler
+    Server->>Disk: mkdir task dir, write task.json (state: defining)
+    Server->>TG: "Task started. /task_status_<id> ..."
+    TG->>User: confirmation + command links
+
+    Server->>Worker: dtach -p inject:<br/>"write context.md, then POST definition"
+
+    Worker->>Worker: writes context.md to task dir
+    Worker->>TG: reply tool: "What test suite?"
+    TG->>User: clarifying question
+    User->>TG: "the auth_test suite"
+    TG->>Server: inbound message
+    Server->>Worker: dtach -p inject: user's answer
+
+    Worker->>HTTP: POST /long-tasks/<id>/definition<br/>(curl with markdown body)
+    HTTP->>Server: store in longTaskDefinitions[taskId]
+    Server->>Disk: backup to ~/.local/share/cbg/state/long-task-definitions/<id>.md
+    Server->>Disk: update task.json (state: in_progress)
+    HTTP->>Worker: 200 "Definition received. Begin work."
+
+    Note over Server: Definition now locked in RAM.<br/>Only user can change via /task_update.
+```
+
+### Work → idle detection → critic loop
+
+```mermaid
+sequenceDiagram
+    participant Worker as Worker Session
+    participant Hook as Stop Hook<br/>(lib/hook.js)
+    participant Server as standalone-server.js
+    participant Idle as idle-detector.js
+    participant Critic as Critic<br/>(claude -p)
+    participant Disk as Task Dir
+    participant TG as Telegram
+    actor User
+
+    loop Worker does the work
+        Worker->>Disk: writes progress.md (advisory)
+        Worker->>Worker: uses tools, edits files
+    end
+
+    Worker->>Hook: agent turn ends (Stop event)
+    Hook->>Server: IPC hook_event (claudePid, hook=Stop)
+    Server->>Server: resolve claudePid → shimId
+    Server->>Idle: onSessionStop(shimId)
+    Idle->>Idle: consecutiveIdleStops++
+
+    Note over Idle: If consecutiveIdleStops < 2, wait for next Stop
+
+    Worker->>Hook: another Stop event
+    Hook->>Server: IPC hook_event
+    Server->>Idle: onSessionStop(shimId)
+    Idle->>Idle: consecutiveIdleStops = 2, threshold reached
+
+    alt report.md does NOT exist
+        Idle->>Worker: dtach -p inject:<br/>"write report.md if done"
+        Idle->>Disk: update task.json (state: awaiting_report)
+
+        Worker->>Disk: writes report.md
+    end
+
+    Note over Server: Next tick detects report.md exists
+
+    Server->>Disk: write definition_of_done.md from RAM
+    Server->>Critic: claude -p --bare --add-dir taskDir
+    Critic->>Disk: reads definition_of_done.md, report.md,<br/>context.md, progress.md, revisions/
+    Critic->>Critic: runs verification commands
+
+    alt Certification
+        Critic->>Disk: writes certification.md
+        Server->>Disk: remove definition_of_done.md
+        Server->>Disk: update task.json (state: certified)
+        Server->>Worker: dtach -p: "certified, notify user on Telegram"
+        Worker->>TG: reply tool: summary message
+        TG->>User: task complete notification
+    else Revisions requested
+        Critic->>Disk: writes requested_revisions.md
+        Server->>Disk: remove definition_of_done.md
+        Server->>Disk: mv requested_revisions → revisions/<ts>.md
+        Server->>Disk: delete report.md
+        Server->>Disk: update task.json (state: in_progress)
+        Server->>Worker: dtach -p: "revisions requested, see revisions/"
+        Note over Worker: Back to work loop
+    else Neither file (indecisive)
+        Server->>Server: retry critic (up to 3x)
+        Server->>Disk: remove definition_of_done.md
+        Server->>TG: escalate to user
+        TG->>User: "critic failed, intervene?"
+    end
+```
+
+### Time-based idle fallback
+
+```mermaid
+sequenceDiagram
+    participant Timer as setInterval<br/>(every 5s)
+    participant Server as standalone-server.js
+    participant Idle as idle-detector.js
+    participant Worker as Worker Session
+
+    loop every 5 seconds
+        Timer->>Server: tick
+        Server->>Server: check: last Stop hook > 10 min ago?
+        alt Stop hook fired recently
+            Server->>Server: skip (Stop hook is primary)
+        else No Stop hook in 10 min
+            Server->>Server: check dtach log size (before)
+            Server->>Server: wait 5s
+            Server->>Server: check dtach log size (after)
+            alt Log size unchanged (idle)
+                Server->>Idle: onSessionIdle(sessionId)
+                Note over Idle: Same handler as onSessionStop
+            else Log size changed (active)
+                Server->>Server: skip, session still working
+            end
+        end
+    end
+```
+
+### User management commands
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant TG as Telegram
+    participant Server as standalone-server.js
+    participant RAM as longTaskDefinitions<br/>(in-memory)
+    participant Worker as Worker Session
+    participant Disk as Task Dir
+
+    Note over User,Disk: /task_status_<id>
+    User->>TG: /task_status_FixAuthA1b2
+    TG->>Server: regex match → taskId
+    Server->>Disk: read task.json + tail progress.md
+    Server->>TG: HTML summary + command links
+    TG->>User: status message
+
+    Note over User,Disk: /task_view_<id>
+    User->>TG: /task_view_FixAuthA1b2
+    TG->>Server: regex match → taskId
+    Server->>RAM: longTaskDefinitions[taskId]
+    Server->>TG: sendDocument (definition as .md file)
+    TG->>User: file attachment
+
+    Note over User,Disk: /task_update_<id>
+    User->>TG: /task_update_FixAuthA1b2 new def text
+    TG->>Server: regex match → taskId + body
+    Server->>RAM: longTaskDefinitions[taskId] = newDef
+    Server->>Disk: update backup .md file
+    Server->>Worker: dtach -p: "definition updated, review progress"
+    Server->>TG: "Definition updated."
+    TG->>User: confirmation
+
+    Note over User,Disk: /task_cancel_<id>
+    User->>TG: /task_cancel_FixAuthA1b2
+    TG->>Server: regex match → taskId
+    Server->>Disk: update task.json (state: cancelled)
+    Server->>RAM: delete longTaskDefinitions[taskId]
+    Server->>Worker: dtach -p: "task cancelled, stop working"
+    Server->>TG: "Task cancelled."
+    TG->>User: confirmation
+```
+
+### ID and data residence
+
+```mermaid
+flowchart TB
+    subgraph Telegram["Telegram"]
+        chatId["chat_id: 688903965"]
+        msgId["message_id (per message)"]
+    end
+
+    subgraph Server["standalone-server.js (long-lived)"]
+        sessions["sessions Map<br/>key: shimId (calmLion)<br/>val: { conn, info: { pid, cwd, dtachSocket } }"]
+        focused["focusedSessionId: calmLion"]
+        taskDefs["longTaskDefinitions Map<br/>key: taskId<br/>val: markdown string"]
+        taskIndex["sessionToTaskId Map<br/>key: shimId<br/>val: taskId"]
+        pidMap["pidToShimSession Map<br/>key: claudePid<br/>val: shimId"]
+    end
+
+    subgraph Disk["Filesystem"]
+        taskJson["task.json<br/>{ id, state, worker.sessionId,<br/>worker.dtachSocket,<br/>createdBy.chatId }"]
+        taskFiles["context.md, progress.md,<br/>report.md, certification.md,<br/>revisions/"]
+        defBackup["~/.local/share/cbg/state/<br/>long-task-definitions/<id>.md<br/>(cold backup only)"]
+    end
+
+    subgraph Worker["Worker Session"]
+        shimId["shim session ID: calmLion"]
+        claudePid["claude PID: 48291"]
+        dtach["dtach socket path"]
+    end
+
+    subgraph Critic["Critic (ephemeral)"]
+        criticFiles["sees only: taskDir/<br/>definition_of_done.md (transient)<br/>+ context/report/progress/revisions"]
+    end
+
+    chatId -->|stored at creation| taskJson
+    shimId -->|registered via IPC| sessions
+    claudePid -->|Stop/PreTool hooks| pidMap
+    pidMap -->|resolved to| sessions
+    sessions -->|dtachSocket lookup| dtach
+    taskDefs -->|written transiently<br/>before critic call| criticFiles
+    taskDefs -->|backed up| defBackup
+    defBackup -->|restored on restart| taskDefs
+    taskIndex -->|O(1) lookup on<br/>Stop hook| taskJson
+```
+
+---
+
 ## Full flow
 
 ### 1. User creates a task
@@ -225,6 +476,12 @@ Definition of done is stored **in server RAM**
 `$HOME/.local/share/cbg/state/long-task-definitions/<id>.md` for
 restart recovery only. Never in the task directory except transiently
 during critic calls.
+
+**File retention:** All task directories and their contents are kept
+permanently, including terminal tasks (`certified`, `cancelled`).
+Nothing is auto-deleted. The history is useful for viewing, debugging,
+and as memory for future sessions. Users can manually `rm -rf` a task
+dir if they want it gone.
 
 ---
 
@@ -513,23 +770,7 @@ if (taskCancelMatch) {
 
 ## State machine
 
-```
-                          /task_cancel_<id> from ANY state
-                                    │
-                                    ▼
-                              ┌───────────┐
-                              │ cancelled  │
-                              └───────────┘
-
-defining → in_progress → awaiting_report → awaiting_verdict
-                ↑              ↑                   │
-                │              │           ┌───────┴───────┐
-                │              │     certified      in_progress
-                │              │      (terminal)    (revisions
-                │              │                     delivered)
-                │              └───────────────────────┘
-                └──────────────────────────────────────┘
-```
+(See mermaid state diagram in [Diagrams](#diagrams) section above.)
 
 Full states:
 - **defining** — worker is drafting context.md and the definition;
@@ -577,6 +818,58 @@ Full states:
     }
 }
 ```
+
+---
+
+## Session and chat ID flow
+
+No structural changes to the existing session/chat storage are needed.
+Here's how IDs flow through each layer and why the existing
+infrastructure is sufficient.
+
+(See mermaid "ID and data residence" diagram in [Diagrams](#diagrams)
+section above for a visual overview.)
+
+### Key observations
+
+**Stop hook session resolution.** The `session_id` in Claude Code's
+hook JSON is Claude Code's internal UUID, NOT the shim's friendly name
+("calmLion"). The existing hook system resolves this via PID matching:
+`claudePid` → walk `sessions` Map → find shim where `info.pid` matches
+→ get shim ID. This is the same mechanism PreToolUse/PostToolUse
+already use — Stop hooks go through the identical path. No change
+needed.
+
+**dtach socket lookup.** The live `sessions` Map is the source of truth
+for dtach sockets. When injecting to a worker, always prefer
+`sessions.get(task.worker.sessionId)?.info.dtachSocket` over the
+value saved in task.json. The task.json value is a fallback for the
+brief window during session restart before the new shim registers.
+If both are unavailable, the injection fails loudly (as planned).
+
+**Telegram chat_id.** Available from `ctx.chat.id` at `/task` creation
+time. Stored in `task.json.createdBy.chatId`. Used for escalation
+messages ("task idle 5 nudges — intervene?") and certification
+notifications. `bot.api.sendMessage(chatId, text)` works directly.
+
+**HTTP endpoint needs no session ID.** The worker identifies itself by
+task ID in the URL (`/long-tasks/<taskId>/definition`). The server
+validates the task exists and is in the right state. No session
+awareness needed on the HTTP side.
+
+### In-memory index: `sessionToTaskId`
+
+To avoid scanning all task dirs on every Stop hook event, maintain an
+in-memory map in `lib/long-task.js`:
+
+```js
+const sessionToTaskId = new Map()  // sessionId → taskId (non-terminal only)
+```
+
+Built from disk scan on server startup. Updated on task create, cancel,
+certify, and session rebind. The idle detector calls
+`getTaskForSession(sessionId)` which is an O(1) lookup into this map
+instead of an O(n) directory scan.
 
 ---
 
