@@ -1,27 +1,33 @@
 // commands/cancel.js — Action-returning hot command.
 //
-// Sends ESC to the focused Claude Code TUI by piping 0x1b into
-// `dtach -p <sock>`. Claude Code's TUI handles ESC as "cancel the
-// current request" — the model stops, any in-flight tool call is
-// interrupted, and the session stays alive for the next prompt.
-// This is exactly what Ctrl-C-ing the TUI in an attached terminal
-// does; the dtach pipe gives us the same input channel over IPC.
+// Two-mode cancel:
 //
-// We intentionally do NOT send SIGINT to the claude process as a
-// fallback: SIGINT at the OS level is "kill/crash the process,"
+//   1. Focused session has a long task → cancel the long task (marks
+//      it state="cancelled", clears session.longTaskId, notifies the
+//      worker via channel event). Recoverable via /task_resume_<id>.
+//
+//   2. Otherwise → send ESC to the focused Claude Code TUI by piping
+//      0x1b into `dtach -p <sock>`. Claude Code's TUI handles ESC as
+//      "cancel the current request" — the model stops, any in-flight
+//      tool call is interrupted, and the session stays alive for the
+//      next prompt.
+//
+// For mode 2 we intentionally do NOT send SIGINT to the claude process
+// as a fallback: SIGINT at the OS level is "kill/crash the process",
 // which is bigger than "stop the current request" and leaves dtach
-// holding a dead child. If a session has no dtach socket we'd
-// rather report the problem than pretend to cancel by killing.
-// (Per CLAUDE.md: "All sessions must run under dtach" — no socket
-// means something is wrong upstream and the user needs to know.)
+// holding a dead child. If a session has no dtach socket we'd rather
+// report the problem than pretend to cancel by killing. (Per CLAUDE.md:
+// "All sessions must run under dtach" — no socket means something is
+// wrong upstream and the user needs to know.)
 //
-// The dtach call stays inline — there's no effect-layer dtach
-// helper today and this is the only caller.
+// The dtach call stays inline — there's no effect-layer dtach helper
+// today and this is the only caller.
 
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
+const { buildCancelAction } = await versionedImport("../lib/long-task-actions.js", import.meta)
 
 export const tips = [
     "/cancel will stop the current request",
@@ -53,6 +59,27 @@ export const commands = {
         const focused = focusedId ? core.chatSessions?.[focusedId] : null
         if (!focused) { return reply(event.chatId, "No focused session.") }
 
+        // Mode 1: long-task cancel. Takes priority over ESC-to-dtach so
+        // a running task gets its full cleanup path (cold-storage entry,
+        // worker notification, stateBeforeCancel marker for resume).
+        // ESC alone would only interrupt claude's current turn — the
+        // task pointer and nudge watchdog state would stay set.
+        const longTaskId = focused.longTaskId
+        if (longTaskId) {
+            dbg("CANCEL", `focused session ${focused.id} owns ${longTaskId} — delegating to buildCancelAction`)
+            const result = buildCancelAction(core, event.chatId, longTaskId)
+            if (result.ok) {
+                return result.action
+            }
+            // Task pointer pointed at something un-cancellable (already
+            // cancelled / missing / terminal). Surface the reason and
+            // fall through to the ESC path below so the user still gets
+            // some effect from their /cancel.
+            dbg("CANCEL", `buildCancelAction rejected: ${result.reason}`)
+        }
+
+        // Mode 2: plain ESC-to-dtach. No active long task, just stop
+        // whatever claude is currently doing.
         if (!focused.dtachSocket) {
             // Fail loud instead of SIGINT-ing the process. A session
             // without a dtach socket is an invariant violation — the

@@ -405,7 +405,7 @@ Deno.test("chat-user: /task prompt points the worker at paths.longTaskDir, not $
     assert(prompt.includes("/report.md"))
 })
 
-Deno.test("chat-user: /task_cancel_<id> DELETES the task entry from longTaskByChatId", async () => {
+Deno.test("chat-user: /task_cancel_<id> marks the task state=cancelled (recoverable via /task_resume)", async () => {
     const core = makeCore({
         chatState: { focusedSessionId: "worker" },
         chatSessions: { "worker": { id: "worker", _conn: {} } },
@@ -421,13 +421,53 @@ Deno.test("chat-user: /task_cancel_<id> DELETES the task entry from longTaskByCh
         },
     })
     const action = await handle(baseEvent({ text: "/task_cancel_t1" }), core)
-    // mergeSessionData undefined → delete: the patch value is undefined
-    // AND the key is present on the patch (not just missing).
-    const patch = action.stateChanges.specialData.longTaskByChatId["42"]
-    assertEquals(patch.t1, undefined)
-    assert("t1" in patch, "cancel patch must carry an explicit undefined delete sentinel")
+    // The task entry is KEPT (not deleted) so /task_resume_<id> can
+    // revive it — only its `state` flips to "cancelled" and pre-cancel
+    // state is stashed in `stateBeforeCancel`.
+    const taskPatch = action.stateChanges.specialData.longTaskByChatId["42"].t1
+    assertEquals(taskPatch.state, "cancelled")
+    assertEquals(taskPatch.stateBeforeCancel, "in_progress")
+    assert(typeof taskPatch.cancelledAt === "string", "cancelledAt timestamp must be recorded")
+    // Session pointer is cleared + nudge quieted.
+    const sessionPatch = action.stateChanges.chatSessions.worker
+    assertEquals(sessionPatch.longTaskId, undefined)
+    assertEquals(sessionPatch.pendingNudgeAction, "none")
     // A cold-storage entry goes out for history and a deliver_channel_event
     // informs the worker.
     assertEquals(effectsOfType(action, "cold_append")[0].entry.event, "cancelled")
     assertEquals(effectsOfType(action, "deliver_channel_event").length, 1)
+})
+
+Deno.test("chat-user: /task_resume_<id> revives a cancelled task back to its pre-cancel state", async () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "worker" },
+        chatSessions: { "worker": { id: "worker", _conn: {} } },
+        specialData: {
+            longTaskByChatId: {
+                "42": {
+                    "t1": {
+                        id: "t1", title: "old task",
+                        state: "cancelled",
+                        stateBeforeCancel: "in_progress",
+                        cancelledAt: "2026-04-13T06:00:00.000Z",
+                        workerSessionId: "worker", definition: "x",
+                    },
+                },
+            },
+        },
+    })
+    const action = await handle(baseEvent({ text: "/task_resume_t1" }), core)
+    const taskPatch = action.stateChanges.specialData.longTaskByChatId["42"].t1
+    assertEquals(taskPatch.state, "in_progress")
+    assertEquals(taskPatch.stateBeforeCancel, undefined)
+    assertEquals(taskPatch.cancelledAt, undefined)
+    assert(typeof taskPatch.resumedAt === "string", "resumedAt timestamp must be recorded")
+    // Session pointer is restored + nudge action set to taskCheck.
+    const sessionPatch = action.stateChanges.chatSessions.worker
+    assertEquals(sessionPatch.longTaskId, "t1")
+    assertEquals(sessionPatch.pendingNudgeAction, "taskCheck")
+    // Worker gets notified.
+    const delivers = effectsOfType(action, "deliver_channel_event")
+    assertEquals(delivers.length, 1)
+    assert(delivers[0].content.includes("resumed"))
 })

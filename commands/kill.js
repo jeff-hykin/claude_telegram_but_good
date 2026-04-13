@@ -10,7 +10,7 @@ import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 
 export const tips = [
-    "/kill asks claude to stop, /fkill doesn't",
+    "/kill asks claude to stop, /fkill doesn't ask",
     "if you ever want a nuclear option, try /fkill_all",
 ]
 
