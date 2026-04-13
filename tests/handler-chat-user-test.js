@@ -307,6 +307,68 @@ Deno.test("chat-user: /task <description> creates a long task + notifies worker"
     assertEquals(delivers[0].sessionId, "worker")
 })
 
+Deno.test("chat-user: /task rejects if the focused session already has a live task", async () => {
+    // Session.longTaskId points at an existing live task in specialData →
+    // the new /task should be rejected and the user shown the edit/cancel
+    // command links.
+    const core = makeCore({
+        chatState: { focusedSessionId: "worker" },
+        chatSessions: {
+            "worker": { id: "worker", _conn: {}, longTaskId: "Existing0001" },
+        },
+        specialData: {
+            longTaskByChatId: {
+                "42": {
+                    "Existing0001": {
+                        id: "Existing0001", title: "earlier task",
+                        state: "in_progress", workerSessionId: "worker",
+                        definition: "stub",
+                    },
+                },
+            },
+        },
+    })
+    const action = await handle(baseEvent({ text: "/task write a readme" }), core)
+
+    // No new task was created.
+    const tasks = get(action, "stateChanges.specialData.longTaskByChatId.42") ?? {}
+    assertEquals(Object.keys(tasks).length, 0, "no new task should have been written")
+    // No deliver_channel_event (the worker wasn't told to start a new task).
+    assertEquals(effectsOfType(action, "deliver_channel_event").length, 0)
+    // The user got a single reply with the edit/cancel links.
+    const msgs = effectsOfType(action, "send_text_to_user")
+    assertEquals(msgs.length, 1)
+    assert(msgs[0].text.includes("Existing0001"), "rejection should name the existing task")
+    assert(msgs[0].text.includes("already has an active task"))
+    assert(msgs[0].text.includes("/task_view_Existing0001"))
+    assert(msgs[0].text.includes("/task_update_Existing0001"))
+    assert(msgs[0].text.includes("/task_cancel_Existing0001"))
+})
+
+Deno.test("chat-user: /task allows creation when session.longTaskId is set but the task is missing from specialData (stale pointer)", async () => {
+    // Dangling pointer: session says it owns task X but X isn't in
+    // specialData (bug, race, manual edit). Should fall through and
+    // create the new task; the new task's state patch overwrites the
+    // stale pointer.
+    const core = makeCore({
+        chatState: { focusedSessionId: "worker" },
+        chatSessions: {
+            "worker": { id: "worker", _conn: {}, longTaskId: "GhostTask" },
+        },
+        specialData: { longTaskByChatId: { "42": {} } },
+    })
+    const action = await handle(baseEvent({ text: "/task write a readme" }), core)
+
+    // New task WAS created.
+    const tasks = get(action, "stateChanges.specialData.longTaskByChatId.42")
+    const taskIds = Object.keys(tasks)
+    assertEquals(taskIds.length, 1)
+    assert(taskIds[0] !== "GhostTask", "new id must differ from the stale pointer")
+    // The session patch sets longTaskId to the NEW task (overwriting GhostTask).
+    const sessionPatch = get(action, "stateChanges.chatSessions.worker")
+    assertEquals(sessionPatch.longTaskId, taskIds[0])
+})
+
 Deno.test("chat-user: session with no _conn is reported as disconnected", async () => {
     const core = makeCore({
         chatState: { focusedSessionId: "sess-1" },

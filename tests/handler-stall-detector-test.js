@@ -181,6 +181,7 @@ Deno.test("screen-snapshot: reads tail + appends to ring + reschedules", () => {
                 id: sessionId,
                 dtachSocket: sockPath,
                 screenBufferRecord: [],
+                status: "working",
             },
         },
     })
@@ -207,7 +208,7 @@ Deno.test("screen-snapshot: different tail content produces different hash acros
     Deno.writeTextFileSync(logPath, "frame one\n")
     const core1 = makeCore({
         chatSessions: {
-            [sessionId]: { id: sessionId, dtachSocket: sockPath, screenBufferRecord: [] },
+            [sessionId]: { id: sessionId, dtachSocket: sockPath, screenBufferRecord: [], status: "working" },
         },
     })
     const action1 = snapshotHandle({ type: "screen_snapshot_tick", ts: 1_000 }, core1)
@@ -217,7 +218,7 @@ Deno.test("screen-snapshot: different tail content produces different hash acros
     Deno.writeTextFileSync(logPath, "frame two — something very different\n")
     const core2 = makeCore({
         chatSessions: {
-            [sessionId]: { id: sessionId, dtachSocket: sockPath, screenBufferRecord: patch1 },
+            [sessionId]: { id: sessionId, dtachSocket: sockPath, screenBufferRecord: patch1, status: "working" },
         },
     })
     const action2 = snapshotHandle({ type: "screen_snapshot_tick", ts: 2_000 }, core2)
@@ -237,7 +238,7 @@ Deno.test("screen-snapshot: missing log file is skipped silently (no patch emitt
 
     const core = makeCore({
         chatSessions: {
-            [sessionId]: { id: sessionId, dtachSocket: sockPath, screenBufferRecord: [] },
+            [sessionId]: { id: sessionId, dtachSocket: sockPath, screenBufferRecord: [], status: "working" },
         },
     })
     const action = snapshotHandle({ type: "screen_snapshot_tick", ts: 50_000 }, core)
@@ -245,6 +246,60 @@ Deno.test("screen-snapshot: missing log file is skipped silently (no patch emitt
     const patch = get(action, `stateChanges.chatSessions.${sessionId}`)
     assertEquals(patch, undefined)
     assertEquals(effectsOfType(action, "set_timer").length, 1)
+})
+
+Deno.test("screen-snapshot: idle sessions are skipped (no disk read, no patch)", () => {
+    // An idle session has no stall_check watching its ring — snapshotting
+    // it would be pure overhead. Same for a session that's never been
+    // in a waiting state and has no `status` field at all.
+    const sessionId = "sess-idle"
+    const sockPath = paths.dtachSockFile(sessionId)
+    const logPath = sockPath.replace(/\.sock$/, ".log")
+    Deno.writeTextFileSync(logPath, "content we should never read\n")
+
+    const coreIdle = makeCore({
+        chatSessions: {
+            [sessionId]: { id: sessionId, dtachSocket: sockPath, screenBufferRecord: [], status: "idle" },
+        },
+    })
+    const idleAction = snapshotHandle({ type: "screen_snapshot_tick", ts: 50_000 }, coreIdle)
+    assertEquals(get(idleAction, `stateChanges.chatSessions.${sessionId}`), undefined)
+    // Still reschedules the next tick regardless of per-session outcome.
+    assertEquals(effectsOfType(idleAction, "set_timer").length, 1)
+
+    const coreNoStatus = makeCore({
+        chatSessions: {
+            // no `status` field at all — legacy session shape
+            [sessionId]: { id: sessionId, dtachSocket: sockPath, screenBufferRecord: [] },
+        },
+    })
+    const noStatusAction = snapshotHandle({ type: "screen_snapshot_tick", ts: 50_000 }, coreNoStatus)
+    assertEquals(get(noStatusAction, `stateChanges.chatSessions.${sessionId}`), undefined)
+
+    Deno.removeSync(logPath)
+})
+
+Deno.test("screen-snapshot: frozen sessions ARE snapshotted (stall-check still needs the ring)", () => {
+    // `frozen` is set by stall-check when it detects a wedge; the
+    // synthetic claude_hook_stop that follows flips status back to
+    // idle. Between those two events the snapshotter should keep
+    // updating the ring — otherwise a very brief window could miss a
+    // hash update.
+    const sessionId = "sess-frozen"
+    const sockPath = paths.dtachSockFile(sessionId)
+    const logPath = sockPath.replace(/\.sock$/, ".log")
+    Deno.writeTextFileSync(logPath, "frozen-content\n")
+
+    const core = makeCore({
+        chatSessions: {
+            [sessionId]: { id: sessionId, dtachSocket: sockPath, screenBufferRecord: [], status: "frozen" },
+        },
+    })
+    const action = snapshotHandle({ type: "screen_snapshot_tick", ts: 50_000 }, core)
+    const patch = get(action, `stateChanges.chatSessions.${sessionId}.screenBufferRecord`)
+    assertEquals(patch.length, 1)
+
+    Deno.removeSync(logPath)
 })
 
 Deno.test("screen-snapshot: ring buffer caps at (2*stall)/interval ≈ 6 entries by default", () => {
@@ -257,7 +312,7 @@ Deno.test("screen-snapshot: ring buffer caps at (2*stall)/interval ≈ 6 entries
     const stale = Array.from({ length: 10 }, (_, i) => ({ hash: `h${i}`, ts: i * 1000 }))
     const core = makeCore({
         chatSessions: {
-            [sessionId]: { id: sessionId, dtachSocket: sockPath, screenBufferRecord: stale },
+            [sessionId]: { id: sessionId, dtachSocket: sockPath, screenBufferRecord: stale, status: "working" },
         },
     })
     const action = snapshotHandle({ type: "screen_snapshot_tick", ts: 20_000 }, core)

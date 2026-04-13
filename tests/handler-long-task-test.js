@@ -142,12 +142,55 @@ Deno.test("critic: revisions tells worker to read revisions.md and flips state t
         chatId: "42",
         verdict: "revisions",
         attempt: 1,
+        ts: 123_000,
     }, core)
     const patch = get(action, "stateChanges.specialData.longTaskByChatId.42.t1")
     assertEquals(patch.state, "in_progress")
     assertEquals(patch.consecutiveIdleStops, 0)
     const toClaude = effectsOfType(action, "send_text_to_claude")
-    assert(toClaude[0].text.includes("requested_revisions.md"))
+    assert(toClaude[0].text.includes("requested_revisions"))
+})
+
+Deno.test("critic: revisions archives requested_revisions.md under revisions/<ts>.md and deletes old report.md", () => {
+    const core = coreWithTask(baseTask({ state: "in_progress", definition: "x" }))
+    const action = critic({
+        taskId: "t1",
+        chatId: "42",
+        verdict: "revisions",
+        attempt: 1,
+        ts: 1_700_000_000_000,  // deterministic so we can predict the archive name
+    }, core)
+
+    // Archival: move requested_revisions.md → revisions/requested_revisions.<iso>.md
+    const moves = effectsOfType(action, "move_file")
+    assertEquals(moves.length, 1)
+    assert(moves[0].from.endsWith("/requested_revisions.md"), `unexpected move.from: ${moves[0].from}`)
+    assert(
+        /\/revisions\/requested_revisions\.2023-.*Z\.md$/.test(moves[0].to),
+        `move.to should be under revisions/ and carry an iso ts: ${moves[0].to}`,
+    )
+    // Colons in the timestamp portion would be filesystem-hostile — confirm they're stripped.
+    const tail = moves[0].to.split("/").pop()
+    assert(!tail.includes(":"), `archive filename must not contain colons: ${tail}`)
+
+    // Old report.md is deleted so the worker is forced to write a fresh one.
+    const deletes = effectsOfType(action, "delete_file")
+    assertEquals(deletes.length, 1)
+    assert(deletes[0].path.endsWith("/report.md"))
+
+    // The nudge to the worker points at the archive path (the one they
+    // should actually read), not the vanished root-level file.
+    const toClaude = effectsOfType(action, "send_text_to_claude")
+    assertEquals(toClaude.length, 1)
+    assert(
+        toClaude[0].text.includes("/revisions/requested_revisions.") && toClaude[0].text.includes(".md"),
+        `worker nudge should point at the archive path: ${toClaude[0].text}`,
+    )
+
+    // Cold-storage entry records where the revision was archived.
+    const cold = effectsOfType(action, "cold_append")
+    assertEquals(cold[0].entry.event, "revisions_requested")
+    assert(cold[0].entry.archivedTo.includes("/revisions/requested_revisions."))
 })
 
 Deno.test("critic: anomaly verdict is logged distinctly but otherwise same as revisions", () => {
