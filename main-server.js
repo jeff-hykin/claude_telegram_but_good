@@ -355,6 +355,20 @@ async function enqueueIpcMessage(msg, conn) {
     }
 }
 
+// ── Live shim file watcher ────────────────────────────────────────────
+// Deno.watchFs() on the parent dir of $PATH/claude — when Claude Code
+// auto-updates and clobbers our shim, we reinstall within ~200 ms.
+// The safety-net poller in lib/shim-health.js (throttled to 5 min) is
+// the fallback if the watcher crashes or the platform misbehaves. See
+// lib/effects/shim-watcher.js.
+try {
+    const { startShimWatcher } = await versionedImport("./lib/effects/shim-watcher.js", import.meta)
+    const handle = startShimWatcher(core)
+    dbg("MAIN", `shim watcher: ${handle.enabled ? "started" : "disabled"}`)
+} catch (e) {
+    dbg("MAIN", "shim watcher failed to start:", e)
+}
+
 // ── Chat bot ───────────────────────────────────────────────────────────
 // Everything goes through the abstract Bot / TelegramBot split in
 // lib/bot/. Effects and event handlers call `core.bot.sendText(...)`,

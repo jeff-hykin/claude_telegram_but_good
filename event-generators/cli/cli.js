@@ -105,6 +105,14 @@ switch (cmd) {
         await runUninstall(args)
         break
     }
+    // `cbg claude` is the JS reimplementation of the bash shim at
+    // $PATH/claude. Intentionally NOT in printUsage(): users should run
+    // `claude`, which the installed shim exec's into this subcommand.
+    case "claude": {
+        const { runClaude } = await versionedImport("./commands/claude.js", import.meta)
+        await runClaude(args)
+        break
+    }
     case undefined:
     case "help":
     case "--help":

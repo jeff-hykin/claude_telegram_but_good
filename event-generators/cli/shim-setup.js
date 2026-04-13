@@ -26,8 +26,48 @@ import { join } from "../../imports.js"
 const SHIM_MARKER = "# __CBG_SHIM__"
 
 /**
- * Find the directory and full path of the real claude binary.
- * Skips any existing cbg shim to avoid double-shimming.
+ * Build an info object for a specific `claude` path on disk. Split out
+ * from findClaudeBinary() so tests and the live file watcher can target
+ * a specific file without relying on `which claude`.
+ *
+ * Returns null if the path doesn't exist or the shim is present but its
+ * `_claude_before_cbg` sibling is missing (ambiguous state — we'd rather
+ * bail than overwrite).
+ */
+export function inspectShimPath(claudePath) {
+    if (typeof claudePath !== "string" || claudePath.length === 0) {
+        return null
+    }
+    try {
+        Deno.statSync(claudePath)
+    } catch {
+        return null
+    }
+
+    const dir = claudePath.slice(0, claudePath.lastIndexOf("/"))
+
+    try {
+        const content = Deno.readTextFileSync(claudePath)
+        if (content.includes(SHIM_MARKER)) {
+            const realPath = join(dir, "_claude_before_cbg")
+            try {
+                Deno.statSync(realPath)
+                return { dir, claudePath, realPath, alreadyShimmed: true }
+            } catch {
+                return null
+            }
+        }
+    } catch {
+        // Binary file, not text — that's fine, it's the real claude
+    }
+
+    return { dir, claudePath, realPath: claudePath, alreadyShimmed: false }
+}
+
+/**
+ * Find the directory and full path of the real claude binary via
+ * `which claude`. Skips any existing cbg shim (by reading the file and
+ * looking for SHIM_MARKER) to avoid double-shimming.
  */
 export function findClaudeBinary() {
     const result = new Deno.Command("which", {
@@ -42,136 +82,50 @@ export function findClaudeBinary() {
     if (!claudePath) {
         return null
     }
-
-    // Check if this is already our shim
-    try {
-        const content = Deno.readTextFileSync(claudePath)
-        if (content.includes(SHIM_MARKER)) {
-            // It's our shim — the real binary is _claude_before_cbg in the same dir
-            const dir = claudePath.slice(0, claudePath.lastIndexOf("/"))
-            const realPath = join(dir, "_claude_before_cbg")
-            try {
-                Deno.statSync(realPath)
-                return { dir, claudePath, realPath, alreadyShimmed: true }
-            } catch {
-                return null
-            }
-        }
-    } catch {
-        // Binary file, not text — that's fine, it's the real claude
-    }
-
-    return { dir: claudePath.slice(0, claudePath.lastIndexOf("/")), claudePath, realPath: claudePath, alreadyShimmed: false }
+    return inspectShimPath(claudePath)
 }
 
-// NOTE: the shell below cannot `import` from lib/paths.js, so it
-// duplicates a handful of paths as string literals. The duplicated names
-// (and their canonical definitions in paths.js) are:
-//
-//   CBG_STATE_DIR                → paths.STATE_DIR
-//   $CBG_STATE_DIR/permission_args → paths.PERMISSION_ARGS_FILE
-//   $CBG_STATE_DIR/next_session.json → paths.NEXT_SESSION_FILE
-//   $CBG_STATE_DIR/dtach-<id>.sock → paths.dtachSockFile(id)
-//   $CBG_STATE_DIR/dtach-<id>.log  → paths.dtachLogFile(id)
-//
-// If you change any of those in paths.js, update this template too.
-// The script only runs with the default CBG_DIR ($HOME/.local/share/cbg),
-// so CBG_DIR overrides via env var are not honored by the claude shim.
+// The shim used to be ~80 lines of POSIX sh that duplicated paths from
+// lib/paths.js (STATE_DIR, PERMISSION_ARGS_FILE, NEXT_SESSION_FILE,
+// dtachSockFile, dtachLogFile). All of that logic now lives in JS at
+// event-generators/cli/commands/claude.js (dispatched by cli.js as
+// `cbg claude`), so the shim collapses to a ~3-line delegator that
+// checks for deno + cbg on PATH and exec's `cbg claude "$@"`. Both
+// fallbacks land on `_claude_before_cbg` so a broken cbg/deno install
+// never bricks the user's `claude` command.
 function shimScript() {
     return `#!/usr/bin/env sh
 ${SHIM_MARKER}
 # Installed by cbg (claude_telegram_but_good)
-# Wraps claude with telegram channels + dtach session management.
+# Delegates to \`cbg claude\`, which reads paths from lib/paths.js
+# and handles --no-tele / passthrough detection / dtach wrapping in JS.
 # To remove: cbg uninstall
-#
-# The CBG_STATE_DIR + file names below are duplicated from lib/paths.js
-# (STATE_DIR, PERMISSION_ARGS_FILE, NEXT_SESSION_FILE, dtachSockFile,
-# dtachLogFile). Keep them in sync — shell can't import from JS.
-
-REAL="$(dirname "$0")/_claude_before_cbg"
-CBG_STATE_DIR="$HOME/.local/share/cbg/state"
-
-# --no-tele as the first arg: strip it and pass through directly
-if [ "$1" = "--no-tele" ]; then
-    shift
-    exec "$REAL" "$@"
+if ! command -v deno >/dev/null 2>&1; then
+    echo "cbg claude shim: 'deno' not on PATH. Install: https://deno.land/" >&2
+    exec "$(dirname "$0")/_claude_before_cbg" "$@"
 fi
-
-# Detect passthrough cases: subcommands, non-interactive flags
-# These get no --channels and no dtach
-PASSTHROUGH=0
-case "$1" in
-    # Known subcommands (non-interactive)
-    agents|auth|auto-mode|doctor|install|mcp|plugin|plugins|setup-token|update|upgrade)
-        PASSTHROUGH=1 ;;
-esac
-
-# Check for non-interactive flags anywhere in args
-for arg in "$@"; do
-    case "$arg" in
-        -p|--print|-v|--version|-h|--help)
-            PASSTHROUGH=1 ;;
-    esac
-done
-
-if [ "$PASSTHROUGH" = "1" ]; then
-    exec "$REAL" "$@"
+if ! command -v cbg >/dev/null 2>&1; then
+    echo "cbg claude shim: 'cbg' not on PATH — falling back to raw claude" >&2
+    exec "$(dirname "$0")/_claude_before_cbg" "$@"
 fi
-
-# Interactive mode: add --channels (if not already present), wrap in dtach if available
-HAS_CHANNELS=0
-HAS_PERM=0
-for arg in "$@"; do
-    case "$arg" in
-        --channels) HAS_CHANNELS=1 ;;
-        --permission-mode|--dangerously-skip-permissions) HAS_PERM=1 ;;
-    esac
-done
-
-EXTRA_ARGS=""
-if [ "$HAS_CHANNELS" = "0" ]; then
-    EXTRA_ARGS="--channels plugin:telegram@claude-plugins-official"
-fi
-# Add permission args from config (unless user already specified)
-if [ "$HAS_PERM" = "0" ]; then
-    PERM_FILE="$CBG_STATE_DIR/permission_args"
-    if [ -f "$PERM_FILE" ]; then
-        PERM_ARGS=$(cat "$PERM_FILE")
-        if [ -n "$PERM_ARGS" ]; then
-            EXTRA_ARGS="$EXTRA_ARGS $PERM_ARGS"
-        fi
-    fi
-fi
-
-if command -v dtach >/dev/null 2>&1; then
-    # Random hex for unique socket path; the MCP shim generates the human-friendly session name
-    SOCK_ID=$(head -c 3 /dev/urandom | xxd -p)
-    SOCK="$CBG_STATE_DIR/dtach-\${SOCK_ID}.sock"
-    LOG="$CBG_STATE_DIR/dtach-\${SOCK_ID}.log"
-
-    mkdir -p "$CBG_STATE_DIR"
-    printf '{"dtachSocket":"%s"}\\n' "$SOCK" \\
-        > "$CBG_STATE_DIR/next_session.json"
-
-    export CBG_DTACH=1
-    export CBG_DTACH_SOCKET="$SOCK"
-
-    dtach -c "$SOCK" -z "$REAL" $EXTRA_ARGS "$@" 2>&1 | tee "$LOG"
-else
-    # No dtach — still add channels but run directly
-    exec "$REAL" $EXTRA_ARGS "$@"
-fi
+exec cbg claude "$@"
 `
 }
 
 /**
- * Install the claude shim.
+ * Install the claude shim. Optional `targetPath` lets the live file
+ * watcher and unit tests reinstall at a specific path instead of
+ * rediscovering via `which claude` — useful when the watcher already
+ * knows which file it's guarding.
+ *
  * Returns { ok, message }.
  */
-export function installShim() {
-    const info = findClaudeBinary()
+export function installShim(targetPath) {
+    const info = targetPath ? inspectShimPath(targetPath) : findClaudeBinary()
     if (!info) {
-        return { ok: false, message: "Could not find claude binary on PATH" }
+        return { ok: false, message: targetPath
+            ? `Could not inspect claude shim at ${targetPath}`
+            : "Could not find claude binary on PATH" }
     }
 
     const { dir, claudePath, realPath, alreadyShimmed } = info
@@ -236,9 +190,11 @@ export function removeShim() {
 }
 
 /**
- * Check if the shim is currently installed.
+ * Check if the shim is currently installed. Optional `targetPath` skips
+ * the `which claude` call — useful for tests and for the live file
+ * watcher, which already knows which path it's guarding.
  */
-export function isShimInstalled() {
-    const info = findClaudeBinary()
+export function isShimInstalled(targetPath) {
+    const info = targetPath ? inspectShimPath(targetPath) : findClaudeBinary()
     return info?.alreadyShimmed ?? false
 }
