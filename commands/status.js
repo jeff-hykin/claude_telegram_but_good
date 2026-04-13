@@ -4,6 +4,23 @@
 // Code processes. The subprocess call stays inline (it's bounded, 5 s
 // timeout) rather than being lifted into an effect type, since it has
 // no other callers and no state implications.
+//
+// ── Why `format: "plain"` ──
+//
+// This command echoes raw `ps aux` output. A single long-running
+// Claude child's command line can contain `<`, `>`, `|`, `&`, `2>`
+// (shell redirects), unpaired quotes, backticks, and any other
+// character the shell tolerates. The `send_text_to_user` effect's
+// default format is `"html"` (per CLAUDE.md's "Telegram messages
+// default to HTML" rule), which routes the text through Telegram's
+// HTML parser — and that parser rejects the whole message with
+// "Bad Request: can't parse entities" the moment it sees an
+// unopened tag like `>` or `2>`. The send then fails silently and
+// the user sees NOTHING.
+//
+// Explicitly passing `format: "plain"` bypasses the parser. We don't
+// need any HTML features here — `/status` is a diagnostic dump, not
+// a formatted message — so plain is correct regardless.
 
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
@@ -86,6 +103,7 @@ export const commands = {
                     type: "send_text_to_user",
                     chatId: event.chatId,
                     text: parts.join("\n"),
+                    options: { format: "plain" },
                 },
             ],
         }

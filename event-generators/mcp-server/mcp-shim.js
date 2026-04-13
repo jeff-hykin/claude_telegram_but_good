@@ -240,6 +240,17 @@ async function ensureServerRunning() {
     dbg("SHIM", "main-server.js is not running; tool calls will fail until it starts")
 }
 
+// Tunables for the reconnect loop. If the daemon is down we back off
+// exponentially up to RECONNECT_MAX_MS; on success we reset the delay.
+const RECONNECT_INITIAL_MS = 2_000
+const RECONNECT_MAX_MS = 30_000
+let reconnectDelayMs = RECONNECT_INITIAL_MS
+// Hoisted up from the shutdown block below so scheduleReconnect can
+// reference it without tripping a let-TDZ error. scheduleReconnect may
+// run via setTimeout before module evaluation reaches the original
+// declaration site.
+let shuttingDown = false
+
 async function connectAndRegister() {
     await ensureServerRunning()
     try {
@@ -247,8 +258,10 @@ async function connectAndRegister() {
         dbg("SHIM", "connected to main-server")
     } catch (e) {
         dbg("SHIM", "connect failed:", e)
+        scheduleReconnect()
         return
     }
+    reconnectDelayMs = RECONNECT_INITIAL_MS
     sendIpc(serverConn, { type: "register", session: ownSessionInfo() })
 
     // Read loop for incoming IPC messages from main-server.
@@ -272,7 +285,28 @@ async function connectAndRegister() {
         }
         dbg("SHIM", "IPC read loop ended")
         serverConn = null
+        readBuffer = ""
+        scheduleReconnect()
     })()
+}
+
+// Schedule another connectAndRegister after a backoff delay. Called
+// whenever the IPC socket to main-server drops (either a failed connect
+// or a mid-life read-loop EOF). Without this the shim goes permanently
+// dead from the daemon's POV on every daemon restart, which is what
+// makes old sessions pile up as zombies in /list.
+function scheduleReconnect() {
+    if (shuttingDown) { return }
+    const delay = reconnectDelayMs
+    reconnectDelayMs = Math.min(reconnectDelayMs * 2, RECONNECT_MAX_MS)
+    dbg("SHIM", `reconnect scheduled in ${delay}ms`)
+    setTimeout(() => {
+        if (shuttingDown) { return }
+        connectAndRegister().catch(e => {
+            dbg("SHIM", "reconnect attempt threw:", e)
+            scheduleReconnect()
+        })
+    }, delay)
 }
 
 async function handleServerMessage(msg) {
@@ -320,7 +354,8 @@ async function handleServerMessage(msg) {
 }
 
 // ── Shutdown ──────────────────────────────────────────────────────────
-let shuttingDown = false
+// `shuttingDown` is declared earlier in the file (near the reconnect
+// tunables) so scheduleReconnect can safely read it.
 function shutdown() {
     if (shuttingDown) { return }
     shuttingDown = true

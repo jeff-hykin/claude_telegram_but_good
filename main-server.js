@@ -114,6 +114,34 @@ try {
         // survive — the reconnecting shim and any still-live long task
         // continue from where they left off.
         chatSessions = stripFieldsResetOnRestartFromAllSessions(loaded.chatSessions)
+
+        // Liveness probe. A session that made it into chatSessions.json
+        // belonged to a shim that was alive at last persist. On reload,
+        // the shim is either (a) still running with its dtach socket
+        // intact and will reconnect, (b) still running but with a dead
+        // socket file (shim crashed / dtach force-killed), or (c) fully
+        // gone. Drop (b) and (c) here so /list doesn't accumulate
+        // zombies forever. The reconnect loop in mcp-shim.js handles
+        // (a) — it'll re-register and show up again.
+        for (const [sid, sess] of Object.entries(chatSessions)) {
+            if (!sess) { continue }
+            const sock = sess.dtachSocket
+            if (typeof sock !== "string" || sock.length === 0) {
+                dbg("MAIN", `liveness probe: ${sid} has no dtachSocket — dropping zombie`)
+                delete chatSessions[sid]
+                continue
+            }
+            try {
+                Deno.statSync(sock)
+            } catch (e) {
+                if (e instanceof Deno.errors.NotFound) {
+                    dbg("MAIN", `liveness probe: ${sid} dtach socket missing (${sock}) — dropping zombie`)
+                    delete chatSessions[sid]
+                    continue
+                }
+                dbg("MAIN", `liveness probe: ${sid} stat ${sock} failed:`, e)
+            }
+        }
     }
     if (loaded.specialData && typeof loaded.specialData === "object") {
         specialData = { ..._defaultSpecialData, ...loaded.specialData }
