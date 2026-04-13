@@ -32,7 +32,17 @@ function sessionBlock(s, { shortPath, isActive }) {
     const lines = []
 
     const title = s.title || s.id
-    const marker = isActive ? " [active]" : ""
+    // A session that's in chatSessions but has no live `_conn` is
+    // "zombie metadata" — it exists in the registry because the daemon
+    // persisted it across a restart (or because the shim exited without
+    // the unregister frame firing), but the underlying Claude process
+    // is gone or unreachable. Users can't message it.
+    let marker = ""
+    if (!s.hasConn) {
+        marker = " [disconnected]"
+    } else if (isActive) {
+        marker = " [active]"
+    }
     lines.push(`<b>${esc(title)}</b>${marker}`)
 
     const active = timeAgo(s.lastActive)
@@ -58,7 +68,15 @@ function sessionBlock(s, { shortPath, isActive }) {
         }
     }
 
-    lines.push(`  \u2022 /chat_${esc(s.id)}`)
+    // Only offer /chat_<id> for sessions the user can actually reach.
+    // A disconnected session's metadata stays visible so the user
+    // knows its history exists, but the command link would just trip
+    // the "no active connection" error in chat-user.js.
+    if (s.hasConn) {
+        lines.push(`  \u2022 /chat_${esc(s.id)}`)
+    } else {
+        lines.push(`  \u2022 <i>(gone — start a new one with /new)</i>`)
+    }
     return lines.join("\n")
 }
 
@@ -93,10 +111,14 @@ export const commands = {
             connectedAt: s.connectedAt,
             lastActive: s.lastActive ?? null,
             recentMessages: s.recentMessages ?? [],
+            // Live IPC conn — stripped on persist-load, re-populated
+            // when the shim re-registers. `hasConn` distinguishes a
+            // reachable session from a zombie metadata entry.
+            hasConn: !!s._conn,
         }))
 
         if (sessions.length === 0) {
-            return reply(event.chatId, "No sessions connected. Use /new/new to make one from here", {})
+            return reply(event.chatId, "No sessions connected. Use /new to make one from here", {})
         }
 
         const home = Deno.env.get("HOME") ?? ""

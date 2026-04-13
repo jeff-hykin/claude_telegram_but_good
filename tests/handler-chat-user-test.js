@@ -377,7 +377,7 @@ Deno.test("chat-user: session with no _conn is reported as disconnected", async 
     const action = await handle(baseEvent(), core)
     const msgs = effectsOfType(action, "send_text_to_user")
     assertEquals(msgs.length, 1)
-    assert(msgs[0].text.includes("no active connection"))
+    assert(msgs[0].text.includes("disconnected"))
 })
 
 Deno.test("chat-user: /task prompt points the worker at paths.longTaskDir, not $HOME/.cbg", async () => {

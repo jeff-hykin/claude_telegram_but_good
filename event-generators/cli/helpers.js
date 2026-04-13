@@ -187,9 +187,19 @@ export function killAllServers({ markStopped = true } = {}) {
 /**
  * Wait for the standalone server to be ready (PID file appears + the
  * process is actually alive).
+ *
+ * The daemon takes a few seconds to spin up during first-time
+ * onboarding. While we're waiting, `PID_FILE` obviously doesn't exist
+ * yet — ENOENT from `readTextFileSync` is the EXPECTED state for
+ * every poll until the server wins its race. We used to log each
+ * miss via `dbg("ONBOARD", ...)`, which produced ~20 lines of
+ * "waitForServer poll: ENOENT" noise during onboarding. Now: swallow
+ * ENOENT entirely (it's expected), surface any OTHER error once per
+ * poll, and log a single timeout message if we give up.
  */
 async function waitForServer(timeoutMs = 15000) {
     const start = Date.now()
+    let lastErr = null
     while (Date.now() - start < timeoutMs) {
         try {
             const pidStr = Deno.readTextFileSync(paths.PID_FILE).trim()
@@ -205,9 +215,20 @@ async function waitForServer(timeoutMs = 15000) {
                 }
             }
         } catch (e) {
-            dbg("ONBOARD", "waitForServer poll:", e)
+            // ENOENT / NotFound is expected: the daemon hasn't
+            // written PID_FILE yet. Quietly wait for it. Any other
+            // error (permission, corrupt read, etc.) is worth
+            // surfacing, but only once at timeout so we don't spam.
+            if (!(e instanceof Deno.errors.NotFound)) {
+                lastErr = e
+            }
         }
         await new Promise(r => setTimeout(r, 500))
+    }
+    if (lastErr) {
+        dbg("ONBOARD", "waitForServer gave up after repeated errors:", lastErr)
+    } else {
+        dbg("ONBOARD", `waitForServer timed out after ${timeoutMs}ms (no PID_FILE appeared)`)
     }
     return false
 }
@@ -362,22 +383,45 @@ export function installAndSymlinkPlugin() {
     const REPO_URL = "https://github.com/jeff-hykin/claude_telegram_but_good.git"
     const localRepo = paths.LOCAL_REPO
 
+    // Helper: remove localRepo if it exists. Missing-on-first-install
+    // is the common case and shouldn't print anything.
+    const quietRemoveLocalRepo = () => {
+        try {
+            Deno.removeSync(localRepo, { recursive: true })
+        } catch (e) {
+            if (!(e instanceof Deno.errors.NotFound)) {
+                dbg("ONBOARD", "removeSync localRepo:", e)
+            }
+        }
+    }
+
     const devPath = Deno.env.get("CBG_DEV")
     if (devPath) {
-        try { Deno.removeSync(localRepo, { recursive: true }) } catch (e) { dbg("ONBOARD", "removeSync localRepo:", e) }
+        quietRemoveLocalRepo()
         Deno.mkdirSync(join(localRepo, ".."), { recursive: true })
         Deno.symlinkSync(devPath, localRepo)
     } else {
+        // First-time onboarding: paths.LOCAL_REPO doesn't exist yet,
+        // so `statSync(.git)` throws NotFound. That's not an error
+        // condition, it just means we skip the pull and go straight
+        // to clone. Suppress the NotFound log; surface any other
+        // stat failure (permission, broken symlink, ...).
+        let shouldClone = true
         try {
             if (Deno.statSync(join(localRepo, ".git")).isDirectory) {
                 new Deno.Command("git", {
                     args: ["-C", localRepo, "pull", "origin", "--ff-only"],
                     stdout: "null", stderr: "null",
                 }).outputSync()
+                shouldClone = false
             }
         } catch (e) {
-            dbg("ONBOARD", "git pull failed, cloning fresh:", e)
-            try { Deno.removeSync(localRepo, { recursive: true }) } catch (e2) { dbg("ONBOARD", "removeSync localRepo:", e2) }
+            if (!(e instanceof Deno.errors.NotFound)) {
+                dbg("ONBOARD", "existing repo check failed, re-cloning:", e)
+            }
+        }
+        if (shouldClone) {
+            quietRemoveLocalRepo()
             Deno.mkdirSync(join(localRepo, ".."), { recursive: true })
             new Deno.Command("git", {
                 args: ["clone", "--depth", "1", REPO_URL, localRepo],

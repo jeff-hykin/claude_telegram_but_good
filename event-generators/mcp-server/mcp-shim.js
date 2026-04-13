@@ -36,7 +36,7 @@
 
 import { versionedImport, VERSION } from "../../lib/version.js"
 import {
-    Server, StdioServerTransport,
+    McpServer, StdioServerTransport,
     ListToolsRequestSchema, CallToolRequestSchema,
     join, sibling,
 } from "../../imports.js"
@@ -168,9 +168,23 @@ const PLUGIN_VERSION = (() => {
     }
 })()
 
-const mcp = new Server(
+const mcp = new McpServer(
     { name: "cbg-telegram", version: PLUGIN_VERSION },
-    { capabilities: { tools: {} } },
+    {
+        capabilities: {
+            tools: {},
+            // The `experimental` block is load-bearing: without declaring
+            // these custom notification namespaces the MCP SDK silently
+            // drops any `mcp.notification({ method: "notifications/claude/channel..." })`
+            // call, so inbound Telegram messages never reach the agent.
+            // Matches the official telegram plugin's server.ts capabilities
+            // block — keep in sync.
+            experimental: {
+                "claude/channel": {},
+                "claude/channel/permission": {},
+            },
+        },
+    },
 )
 
 // Pending tool calls awaiting IPC replies from main-server.

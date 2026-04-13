@@ -25,7 +25,7 @@ const HELP_BODY =
     `/status — check your pairing state\n` +
     `/list — show connected sessions (tap an ID to switch)\n` +
     `/title <name> — label the focused session\n` +
-    `/new/new_d — launch a new Claude Code session\n` +
+    `/new — launch a new Claude Code session\n` +
     `/cron — list scheduled tasks\n` +
     `/cancel — send Ctrl+C to the focused session\n` +
     `/pause — suspend the focused session (Ctrl+Z)\n` +

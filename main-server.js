@@ -42,6 +42,24 @@ try {
     dbg("MAIN", "mkdir paths.STATE_DIR:", e)
 }
 
+// Clear any stale `server.stopped` soft-stop marker. The invariant is:
+// "if main-server.js is running, server.stopped must not exist." Normally
+// the CLI commands (cbg start / restart / reinstall) clear it, but any
+// crash-kill-restart path that bypasses the CLI — launchctl relaunching
+// the service after a crash, a manual `deno run main-server.js`, etc. —
+// would otherwise leave the marker in place and block shims from
+// registering (they read server.stopped and politely wait forever).
+// Removing it here makes the invariant self-healing: whoever boots the
+// daemon can't leave the marker behind by accident.
+try {
+    Deno.removeSync(paths.STOPPED_FILE)
+    dbg("MAIN", "cleared stale server.stopped marker on boot")
+} catch (e) {
+    if (!(e instanceof Deno.errors.NotFound)) {
+        dbg("MAIN", "remove STOPPED_FILE on boot:", e)
+    }
+}
+
 // ── Central state ──────────────────────────────────────────────────────
 // ONLY onEvent writes to these. Handlers return descriptions; onEvent
 // applies them via mergeSessionData and the tooling layer.

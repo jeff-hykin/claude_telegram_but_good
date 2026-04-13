@@ -58,7 +58,7 @@ export const commands = {
                     chatId: event.chatId,
                     text:
                         `Approved! (Your user ID is ${senderId})\n\n` +
-                        "All your (new) claude cli sessions will be accessable to you here.\nUse /list to see them\nUse /new/new if you want to create one from here",
+                        "All your (new) claude cli sessions will be accessable to you here.\nUse /list to see them\nUse /new if you want to create one from here",
                 },
             ],
         }

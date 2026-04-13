@@ -247,16 +247,23 @@ function awaitToolReply({ ipcMessage, requestId, pendingToolCalls, sendIpc, serv
 
 // ── Channel event handler ─────────────────────────────────────────────
 // Called when main-server forwards an inbound Telegram message.
+//
+// NOTE: the method string MUST be exactly `notifications/claude/channel`.
+// This is what the official telegram plugin's server.ts uses (see its
+// line ~958) and it's the only method Claude Code listens for on the
+// --channels wire. Any other method — including the old
+// `/channel/message` suffix this shim briefly used — is silently dropped
+// by the client and the message never reaches the agent.
 export async function handleChannelEvent(msg, mcp) {
     try {
-        // Forward as an MCP notification so Claude sees it as a user message.
         await mcp.notification({
-            method: "notifications/claude/channel/message",
+            method: "notifications/claude/channel",
             params: {
                 content: msg.content,
                 meta: msg.meta,
             },
         })
+        dbg("SHIM-TOOL", `channel notification delivered (${(msg.content ?? "").length} chars)`)
     } catch (e) {
         dbg("SHIM-TOOL", "channel notification failed:", e)
     }
