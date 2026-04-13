@@ -8,32 +8,38 @@
  *   - The event queue
  *   - The central state objects (chatState, chatSessions, specialData)
  *
- * Everything else lives in lib/ and is loaded via `versionedImport`
- * so it can be hot-reloaded without killing the daemon or any Claude
- * sessions.
- *
- * The shell itself has only ONE static lib import: `versionedImport`
- * from lib/version.js. Everything else comes through versionedImport
- * calls so reload cascades through the whole module graph.
+ * Boot-time modules are plain static imports: main-server.js runs once
+ * per daemon process and never hot-reloads, so versionedImport at the
+ * top level was a no-op. Hot reload is still available to modules
+ * loaded INSIDE callbacks (eventLoop, IPC read loop, bot.onMessage,
+ * shutdown) — those still use versionedImport so a `cbgVersion` bump
+ * cascades through the event-processor graph on the next event.
  */
 
 import { fromFileUrl } from "./imports.js"
-import { versionedImport, VERSION } from "./lib/version.js"
+// lib/version.js self-initializes globalThis.cbgVersion on import.
+import { versionedImport } from "./lib/version.js"
 
-// Initialize the version from the compile-time VERSION constant in
-// lib/version.js. The `bump_cbg_version` effect rewrites version.js on
-// disk, so a restarted daemon picks up the latest value automatically.
-globalThis.cbgVersion = VERSION
-
-// ── Bootstrap: load path constants + utilities via versionedImport ────
-const { paths } = await versionedImport("./lib/paths.js", import.meta)
-const { dbg } = await versionedImport("./lib/logging.js", import.meta)
-const {
+// main-server.js is the shell — it runs once per daemon process and
+// NEVER hot-reloads itself. This is the one place where top-level
+// versionedImport calls are no-ops (they can't run more than once),
+// so every boot-time module is a plain static import. Modules loaded
+// inside callbacks (eventLoop, onMessage, IPC read, shutdown) still
+// use versionedImport — that's where hot reload actually takes effect.
+import { paths } from "./lib/paths.js"
+import { dbg } from "./lib/logging.js"
+import {
     getBotToken,
     getConfig,
     getEventQueueMax,
     getHandlerWarnMs,
-} = await versionedImport("./lib/config-manager.js", import.meta)
+} from "./lib/config-manager.js"
+import { loadPersistedState, setCoreRef as setPersistenceCoreRef } from "./lib/effects/persistence.js"
+import { stripFieldsResetOnRestartFromAllSessions } from "./lib/pure/field-stripper.js"
+import { loadCommands, getCommandDescriptions } from "./lib/hot-commands.js"
+import { startShimWatcher } from "./lib/effects/shim-watcher.js"
+import { TelegramBot } from "./lib/bot/telegram-bot.js"
+import { DiscordBot } from "./lib/bot/discord-bot.js"
 
 // Ensure the state directory exists — it's the parent of ipc.sock / pid file
 try {
@@ -86,10 +92,6 @@ let chatSessions = {}
 let specialData = { ..._defaultSpecialData }
 
 try {
-    const { loadPersistedState } = await versionedImport("./lib/effects/persistence.js", import.meta)
-    const { stripFieldsResetOnRestartFromAllSessions } = await versionedImport(
-        "./lib/pure/field-stripper.js", import.meta,
-    )
     const loaded = loadPersistedState()
     if (loaded.chatState && typeof loaded.chatState === "object") {
         chatState = { ..._defaultChatState, ...loaded.chatState }
@@ -226,12 +228,7 @@ const core = {
 }
 
 // ── Wire persistence tooling to the core ──────────────────────────────
-try {
-    const persistenceMod = await versionedImport("./lib/effects/persistence.js", import.meta)
-    persistenceMod.setCoreRef?.(core)
-} catch (e) {
-    dbg("MAIN", "persistence setCoreRef failed:", e)
-}
+setPersistenceCoreRef(core)
 
 // ── Load hot-reloadable Telegram commands ─────────────────────────────
 // Walks <repo>/commands/*.js + ~/.claude/telegram/custom_commands/*.js
@@ -244,7 +241,6 @@ const COMMANDS_DIR = (() => {
 // Expose so the reload_hot_commands effect can find the dir.
 core.commandsDir = COMMANDS_DIR
 try {
-    const { loadCommands } = await versionedImport("./lib/hot-commands.js", import.meta)
     const { loaded, errors } = await loadCommands(COMMANDS_DIR)
     dbg("MAIN", `hot commands: ${loaded} loaded, ${errors.length} errors`)
     if (errors.length > 0) {
@@ -361,13 +357,7 @@ async function enqueueIpcMessage(msg, conn) {
 // The safety-net poller in lib/shim-health.js (throttled to 5 min) is
 // the fallback if the watcher crashes or the platform misbehaves. See
 // lib/effects/shim-watcher.js.
-try {
-    const { startShimWatcher } = await versionedImport("./lib/effects/shim-watcher.js", import.meta)
-    const handle = startShimWatcher(core)
-    dbg("MAIN", `shim watcher: ${handle.enabled ? "started" : "disabled"}`)
-} catch (e) {
-    dbg("MAIN", "shim watcher failed to start:", e)
-}
+dbg("MAIN", `shim watcher: ${startShimWatcher(core).enabled ? "started" : "disabled"}`)
 
 // ── Chat bot ───────────────────────────────────────────────────────────
 // Everything goes through the abstract Bot / TelegramBot split in
@@ -386,7 +376,6 @@ if (bot) {
     // (including anything a previous BotFather session added by hand)
     // get cleaned up on every boot.
     try {
-        const { getCommandDescriptions } = await versionedImport("./lib/hot-commands.js", import.meta)
         const entries = [...getCommandDescriptions().entries()].map(
             ([command, description]) => ({ command, description }),
         )
@@ -415,7 +404,6 @@ async function startChatBot(platform) {
             dbg("MAIN", "bot_platform=discord but discord_bot_token is unset — IPC-only mode")
             return null
         }
-        const { DiscordBot } = await versionedImport("./lib/bot/discord-bot.js", import.meta)
         const bot = new DiscordBot({ token })
         bot.onMessage(async (ctx) => {
             try {
@@ -442,7 +430,6 @@ async function startChatBot(platform) {
         dbg("MAIN", "no bot token — starting in IPC-only mode")
         return null
     }
-    const { TelegramBot } = await versionedImport("./lib/bot/telegram-bot.js", import.meta)
     const bot = new TelegramBot({ token })
     bot.onMessage(async (ctx) => {
         try {
