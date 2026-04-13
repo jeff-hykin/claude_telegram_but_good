@@ -28,6 +28,7 @@ function printUsage() {
         ["config <key>",     "Print a single config value"],
         ["config <key> <v>", "Set a config value (value is YAML-parsed)"],
         ["authorize",        "Generate a one-time pairing code for a new user"],
+        ["update",           "Check out the latest release tag + hot-reload daemon in place"],
         ["reinstall",        "Refresh plugin/hooks/CLI shim on disk + hot-reload daemon in place"],
         ["uninstall",        "Stop services and remove the claude shim"],
     ]
@@ -87,6 +88,11 @@ switch (cmd) {
     case "authorize": {
         const { runAuthorize } = await versionedImport("./commands/authorize.js", import.meta)
         runAuthorize(args)
+        break
+    }
+    case "update": {
+        const { runUpdate } = await versionedImport("./commands/update.js", import.meta)
+        await runUpdate(args)
         break
     }
     case "reinstall": {
