@@ -184,11 +184,11 @@ Flow:
 3. In a background async loop, consume events. Any event of kind `modify | create | remove | rename` → schedule a debounced check.
 4. Debounce window: 200 ms. Drop back-to-back events in the same window so a single atomic rename (rm + write) doesn't fire twice.
 5. On debounce fire: call `isShimInstalled()`. If `true` → log `"shim still intact"` at debug level and return. If `false` → call `installShim()` and log the result.
-6. If `watchFs` throws (platform quirk, file deleted, fd exhaustion), log and restart the watcher after a 5 s delay. Give up after 3 consecutive failures and fall back to the periodic `maybeHealShim()` poll.
+6. If `watchFs` throws (platform quirk, file deleted, fd exhaustion), log and restart the watcher after a 5 s delay. A "failure" here means the outer `for await (const event of watcher)` loop has thrown or returned — not an individual event's debounce fire. Give up after 3 consecutive restart failures (15 s total) and fall back to the periodic `maybeHealShim()` poll.
 
 ### 7.2 Interaction with `lib/shim-health.js`
 
-`lib/shim-health.js` already has a periodic check called from `onEvent`. Keep it as a **safety net**: bump its throttle from 20 s to 5 min, and add a log marker `"safety-net check"` so it's clear from logs that the watcher is the primary mechanism. If the watcher is running fine the safety-net check will consistently find the shim intact and become essentially a no-op. If the watcher crashes, the safety net catches us within 5 min.
+`lib/shim-health.js` already has a periodic check called from `onEvent`, currently throttled to one filesystem probe per 20 s. Keep it as a **safety net**: bump its `THROTTLE_MS` constant to `300_000` (5 min), and add a log marker `"SHIM_HEAL: safety-net check"` so it's clear from logs that the watcher is the primary mechanism and the poller is a fallback. If the watcher is running fine the safety-net check will consistently find the shim intact and become essentially a no-op. If the watcher crashes or misses an event, the safety net catches us within 5 min worst-case.
 
 ### 7.3 Clobber scenario walkthrough
 
