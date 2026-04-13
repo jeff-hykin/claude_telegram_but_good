@@ -121,6 +121,26 @@ export const TOOLS = [
         },
     },
     {
+        name: "submit_scheduled_task_definition",
+        description: "Lock in the recurrence rule AND the definition of done for a scheduled task. Call this only after you have clarified the schedule + DoD with the user. Fails if the scheduled task is not in state 'defining' or you don't own its drafting session.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                scheduleTaskId: { type: "string" },
+                rule: {
+                    type: "object",
+                    description: "rrule.js-compatible JSON: { freq: DAILY|WEEKLY|MONTHLY|YEARLY|HOURLY|MINUTELY, interval?, byhour?, byminute?, byday? (e.g. [\"MO\",\"TU\"]), bymonth?, bymonthday?, count?, until?, tzid? (IANA string) }. Include tzid explicitly — it is resolved once at lock-time.",
+                },
+                definitionOfDone: {
+                    type: "string",
+                    description: "Markdown DoD. MUST name the exact path the worker should write its output to each run (e.g. runs/<runIso>/report.md under the task dir).",
+                },
+                title: { type: "string", description: "Optional short display title." },
+            },
+            required: ["scheduleTaskId", "rule", "definitionOfDone"],
+        },
+    },
+    {
         name: "cbg_debug",
         description: "Returns the path to the CBG server log and a fresh server state dump for debugging.",
         inputSchema: { type: "object", properties: {} },
@@ -180,6 +200,16 @@ export async function handleToolCall(req, ctx) {
             requestId,
             taskId: args.taskId,
             definition: args.definition,
+        }
+    } else if (name === "submit_scheduled_task_definition") {
+        ipcMessage = {
+            type: "scheduled_task_definition_submitted",
+            sessionId,
+            requestId,
+            scheduleTaskId: args.scheduleTaskId,
+            rule: args.rule,
+            definitionOfDone: args.definitionOfDone,
+            title: args.title,
         }
     } else if (name === "cbg_debug") {
         // server_dump event (not cli_command!) — the dedicated MCP path.
