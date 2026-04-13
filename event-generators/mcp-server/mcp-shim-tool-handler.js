@@ -98,12 +98,12 @@ export const TOOLS = [
     },
     {
         name: "new_command",
-        description: "Create or update a custom Telegram bot command and hot-reload it immediately.",
+        description: "Create or update a custom Telegram bot command and hot-reload it immediately. The file must export `commands[name]: (event, core) => Action`, where Action is `{ stateChanges?, effects?, followUpEvents? }`. Example: `export const commands = { hi: (event) => ({ effects: [{ type: 'send_text_to_user', chatId: event.chatId, text: 'hello' }] }) }`. See commands/ping.js in the CBG repo for the simplest reference.",
         inputSchema: {
             type: "object",
             properties: {
                 filename: { type: "string", description: 'Filename (e.g. "mycommand.js"). Must end in .js.' },
-                code: { type: "string", description: "Full JavaScript source code for the command file." },
+                code: { type: "string", description: "Full JavaScript source code for the command file. Must export `commands` as an object whose values are `(event, core) => Action` functions returning `{ stateChanges?, effects?, followUpEvents? }`." },
             },
             required: ["filename", "code"],
         },

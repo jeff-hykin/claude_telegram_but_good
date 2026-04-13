@@ -3,7 +3,7 @@
 // Contract (since the commands-port):
 //     commands[name]: async (event, core) => Action
 //
-// where `event` is the originating `telegram_user_message` event and
+// where `event` is the originating `chat_user_message` event and
 // `core` is the shell kernel (read-only access to state + enqueueEvent).
 // Commands never call `ctx.reply` or mutate state directly; they
 // describe intent via the same `{ stateChanges, effects, followUpEvents }`

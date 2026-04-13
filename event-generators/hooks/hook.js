@@ -1,7 +1,7 @@
 // Claude Code PreToolUse / PostToolUse / Stop hook — forwards the full
 // hook JSON to the cbg server over paths.IPC_SOCK, one write per invocation,
 // then exits. All field selection, truncation, and formatting lives on
-// the server (lib/ipc-inbound.js + the claude_hook_* event handlers).
+// the server (lib/pure/ipc-inbound.js + the claude_hook_* event handlers).
 //
 // Input (read from stdin, written by Claude Code — forwarded verbatim
 // in the `data` field of the outbound IPC frame):

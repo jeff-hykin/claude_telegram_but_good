@@ -135,10 +135,13 @@ Deno.test("sendFileToUser: silently skips a file inside STATE_DIR (not inbox)", 
     // To actually exercise assertSendable, we need a fake bot that records calls.
     const calls = []
     const fakeBot = {
-        api: {
-            sendDocument: (...args) => { calls.push(["sendDocument", args]); return Promise.resolve() },
-            sendPhoto: (...args) => { calls.push(["sendPhoto", args]); return Promise.resolve() },
-        },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        async sendText(...args) { calls.push(["sendText", args]); return { messageId: "1" } },
+        async sendFile(...args) { calls.push(["sendFile", args]); return { messageId: "1" } },
+        async editText(...args) { calls.push(["editText", args]) },
+        async react() { return true },
+        async answerCallback() { return true },
+        async downloadFile() { return true },
     }
     await tgOut.sendFileToUser(
         { chatId: "1", filePath: accessFile },
@@ -158,18 +161,21 @@ Deno.test("sendFileToUser: allows a file inside STATE_DIR/inbox", async () => {
 
     const calls = []
     const fakeBot = {
-        api: {
-            sendDocument: (...args) => { calls.push(["sendDocument", args]); return Promise.resolve() },
-            sendPhoto: (...args) => { calls.push(["sendPhoto", args]); return Promise.resolve() },
-        },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        async sendText(...args) { calls.push(["sendText", args]); return { messageId: "1" } },
+        async sendFile(...args) { calls.push(["sendFile", args]); return { messageId: "1" } },
+        async editText(...args) { calls.push(["editText", args]) },
+        async react() { return true },
+        async answerCallback() { return true },
+        async downloadFile() { return true },
     }
     await tgOut.sendFileToUser(
         { chatId: "1", filePath: inboxFile },
         { bot: fakeBot },
     )
-    // Should have called sendPhoto (inbox + .jpg extension)
+    // Should have called sendFile (the adapter picks photo vs document internally)
     assertEquals(calls.length, 1)
-    assertEquals(calls[0][0], "sendPhoto")
+    assertEquals(calls[0][0], "sendFile")
 })
 
 Deno.test("sendFileToUser: allows a file outside STATE_DIR", async () => {
@@ -178,18 +184,22 @@ Deno.test("sendFileToUser: allows a file outside STATE_DIR", async () => {
 
     const calls = []
     const fakeBot = {
-        api: {
-            sendDocument: (...args) => { calls.push(["sendDocument", args]); return Promise.resolve() },
-            sendPhoto: (...args) => { calls.push(["sendPhoto", args]); return Promise.resolve() },
-        },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        async sendText(...args) { calls.push(["sendText", args]); return { messageId: "1" } },
+        async sendFile(...args) { calls.push(["sendFile", args]); return { messageId: "1" } },
+        async editText(...args) { calls.push(["editText", args]) },
+        async react() { return true },
+        async answerCallback() { return true },
+        async downloadFile() { return true },
     }
     await tgOut.sendFileToUser(
         { chatId: "1", filePath: outsideFile },
         { bot: fakeBot },
     )
-    // Should have called sendDocument (.txt extension, not a photo)
+    // Should have called sendFile (abstract — photo vs document split
+    // is now an adapter internal).
     assertEquals(calls.length, 1)
-    assertEquals(calls[0][0], "sendDocument")
+    assertEquals(calls[0][0], "sendFile")
 })
 
 Deno.test("sendFileToUser: rejects files larger than 50MB", async () => {
@@ -205,10 +215,13 @@ Deno.test("sendFileToUser: rejects files larger than 50MB", async () => {
 
     const calls = []
     const fakeBot = {
-        api: {
-            sendDocument: (...args) => { calls.push(["sendDocument", args]); return Promise.resolve() },
-            sendPhoto: (...args) => { calls.push(["sendPhoto", args]); return Promise.resolve() },
-        },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        async sendText(...args) { calls.push(["sendText", args]); return { messageId: "1" } },
+        async sendFile(...args) { calls.push(["sendFile", args]); return { messageId: "1" } },
+        async editText(...args) { calls.push(["editText", args]) },
+        async react() { return true },
+        async answerCallback() { return true },
+        async downloadFile() { return true },
     }
     await tgOut.sendFileToUser(
         { chatId: "1", filePath: bigFile },
@@ -222,17 +235,20 @@ Deno.test("sendTextMessageToUser: chunks over the 4096 limit into multiple messa
     const long = "x".repeat(10000)
     const calls = []
     const fakeBot = {
-        api: {
-            sendMessage: (...args) => { calls.push(args); return Promise.resolve() },
-        },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        async sendText(chatId, text, options) { calls.push({ chatId, text, options }); return { messageId: String(calls.length) } },
+        async sendFile() { return { messageId: "1" } },
+        async editText() {},
+        async react() { return true },
+        async answerCallback() { return true },
+        async downloadFile() { return true },
     }
     await tgOut.sendTextMessageToUser(
         { chatId: "1", text: long },
         { bot: fakeBot },
     )
-    assert(calls.length >= 3, `expected >= 3 sendMessage calls, got ${calls.length}`)
+    assert(calls.length >= 3, `expected >= 3 sendText calls, got ${calls.length}`)
     for (const call of calls) {
-        const piece = call[1]
-        assert(piece.length <= 4096, `piece of length ${piece.length} exceeds 4096`)
+        assert(call.text.length <= 4096, `piece of length ${call.text.length} exceeds 4096`)
     }
 })

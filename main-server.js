@@ -17,7 +17,7 @@
  * calls so reload cascades through the whole module graph.
  */
 
-import { Bot, fromFileUrl } from "./imports.js"
+import { fromFileUrl } from "./imports.js"
 import { versionedImport, VERSION } from "./lib/version.js"
 
 // Initialize the version from the compile-time VERSION constant in
@@ -30,6 +30,7 @@ const { paths } = await versionedImport("./lib/paths.js", import.meta)
 const { dbg } = await versionedImport("./lib/logging.js", import.meta)
 const {
     getBotToken,
+    getConfig,
     getEventQueueMax,
     getHandlerWarnMs,
 } = await versionedImport("./lib/config-manager.js", import.meta)
@@ -68,6 +69,9 @@ let specialData = { ..._defaultSpecialData }
 
 try {
     const { loadPersistedState } = await versionedImport("./lib/effects/persistence.js", import.meta)
+    const { stripFieldsResetOnRestartFromAllSessions } = await versionedImport(
+        "./lib/pure/field-stripper.js", import.meta,
+    )
     const loaded = loadPersistedState()
     if (loaded.chatState && typeof loaded.chatState === "object") {
         chatState = { ..._defaultChatState, ...loaded.chatState }
@@ -81,23 +85,17 @@ try {
         chatState.pendingOtps = {}
     }
     if (loaded.chatSessions && typeof loaded.chatSessions === "object") {
-        // Drop _conn and activeSpinner from any loaded session:
-        //   - _conn is a stale reference from the previous process and is
-        //     re-populated when the shim re-registers.
-        //   - activeSpinner carries a Telegram messageId that the shim
-        //     would otherwise try to edit on its first hook after
-        //     reconnecting; that message has been static on the user's
-        //     screen since the old process died and every edit would
-        //     either no-op or fail. The next inbound user message will
-        //     start a fresh spinner.
-        chatSessions = {}
-        for (const [sid, sess] of Object.entries(loaded.chatSessions)) {
-            if (sess && typeof sess === "object") {
-                // eslint-disable-next-line no-unused-vars
-                const { _conn, activeSpinner, ...rest } = sess
-                chatSessions[sid] = rest
-            }
-        }
+        // Strip live-runtime fields from every persisted session. The
+        // canonical list lives in lib/pure/field-stripper.js
+        // so any new live-runtime field added to the session shape has
+        // exactly one place to register itself. Currently drops:
+        //   _conn, activeSpinner, status, agentRequest, agentRequestStartedAt,
+        //   pendingNudgeAction, screenBufferRecord.
+        // Persistent fields (id, pid, cwd, title, gitBranch, dtachSocket,
+        // longTaskId, lastInbound/lastOutboundAt/lastStopAt/lastActive)
+        // survive — the reconnecting shim and any still-live long task
+        // continue from where they left off.
+        chatSessions = stripFieldsResetOnRestartFromAllSessions(loaded.chatSessions)
     }
     if (loaded.specialData && typeof loaded.specialData === "object") {
         specialData = { ..._defaultSpecialData, ...loaded.specialData }
@@ -303,7 +301,7 @@ function spawnIpcReadLoop(conn) {
 
 async function enqueueIpcMessage(msg, conn) {
     try {
-        const { translateIpcMessage } = await versionedImport("./lib/ipc-inbound.js", import.meta)
+        const { translateIpcMessage } = await versionedImport("./lib/pure/ipc-inbound.js", import.meta)
         const events = translateIpcMessage(msg, conn, core) ?? []
         for (const ev of events) { enqueueEvent(ev) }
     } catch (e) {
@@ -311,15 +309,65 @@ async function enqueueIpcMessage(msg, conn) {
     }
 }
 
-// ── Telegram bot ───────────────────────────────────────────────────────
-const botToken = getBotToken()
-if (!botToken) {
-    dbg("MAIN", "no bot token — starting in IPC-only mode")
-} else {
-    const bot = new Bot(botToken)
+// ── Chat bot ───────────────────────────────────────────────────────────
+// Everything goes through the abstract Bot / TelegramBot split in
+// lib/bot/. Effects and event handlers call `core.bot.sendText(...)`,
+// `core.bot.editText(...)`, etc. — the platform-specific calls are
+// contained inside each adapter (TelegramBot / DiscordBot / ...).
+//
+// The adapter is picked by `config.bot_platform` (default "telegram").
+const platform = getConfig().bot_platform ?? "telegram"
+const bot = await startChatBot(platform)
+if (bot) {
     core.bot = bot
+}
 
-    const enqueueFromTelegram = async (ctx) => {
+async function startChatBot(platform) {
+    // IMPORTANT: both TelegramBot.start() and DiscordBot.start() resolve
+    // when their respective "ready" signal fires (Grammy's `onStart`, the
+    // Discord gateway's READY dispatch) — not when the underlying poll/
+    // websocket eventually closes. So we can `await` them inline: by the
+    // time this function returns the bot, it's guaranteed connected and
+    // ready to receive `sendText` calls. If we fire-and-forgot `start()`
+    // instead, an inbound IPC event arriving during the connect window
+    // would hit `core.bot.sendText()` before the adapter was ready and
+    // trip the `_assertStarted` guard.
+    if (platform === "discord") {
+        const token = getConfig().discord_bot_token
+        if (!token) {
+            dbg("MAIN", "bot_platform=discord but discord_bot_token is unset — IPC-only mode")
+            return null
+        }
+        const { DiscordBot } = await versionedImport("./lib/bot/discord-bot.js", import.meta)
+        const bot = new DiscordBot({ token })
+        bot.onMessage(async (ctx) => {
+            try {
+                const { translateTelegramMessage } = await versionedImport("./lib/pure/telegram-translator.js", import.meta)
+                const events = translateTelegramMessage(ctx) ?? []
+                for (const ev of events) { enqueueEvent(ev) }
+            } catch (e) {
+                dbg("DISCORD", "translator failed:", e)
+            }
+        })
+        try {
+            await bot.start()
+            dbg("MAIN", "Discord bot started")
+        } catch (e) {
+            dbg("MAIN", "Discord bot failed:", e)
+            return null
+        }
+        return bot
+    }
+
+    // Default: Telegram.
+    const token = getBotToken()
+    if (!token) {
+        dbg("MAIN", "no bot token — starting in IPC-only mode")
+        return null
+    }
+    const { TelegramBot } = await versionedImport("./lib/bot/telegram-bot.js", import.meta)
+    const bot = new TelegramBot({ token })
+    bot.onMessage(async (ctx) => {
         try {
             const { translateTelegramMessage } = await versionedImport("./lib/pure/telegram-translator.js", import.meta)
             const events = translateTelegramMessage(ctx) ?? []
@@ -327,27 +375,15 @@ if (!botToken) {
         } catch (e) {
             dbg("TG", "translator failed:", e)
         }
+    })
+    try {
+        await bot.start()
+        dbg("MAIN", "Grammy bot started")
+    } catch (e) {
+        dbg("MAIN", "Grammy bot failed:", e)
+        return null
     }
-
-    bot.on("message:text", enqueueFromTelegram)
-    bot.on("message:photo", enqueueFromTelegram)
-    bot.on("message:document", enqueueFromTelegram)
-    bot.on("message:voice", enqueueFromTelegram)
-    bot.on("message:audio", enqueueFromTelegram)
-    bot.on("message:video", enqueueFromTelegram)
-    bot.on("message:video_note", enqueueFromTelegram)
-    bot.on("message:sticker", enqueueFromTelegram)
-    bot.on("callback_query:data", enqueueFromTelegram)
-
-    ;(async () => {
-        try {
-            await bot.start({
-                onStart: () => dbg("MAIN", "Grammy bot started"),
-            })
-        } catch (e) {
-            dbg("MAIN", "Grammy bot failed:", e)
-        }
-    })()
+    return bot
 }
 
 // ── Shutdown ───────────────────────────────────────────────────────────
@@ -369,6 +405,13 @@ Deno.addSignalListener("SIGINT", shutdown)
 
 // ── PID file for lifecycle management ──────────────────────────────────
 Deno.writeTextFileSync(paths.PID_FILE, String(Deno.pid))
+
+// ── Stall-detector bootstrap ───────────────────────────────────────────
+// Kick off the periodic screen-snapshot tick. The handler itself
+// re-schedules another tick every iteration, so this is the ONE event
+// the shell needs to seed. See lib/event-handlers/screen-snapshot.js
+// and lib/event-handlers/stall-check.js for the detector pair.
+enqueueEvent({ type: "screen_snapshot_tick" })
 
 // ── Go ─────────────────────────────────────────────────────────────────
 dbg("MAIN", `main-server ready (cbgVersion=${globalThis.cbgVersion}, pid=${Deno.pid})`)

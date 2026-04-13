@@ -30,9 +30,10 @@ This is a Telegram channel plugin for Claude Code, implemented as a Deno project
 
 | Source | Event type |
 |---|---|
-| Grammy `message:text` | `telegram_user_message` |
-| Grammy `message:photo` / `:document` / `:voice` / `:audio` / `:video` / `:video_note` / `:sticker` | `telegram_user_message` with `attachment` populated |
+| Grammy `message:text` (via `TelegramBot`) | `chat_user_message` |
+| Grammy `message:photo` / `:document` / `:voice` / `:audio` / `:video` / `:video_note` / `:sticker` | `chat_user_message` with `attachment` populated |
 | Grammy `callback_query:data` | `telegram_callback_query` |
+| Discord `MESSAGE_CREATE` (via `DiscordBot`) | `chat_user_message` |
 | Shim IPC `register` | `session_register` |
 | Shim IPC `unregister` or read-loop EOF | `session_unregister` / `ipc_connection_closed` |
 | Shim IPC `tool_request` | `claude_channel_tool_request` |
@@ -41,7 +42,7 @@ This is a Telegram channel plugin for Claude Code, implemented as a Deno project
 | Hook `hook_event` with hook=Stop / PreToolUse / PostToolUse | `claude_hook_stop` / `claude_hook_pre_tool_use` / `claude_hook_post_tool_use` |
 | CLI client IPC `cli_command` | `cli_command` (with `kind`: `set_pending_otp`, `reload_cbg`, `get_cbg_version`, `server_dump`, `shutdown`) |
 | Critic subprocess completion (async follow-up) | `critic_verdict` |
-| Download tooling follow-up (async) | `download_complete_for_tool` (and a re-enqueued `telegram_user_message` with `imagePath`) |
+| Download tooling follow-up (async) | `download_complete_for_tool` (and a re-enqueued `chat_user_message` with `imagePath`) |
 | Telegram admin or MCP debug tool | `server_dump` |
 
 ### Handler contract (pure functions)
@@ -73,7 +74,7 @@ Bridging concession: the `run_hot_command` effect and `ctx.reply` calls from leg
 
 ### Effects (side-effect layer)
 
-All side effects happen in `lib/effects/*.js`. Every effect has a case in `lib/effects/apply-effect.js` that dispatches to the right effect module via `versionedImport`. Effect modules are the only place in the codebase allowed to do filesystem I/O, Grammy API calls, subprocess spawning, etc.
+All side effects happen in `lib/effects/*.js`. Dispatch is inlined in `lib/main-event-processor.js` as the module-top `effectDispatch` table — each `effect.type` maps to a function imported via `versionedImport` at module load. No separate `apply-effect.js` file; the dispatch table lives alongside the event-dispatch `handlers` table so both sides of the (event handler, effect) pair are edited in one place. Effect modules are the only place in the codebase allowed to do filesystem I/O, Grammy API calls, subprocess spawning, etc.
 
 Effect types currently implemented:
 - **Telegram outbound**: `send_text_to_user`, `send_file_to_user`, `send_reaction`, `edit_telegram_message`, `answer_callback_query`
@@ -97,12 +98,12 @@ The daemon is fully hot-reloadable. The pattern:
 import { versionedImport } from "./version.js"
 
 // Everything else uses top-level await versionedImport:
-const { dbg } = await versionedImport("./protocol.js", import.meta)
+const { dbg } = await versionedImport("./logging.js", import.meta)
 const { paths } = await versionedImport("./paths.js", import.meta)
-const { mergeSessionData } = await versionedImport("./state-merge.js", import.meta)
+const { mergeSessionData } = await versionedImport("./pure/state-merge.js", import.meta)
 ```
 
-`versionedImport` appends `?v=${globalThis.cbgVersion}` to the import URL. Deno caches modules by URL, so each version is a fresh instance. When `globalThis.cbgVersion` bumps (via `bump_cbg_version` effect), the next `onEvent` call imports `./lib/event-loop.js` at the new version, which cascades through the whole module graph.
+`versionedImport` appends `?v=${globalThis.cbgVersion}` to the import URL. Deno caches modules by URL, so each version is a fresh instance. When `globalThis.cbgVersion` bumps (via `bump_cbg_version` effect), the next `onEvent` call re-imports `./lib/main-event-processor.js` at the new version, which cascades through the whole module graph.
 
 **`lib/version.js` IS the version file** — the `bump_cbg_version` effect rewrites the `VERSION` constant in this file on disk, so a restarted daemon picks up the latest value automatically. There is NO separate `cbg.version` file.
 
@@ -170,13 +171,16 @@ All imports go through `imports.js` which re-exports from pinned esm.sh URLs. No
 ### Core event-loop
 - **`version.js`** — bootstrap: `versionedImport` + `VERSION` constant. THE only statically-imported file inside `lib/`.
 - **`paths.js`** — `buildPaths` factory + pre-built `paths` object (see above).
-- **`protocol.js`** — `dbg`, `randomHex`, `execSync`, `findClaudePid(Strict)`, `sendIpc`, `parseIpcMessages`, `UNKNOWN_CLAUDE_PID`. Re-exports path constants from `paths.js` for legacy compatibility.
-- **`event-loop.js`** — exports `onEvent`. Loads all handlers at module-top time via `versionedImport`, builds the dispatch table, applies state patches via `mergeSessionData`, runs effects via `applyEffect`.
-- **`state-merge.js`** — `mergeSessionData(target, patch)`. Recursive merge with `undefined` = delete, arrays replace wholesale, non-plain objects (UnixConn, etc.) replace by reference, underscore-prefixed keys treated as opaque.
+- **`logging.js`** — `dbg(label, ...args)`. The single most-imported export in the codebase; lives alone because ~40 files need it. (Was part of the old `protocol.js` grab-bag, split out.)
+- **`ipc.js`** — `encodeIpcFrame`, `parseIpcMessages`, `UNKNOWN_CLAUDE_PID`. The shared newline-JSON wire format — the one place framing is defined. No `sendIpc` wrapper: each caller inlines `conn.write(encodeIpcFrame(msg))` with the error-handling shape appropriate to its context.
+- **`pid.js`** — `findClaudePid`, `findClaudePidStrict`. Ancestry-walk via `ps` used by the hook script to tag events with the originating Claude session's PID.
+- **`pure/state-merge.js`** — `mergeSessionData(target, patch)`. Recursive merge with `undefined` = delete, arrays replace wholesale, non-plain objects (UnixConn, etc.) replace by reference, underscore-prefixed keys treated as opaque.
+- **`pure/ipc-inbound.js`** — `translateIpcMessage(msg, conn, core)`. Server-side INBOUND dispatch: takes a parsed JSON frame (from `parseIpcMessages`) and returns 0+ events for the main queue. Kept as its own reloadable module so new IPC message types can ship via hot-reload.
+- **`main-event-processor.js`** — exports `onEvent`. Loads all handlers AND effect implementations at module-top time via `versionedImport`, builds both dispatch tables (`handlers` keyed by event type, `effectDispatch` keyed by effect type), applies state patches via the file-local `applyStateChanges` helper (wraps `mergeSessionData` + debounced persistence), dispatches effects by table lookup. Used by both the handler's top-level `stateChanges` and the per-effect return-patch pathway, so the two sites can't drift on which slices get persisted or how.
 
 ### Handlers (`lib/event-handlers/*.js`)
 Pure functions returning Actions. One per event type. All follow the versionedImport pattern.
-- `telegram-user.js`, `telegram-callback-query.js`
+- `chat-user.js`, `telegram-callback-query.js`
 - `claude-channel.js`, `claude-hook-stop.js`, `claude-hook-pre-tool-use.js`, `claude-hook-post-tool-use.js`
 - `session-register.js`, `session-unregister.js`, `ipc-connection-closed.js`
 - `permission-request.js`
@@ -185,8 +189,7 @@ Pure functions returning Actions. One per event type. All follow the versionedIm
 - `download-complete-for-tool.js`
 
 ### Effects (`lib/effects/*.js`)
-Side-effect implementations. Counterpart to `lib/event-handlers/`: handlers describe what should happen, these modules actually do it.
-- `apply-effect.js` — central dispatcher
+Side-effect implementations. Counterpart to `lib/event-handlers/`: handlers describe what should happen, these modules actually do it. Dispatch lives in `lib/main-event-processor.js`'s `effectDispatch` table — there is no separate dispatcher file.
 - `telegram-outbound.js` — Grammy wrappers: `sendTextMessageToUser`, `sendFileToUser` (with `assertSendable` security guard, 50MB cap, photo-ext detection), `sendReaction`, `editTelegramMessage`, `answerCallbackQuery`, `chunk` helper (4096-char cap)
 - `dtach-outbound.js` — `sendTextToClaude` via `dtach -p`; `sendFilesToClaude`
 - `ipc-outbound.js` — `ipcRespond` with optional `closeAfter`
@@ -269,13 +272,13 @@ let specialData = {
 
 Cold storage (append-only JSONL) is the source of truth for history queries. When a task terminates, its entry is removed from `specialData.longTaskByChatId` and history lives in cold storage only.
 
-## Hot-reloadable Telegram commands (`commands/`)
+## Hot-reloadable chat commands (`commands/`)
 
-Legacy-API files: `export const commands = { name: async (ctx, bot, state) => bool }`. The `ctx` is a Grammy Context. `state` is reconstructed from `core` via `buildHotCommandState(core)` in `telegram-user.js`.
+Action-returning contract: `export const commands = { name: async (event, core) => Action }`. Each command file is a pure function from `(event, core)` to an Action of the same shape event handlers return (`stateChanges` / `effects` / `followUpEvents`). No imperative `ctx.reply(...)` or `bot.api.*` — commands describe what should happen, `onEvent` applies it.
 
-Loaded at startup by `lib/hot-commands.js` (walks `commands/*.js` plus `$CUSTOM_COMMANDS_DIR/*.js`). Reloaded via the `reload` MCP tool or whenever `new_command` writes a new file.
+Loaded at startup by `lib/hot-commands.js` (walks `commands/*.js` plus `$CUSTOM_COMMANDS_DIR/*.js`). Reloaded via the `reload` MCP tool or whenever `new_command` writes a new file. Dispatched by `lib/event-handlers/chat-user.js` when it sees a `/command` pattern; the command's returned Action is merged into the handler's own Action before the surrounding pipeline runs.
 
-These commands bypass the pure-handler model — they call `ctx.reply(...)` / `bot.api.*` directly. Documented bridging concession. When a command throws, the error is stashed in `chatState.commandErrors[errorId]` and a `🔧 Ask Claude to fix` inline button forwards the details to the focused session on click.
+When a command throws, the error is stashed in `chatState.commandErrors[errorId]` and a `🔧 Ask Claude to fix` inline button (abstract `{ buttons: [[{ label, callbackData }]] }` in `SendOptions`) forwards the details to the focused session on click. The legacy `(ctx, bot, state)` bridge + `buildHotCommandState` helper have been removed.
 
 ## Skills (`skills/`)
 

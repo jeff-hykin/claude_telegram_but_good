@@ -1,8 +1,15 @@
-import { join } from 'node:path'
-import { $ } from '../imports.js'
-// Dynamic import with cache-busting so hot-reload picks up edits to paths.js
-const { paths } = await import(`../lib/paths.js#${Math.random()}`)
-const { escapeHtml: escHtml } = await import(`../lib/pure/html.js#${Math.random()}`)
+// commands/doctor.js — Action-returning hot command.
+//
+// Spawns `claude -p` with a diagnostic prompt. The subprocess stays
+// inline (bounded 180 s timeout) — there's no effect-layer helper for
+// one-shot claude -p calls yet, and /doctor is the only caller.
+
+import { $ } from "../imports.js"
+import { versionedImport } from "../lib/version.js"
+const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { dbg } = await versionedImport("../lib/logging.js", import.meta)
+const { paths } = await versionedImport("../lib/paths.js", import.meta)
+const { escapeHtml: escHtml } = await versionedImport("../lib/pure/html.js", import.meta)
 
 export const tips = [
     "/doctor asks Claude to read the server logs + recent Telegram messages and diagnose issues.",
@@ -13,7 +20,8 @@ export const descriptions = {
     doctor: "Ask Claude to diagnose the Telegram channel using logs + message history",
 }
 
-const DEFAULT_PROMPT = `You are diagnosing the cbg ("claude_telegram_but_good") Telegram channel.
+function buildDefaultPrompt() {
+    return `You are diagnosing the cbg ("claude_telegram_but_good") Telegram channel.
 
 Two files hold the relevant signal:
   - ${paths.LOG_FILE}        — structured debug log from the standalone server and shims
@@ -27,18 +35,15 @@ Report in this shape, terse:
   3. If nothing looks wrong, say "no issues detected" and stop.
 
 Do not speculate about code you have not read. If the evidence is inconclusive, say so.`
+}
 
-async function runClaude(prompt, cwd, state) {
+async function runClaude(prompt, cwd) {
     const cleanEnv = { ...Deno.env.toObject() }
     for (const key of Object.keys(cleanEnv)) {
-        if (key.startsWith('CLAUDE_') || key.startsWith('MCP_')) {
+        if (key.startsWith("CLAUDE_") || key.startsWith("MCP_")) {
             delete cleanEnv[key]
         }
     }
-    // --no-tele bypasses the cbg shim wrapper so this invocation doesn't
-    // register with the standalone server or spawn a dtach session.
-    // dax hard-quotes `${prompt}` so the full prompt text lands as a
-    // single argv entry with no shell interpretation.
     try {
         const result = await $`claude --no-tele -p ${prompt}`
             .cwd(cwd)
@@ -56,60 +61,68 @@ async function runClaude(prompt, cwd, state) {
             stderr: result.stderr,
         }
     } catch (err) {
-        state.dbg('DOCTOR', 'spawn error:', err)
+        dbg("DOCTOR", "spawn error:", err)
         return {
             ok: false,
-            stdout: '',
+            stdout: "",
             stderr: `spawn error: ${err instanceof Error ? err.message : String(err)}`,
         }
     }
 }
 
 export const commands = {
-    doctor: async (ctx, bot, state) => {
-        if (ctx.chat?.type !== 'private') return true
-        const access = state.loadAccess()
-        const senderId = String(ctx.from?.id)
-        if (!access.allowFrom.includes(senderId)) return true
+    doctor: async (event, _core) => {
+        if (event.chatType !== "private") { return { effects: [] } }
+        const access = loadAccess()
+        if (!access.allowFrom.includes(String(event.userId ?? ""))) {
+            return { effects: [] }
+        }
 
-        const extra = ctx.message?.text?.replace(/^\/doctor\s*/, '').trim()
+        const extra = (event.text ?? "").replace(/^\/doctor\s*/, "").trim()
         const prompt = extra
-            ? `${DEFAULT_PROMPT}\n\nAdditional focus from the user: ${extra}`
-            : DEFAULT_PROMPT
+            ? `${buildDefaultPrompt()}\n\nAdditional focus from the user: ${extra}`
+            : buildDefaultPrompt()
 
-        await ctx.reply('Running <i>claude -p</i> to diagnose — this can take up to a minute.', { parse_mode: 'HTML' })
+        const effects = [
+            {
+                type: "send_text_to_user",
+                chatId: event.chatId,
+                text: "Running <i>claude -p</i> to diagnose — this can take up to a minute.",
+                options: { parse_mode: "HTML" },
+            },
+        ]
 
-        const result = await runClaude(prompt, paths.STATE_DIR, state)
+        const result = await runClaude(prompt, paths.STATE_DIR)
 
-        const body = (result.stdout || '').trim() || '(no output from claude -p)'
-        const header = result.ok ? 'Doctor report:' : `Doctor report (claude -p exited ${result.code}):`
+        const body = (result.stdout || "").trim() || "(no output from claude -p)"
+        const header = result.ok ? "Doctor report:" : `Doctor report (claude -p exited ${result.code}):`
 
         const MAX = 4096
         const opener = `<b>${escHtml(header)}</b>\n<pre>`
-        const closer = '</pre>'
+        const closer = "</pre>"
         const budget = MAX - opener.length - closer.length - 10
         let trimmed = body
         if (body.length > budget) {
-            trimmed = '...' + body.slice(-(budget - 3))
+            trimmed = "..." + body.slice(-(budget - 3))
         }
 
-        try {
-            await ctx.reply(`${opener}${escHtml(trimmed)}${closer}`, { parse_mode: 'HTML' })
-        } catch (e) {
-            state.dbg('DOCTOR', 'HTML send failed, falling back to plain:', e)
-            await ctx.reply(`${header}\n${trimmed.slice(-3900)}`)
-        }
+        effects.push({
+            type: "send_text_to_user",
+            chatId: event.chatId,
+            text: `${opener}${escHtml(trimmed)}${closer}`,
+            options: { parse_mode: "HTML" },
+        })
 
         if (!result.ok && result.stderr?.trim()) {
             const errTail = result.stderr.trim().slice(-1500)
-            try {
-                await ctx.reply(`<b>stderr:</b>\n<pre>${escHtml(errTail)}</pre>`, { parse_mode: 'HTML' })
-            } catch (e) {
-                state.dbg('DOCTOR', 'stderr HTML send failed:', e)
-                await ctx.reply(`stderr:\n${errTail}`)
-            }
+            effects.push({
+                type: "send_text_to_user",
+                chatId: event.chatId,
+                text: `<b>stderr:</b>\n<pre>${escHtml(errTail)}</pre>`,
+                options: { parse_mode: "HTML" },
+            })
         }
 
-        return true
+        return { effects }
     },
 }

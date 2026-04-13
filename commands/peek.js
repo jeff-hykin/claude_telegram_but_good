@@ -1,6 +1,14 @@
-import { readFileSync } from 'node:fs'
+// commands/peek.js — Action-returning hot command.
+//
+// Reads the dtach log file of a session, strips terminal escape
+// sequences, collapses repeated "Thinking…" blocks, and sends a tail
+// of the cleaned content as an HTML <pre> block.
 
-const { escapeHtml: escHtml } = await import(`../lib/pure/html.js#${Math.random()}`)
+import { readFileSync } from "node:fs"
+import { versionedImport } from "../lib/version.js"
+const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { dbg } = await versionedImport("../lib/logging.js", import.meta)
+const { escapeHtml: escHtml } = await versionedImport("../lib/pure/html.js", import.meta)
 
 export const tips = [
     "/peek shows what a session is doing right now — no need to attach.",
@@ -8,70 +16,42 @@ export const tips = [
 ]
 
 const DEFAULT_LINES = 40
-
-// Claude Code UI section markers
 const SECTION_MARKERS = /[◯✻✳✶✢←⏺]/
 
-/**
- * Strip all terminal escape sequences from raw terminal output
- * and extract just the meaningful content, discarding layout/positioning.
- */
 function extractWords(raw) {
     let text = raw
-        // Clear screen commands
-        .replace(/\x1b\[2J|\x1b\[H|\x1bc/g, '\n---\n')
-        // Cursor positioning - these move text around, creating the garbled effect
-        .replace(/\x1b\[\d+;\d+[Hf]/g, ' ')  // Absolute positioning
-        .replace(/\x1b\[\d*[ABCD]/g, ' ')     // Up/down/left/right
-        .replace(/\x1b\[\d*[KJ]/g, ' ')       // Erase line/screen
-        .replace(/\x1b\[\d*C/g, ' ')          // Cursor forward
-        .replace(/\x1b\[[\d;]*[mG]/g, '')     // Colors, graphics, column positioning
-        // OSC sequences: \x1b] ... (ST or BEL terminated)
-        .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
-        // CSI sequences: \x1b[ ... letter/tilde (catch-all for remaining)
-        .replace(/\x1b\[[0-9;?]*[a-zA-Z~@]/g, '')
-        // DEC private sequences
-        .replace(/\x1b[>=<#]/g, '')
-        // Charset sequences
-        .replace(/\x1b[()][0-9A-Za-z]/g, '')
-        // Any remaining escape sequences
-        .replace(/\x1b./g, '')
-        // Control chars (keep \t \n \r)
-        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
-        // DEC query responses that lost their prefix
-        .replace(/>[0-9]+[a-z]/g, '')
-        .replace(/<[a-z]/g, '')
+        .replace(/\x1b\[2J|\x1b\[H|\x1bc/g, "\n---\n")
+        .replace(/\x1b\[\d+;\d+[Hf]/g, " ")
+        .replace(/\x1b\[\d*[ABCD]/g, " ")
+        .replace(/\x1b\[\d*[KJ]/g, " ")
+        .replace(/\x1b\[\d*C/g, " ")
+        .replace(/\x1b\[[\d;]*[mG]/g, "")
+        .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, "")
+        .replace(/\x1b\[[0-9;?]*[a-zA-Z~@]/g, "")
+        .replace(/\x1b[>=<#]/g, "")
+        .replace(/\x1b[()][0-9A-Za-z]/g, "")
+        .replace(/\x1b./g, "")
+        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
+        .replace(/>[0-9]+[a-z]/g, "")
+        .replace(/<[a-z]/g, "")
 
-    // Split into lines and clean each line
     const lines = text.split(/\r?\n/)
     const cleanLines = []
-
     for (const line of lines) {
         const cleaned = line
-            // Remove isolated single characters that look like cursor artifacts
-            .replace(/\b[✻✶*✢·⏵◯⎿❯]\s+[a-z]\s+/g, ' ')
-            // Remove number/symbol fragments like "1 2 3 4 5"
-            .replace(/\b[\d✻✶*✢·]+(?:\s+[\d✻✶*✢·])*\b/g, ' ')
-            // Collapse runs of symbols/box-drawing
-            .replace(/[─━│┃┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬═║]{3,}/g, ' --- ')
-            .replace(/[▐▌▛▜▘▝▗▖█▀▄▞▟▙▚░▒▓]{2,}/g, '')
-            // Clean up excessive whitespace
-            .replace(/\s+/g, ' ')
+            .replace(/\b[✻✶*✢·⏵◯⎿❯]\s+[a-z]\s+/g, " ")
+            .replace(/\b[\d✻✶*✢·]+(?:\s+[\d✻✶*✢·])*\b/g, " ")
+            .replace(/[─━│┃┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬═║]{3,}/g, " --- ")
+            .replace(/[▐▌▛▜▘▝▗▖█▀▄▞▟▙▚░▒▓]{2,}/g, "")
+            .replace(/\s+/g, " ")
             .trim()
-
         if (cleaned && cleaned.length > 2) {
             cleanLines.push(cleaned)
         }
     }
-
-    return cleanLines.join(' ')
+    return cleanLines.join(" ")
 }
 
-// Claude Code streams thinking tokens by re-rendering the same region on
-// every tick, so the raw log contains many overlapping copies of the same
-// thinking block with progressively more text. Within a run of consecutive
-// "Thinking…" markers (no tool-use / section marker between them), keep
-// only the last copy — that one has the final, fullest text.
 function collapseThinking(text) {
     const OTHER_SECTION = /[⏺◯✳✶✢←]/
     const markers = []
@@ -80,18 +60,18 @@ function collapseThinking(text) {
     while ((m = re.exec(text)) !== null) {
         markers.push(m.index)
     }
-    if (markers.length < 2) return text
+    if (markers.length < 2) { return text }
 
     const toRemove = []
     for (let i = 0; i < markers.length - 1; i++) {
-        const between = text.slice(markers[i] + 'Thinking…'.length, markers[i + 1])
+        const between = text.slice(markers[i] + "Thinking…".length, markers[i + 1])
         if (!OTHER_SECTION.test(between)) {
             toRemove.push([markers[i], markers[i + 1]])
         }
     }
-    if (toRemove.length === 0) return text
+    if (toRemove.length === 0) { return text }
 
-    let out = ''
+    let out = ""
     let cursor = 0
     for (const [s, e] of toRemove) {
         out += text.slice(cursor, s)
@@ -105,20 +85,23 @@ export const descriptions = {
     peek: "Show recent output of a session",
 }
 
-export const commands = {
-    peek: async (ctx, bot, state) => {
-        if (ctx.chat?.type !== 'private') return true
-        const access = state.loadAccess()
-        const senderId = String(ctx.from?.id)
-        if (!access.allowFrom.includes(senderId)) return true
+function reply(chatId, text, options) {
+    return { effects: [{ type: "send_text_to_user", chatId, text, ...(options ? { options } : {}) }] }
+}
 
-        // Parse optional line count or session id from args
-        const argText = (ctx.message?.text ?? '').replace(/^\/peek\s*/, '').trim()
+export const commands = {
+    peek: (event, core) => {
+        if (event.chatType !== "private") { return { effects: [] } }
+        const access = loadAccess()
+        if (!access.allowFrom.includes(String(event.userId ?? ""))) {
+            return { effects: [] }
+        }
+
+        const argText = (event.text ?? "").replace(/^\/peek\s*/, "").trim()
         const args = argText.split(/\s+/).filter(Boolean)
 
         let targetId = null
         let lineCount = DEFAULT_LINES
-
         for (const arg of args) {
             if (/^\d+$/.test(arg)) {
                 lineCount = parseInt(arg, 10)
@@ -127,18 +110,16 @@ export const commands = {
             }
         }
 
-        // Find the session
-        const sessions = state.allSessions()
+        const sessionsMap = core.chatSessions ?? {}
+        const sessions = Object.values(sessionsMap)
         let session = null
-
         if (targetId) {
             session = sessions.find(s => s.id === targetId)
             if (!session) {
-                await ctx.reply(`Session "${targetId}" not found. Use /list to see available sessions.`)
-                return true
+                return reply(event.chatId, `Session "${targetId}" not found. Use /list to see available sessions.`)
             }
         } else {
-            const focusedId = state.focusedSessionId
+            const focusedId = core.chatState?.focusedSessionId
             if (focusedId) {
                 session = sessions.find(s => s.id === focusedId)
             }
@@ -146,60 +127,45 @@ export const commands = {
                 session = sessions[0]
             }
         }
+        if (!session) { return reply(event.chatId, "No active sessions.") }
 
-        if (!session) {
-            await ctx.reply('No active sessions.')
-            return true
-        }
-
-        // Derive log path from dtach socket path
         const dtachSocket = session.dtachSocket
         if (!dtachSocket) {
-            await ctx.reply(`Session "${session.id}" has no dtach socket — can't find log file.`)
-            return true
+            return reply(event.chatId, `Session "${session.id}" has no dtach socket — can't find log file.`)
         }
-
-        const logPath = dtachSocket.replace(/\.sock$/, '.log')
+        const logPath = dtachSocket.replace(/\.sock$/, ".log")
 
         let content
         try {
-            content = readFileSync(logPath, 'utf8')
-        } catch {
-            await ctx.reply(`No log file found for session "${session.id}".`)
-            return true
+            content = readFileSync(logPath, "utf8")
+        } catch (e) {
+            dbg("PEEK", `read ${logPath} failed:`, e)
+            return reply(event.chatId, `No log file found for session "${session.id}".`)
         }
-
         if (!content.trim()) {
-            await ctx.reply(`Log file for session "${session.id}" is empty.`)
-            return true
+            return reply(event.chatId, `Log file for session "${session.id}" is empty.`)
         }
 
         const words = collapseThinking(extractWords(content))
         if (!words) {
-            await ctx.reply(`Log file for session "${session.id}" is empty.`)
-            return true
+            return reply(event.chatId, `Log file for session "${session.id}" is empty.`)
         }
 
-        // Take the last N words worth of content (approximate lines as ~10 words each)
-        const wordList = words.split(' ')
+        const wordList = words.split(" ")
         const approxWords = lineCount * 10
-        const tail = wordList.slice(-approxWords).join(' ')
+        const tail = wordList.slice(-approxWords).join(" ")
 
-        const header = `${session.id}${session.title ? ` (${session.title})` : ''}:`
-        // Telegram message limit is 4096 chars
+        const header = `${session.id}${session.title ? ` (${session.title})` : ""}:`
         let body = tail
         if (header.length + body.length + 10 > 4096) {
             body = body.slice(-(4096 - header.length - 10))
-            body = '...' + body
+            body = "..." + body
         }
 
-        // Try with code block formatting, fall back to plain text
-        try {
-            await ctx.reply(`${escHtml(header)}\n<pre>${escHtml(body)}</pre>`, { parse_mode: 'HTML' })
-        } catch (e) {
-            state.dbg("PEEK", "HTML send failed, falling back to plain:", e)
-            await ctx.reply(`${header}\n${body}`)
-        }
-        return true
+        return reply(
+            event.chatId,
+            `${escHtml(header)}\n<pre>${escHtml(body)}</pre>`,
+            { parse_mode: "HTML" },
+        )
     },
 }

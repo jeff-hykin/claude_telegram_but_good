@@ -45,12 +45,14 @@ Deno.test("claude-channel: reply without a sessionId still works (no clear_spinn
     assertEquals(effectsOfType(action, "send_text_to_user").length, 1)
 })
 
-Deno.test("claude-channel: reply clears the session spinner when sessionId is set", () => {
+Deno.test("claude-channel: reply no longer emits a spinner-clear effect (handled by spinner policy)", () => {
+    // Post-Phase-B: the spinner is cleared by onEvent's built-in
+    // spinner policy when it observes a claude_channel_tool_request
+    // with toolName=reply. The handler itself doesn't emit any
+    // clear_session_spinner effect anymore.
     const core = makeCore()
     const action = handle(makeEvent("reply", { chat_id: "42", text: "done" }), core)
-    const clears = effectsOfType(action, "clear_session_spinner")
-    assertEquals(clears.length, 1)
-    assertEquals(clears[0].sessionId, "sess-1")
+    assertEquals(effectsOfType(action, "clear_session_spinner").length, 0)
 })
 
 Deno.test("claude-channel: reply records lastOutboundAt on the session", () => {
@@ -58,7 +60,39 @@ Deno.test("claude-channel: reply records lastOutboundAt on the session", () => {
     const action = handle(makeEvent("reply", { chat_id: "42", text: "ok" }), core)
     const patch = get(action, "stateChanges.chatSessions.sess-1")
     assertEquals(patch.lastOutboundAt, 1_000)
-    assertEquals(patch.nudgedForInbound, false)
+})
+
+Deno.test("claude-channel: reply clears pendingNudgeAction when it was askAgentToSendChatMessage", () => {
+    const core = makeCore({
+        chatSessions: {
+            "sess-1": {
+                id: "sess-1",
+                pendingNudgeAction: "askAgentToSendChatMessage",
+            },
+        },
+    })
+    const action = handle(makeEvent("reply", { chat_id: "42", text: "ok" }), core)
+    const patch = get(action, "stateChanges.chatSessions.sess-1")
+    assertEquals(patch.lastOutboundAt, 1_000)
+    assertEquals(patch.pendingNudgeAction, "none")
+})
+
+Deno.test("claude-channel: reply leaves pendingNudgeAction=taskCheck alone (long task takes priority)", () => {
+    const core = makeCore({
+        chatSessions: {
+            "sess-1": {
+                id: "sess-1",
+                pendingNudgeAction: "taskCheck",
+                longTaskId: "TaskAbc",
+            },
+        },
+    })
+    const action = handle(makeEvent("reply", { chat_id: "42", text: "ok" }), core)
+    const patch = get(action, "stateChanges.chatSessions.sess-1")
+    assertEquals(patch.lastOutboundAt, 1_000)
+    // pendingNudgeAction stays untouched — the long task is still the
+    // session's primary commitment.
+    assertEquals(patch.pendingNudgeAction, undefined)
 })
 
 Deno.test("claude-channel: reply with files emits send_file_to_user per file", () => {

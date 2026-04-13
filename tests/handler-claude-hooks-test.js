@@ -11,7 +11,7 @@
 // pre/post, nudge watchdog on stop).
 
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts"
-import { setupTempPaths, makeCore, effectsOfType, get } from "./_helpers.js"
+import { setupTempPaths, makeCore, effectsOfType, get, paths } from "./_helpers.js"
 
 setupTempPaths("cbg-hooks-test-")
 
@@ -74,13 +74,18 @@ Deno.test("hook-pre: non-focused session -> no-op", () => {
     assertEquals(action.effects, [])
 })
 
-Deno.test("hook-pre: focused session emits append_tool_to_spinner + cold_append", () => {
+Deno.test("hook-pre: focused session emits cold_append + lastActive (spinner handled by policy)", () => {
+    // Post-Phase-B: the handler no longer emits append_tool_to_spinner
+    // — onEvent's spinner policy picks up the event independently and
+    // appends via lib/spinner.js. The handler's job is now just
+    // cold-storage + lastActive + the "formatter returned null"
+    // hide-tool gate.
     const core = makeCore({
         chatState: { focusedSessionId: "sess-1" },
         chatSessions: { "sess-1": session("sess-1") },
     })
     const action = pre(preEvent(), core)
-    assertEquals(effectsOfType(action, "append_tool_to_spinner").length, 1)
+    assertEquals(effectsOfType(action, "append_tool_to_spinner").length, 0)
     const cold = effectsOfType(action, "cold_append")
     assertEquals(cold.length, 1)
     assertEquals(cold[0].stream, "hooks")
@@ -102,13 +107,13 @@ Deno.test("hook-pre: hidden telegram-plugin tools still update lastActive but em
 
 // ── post-tool-use ───────────────────────────────────────────────────
 
-Deno.test("hook-post: focused session emits append_tool_to_spinner + cold_append", () => {
+Deno.test("hook-post: focused session emits cold_append (spinner handled by policy)", () => {
     const core = makeCore({
         chatState: { focusedSessionId: "sess-1" },
         chatSessions: { "sess-1": session("sess-1") },
     })
     const action = post(postEvent({ outputPreview: "\"ok\"" }), core)
-    assertEquals(effectsOfType(action, "append_tool_to_spinner").length, 1)
+    assertEquals(effectsOfType(action, "append_tool_to_spinner").length, 0)
     const cold = effectsOfType(action, "cold_append")
     assertEquals(cold[0].entry.kind, "post_tool_use")
     assertEquals(cold[0].entry.isError, false)
@@ -125,24 +130,23 @@ Deno.test("hook-post: error result is recorded", () => {
 
 // ── stop ─────────────────────────────────────────────────────────────
 
-Deno.test("hook-stop: records lastStopAt + cold_append even with no inbound", () => {
+Deno.test("hook-stop: records lastStopAt + status=idle + cold_append on a clean session", () => {
     const core = makeCore({
         chatSessions: { "sess-1": session("sess-1") },
     })
     const action = stop(stopEvent(), core)
     assertEquals(get(action, "stateChanges.chatSessions.sess-1.lastStopAt"), 6_000)
     assertEquals(get(action, "stateChanges.chatSessions.sess-1.lastActive"), 6_000)
+    assertEquals(get(action, "stateChanges.chatSessions.sess-1.status"), "idle")
     assertEquals(effectsOfType(action, "cold_append").length, 1)
     assertEquals(effectsOfType(action, "send_text_to_claude").length, 0)
 })
 
-Deno.test("hook-stop: nudges when an old unreplied inbound exists", () => {
+Deno.test("hook-stop: fires reply-nudge when pendingNudgeAction=askAgentToSendChatMessage", () => {
     const core = makeCore({
         chatSessions: {
             "sess-1": session("sess-1", {
-                lastInbound: { messageId: "1", chatId: "42", ts: 1, text: "poke" },
-                lastOutboundAt: 0,
-                nudgedForInbound: false,
+                pendingNudgeAction: "askAgentToSendChatMessage",
             }),
         },
     })
@@ -150,47 +154,148 @@ Deno.test("hook-stop: nudges when an old unreplied inbound exists", () => {
     const nudges = effectsOfType(action, "send_text_to_claude")
     assertEquals(nudges.length, 1)
     assert(nudges[0].text.includes("automated reminder"))
-    assertEquals(get(action, "stateChanges.chatSessions.sess-1.nudgedForInbound"), true)
+    // After firing, the action is cleared so it won't re-fire on the next Stop.
+    assertEquals(get(action, "stateChanges.chatSessions.sess-1.pendingNudgeAction"), "none")
 })
 
-Deno.test("hook-stop: does NOT nudge when the inbound is under the 45s threshold", () => {
+Deno.test("hook-stop: does NOT nudge when pendingNudgeAction=none", () => {
     const core = makeCore({
         chatSessions: {
-            "sess-1": session("sess-1", {
-                lastInbound: { messageId: "1", chatId: "42", ts: 1, text: "poke" },
-                lastOutboundAt: 0,
-            }),
-        },
-    })
-    const action = stop(stopEvent({ ts: 30_000 }), core)
-    assertEquals(effectsOfType(action, "send_text_to_claude").length, 0)
-})
-
-Deno.test("hook-stop: does NOT nudge when agent already replied since the inbound", () => {
-    const core = makeCore({
-        chatSessions: {
-            "sess-1": session("sess-1", {
-                lastInbound: { messageId: "1", chatId: "42", ts: 0, text: "poke" },
-                lastOutboundAt: 50_000,
-            }),
+            "sess-1": session("sess-1", { pendingNudgeAction: "none" }),
         },
     })
     const action = stop(stopEvent({ ts: 100_000 }), core)
     assertEquals(effectsOfType(action, "send_text_to_claude").length, 0)
 })
 
-Deno.test("hook-stop: does NOT nudge twice for the same inbound", () => {
+Deno.test("hook-stop: does NOT nudge twice — second Stop sees pendingNudgeAction=none", () => {
+    // Emulating the state after a prior Stop already fired the nudge:
+    // the handler cleared pendingNudgeAction to "none", so a fresh Stop
+    // must NOT fire again.
     const core = makeCore({
         chatSessions: {
-            "sess-1": session("sess-1", {
-                lastInbound: { messageId: "1", chatId: "42", ts: 1, text: "poke" },
-                lastOutboundAt: 0,
-                nudgedForInbound: true,
-            }),
+            "sess-1": session("sess-1", { pendingNudgeAction: "none" }),
         },
     })
     const action = stop(stopEvent({ ts: 100_000 }), core)
     assertEquals(effectsOfType(action, "send_text_to_claude").length, 0)
+})
+
+Deno.test("hook-stop: taskCheck with existing report.md spawns critic", () => {
+    // Write a fake report.md under a fake task dir so reportMdExists() sees it.
+    // Use the _helpers.js `paths` export — it's the SAME singleton the
+    // handler reads via versionedImport, because setupTempPaths() mutates
+    // that singleton in place. A bare `import("../lib/paths.js")` would
+    // produce a second module instance pointing at the real $CBG_DIR.
+    const taskId = "TaskDemo0001"
+    const dir = paths.longTaskDir(taskId)
+    Deno.mkdirSync(dir, { recursive: true })
+    Deno.writeTextFileSync(`${dir}/report.md`, "# done\n")
+
+    const core = makeCore({
+        chatSessions: {
+            "sess-1": session("sess-1", {
+                longTaskId: taskId,
+                pendingNudgeAction: "taskCheck",
+            }),
+        },
+        specialData: {
+            longTaskByChatId: {
+                "42": {
+                    [taskId]: {
+                        id: taskId,
+                        state: "in_progress",
+                        workerSessionId: "sess-1",
+                        definition: "stub",
+                        criticCallCount: 0,
+                    },
+                },
+            },
+        },
+    })
+    const action = stop(stopEvent({ ts: 100_000 }), core)
+    const spawns = effectsOfType(action, "spawn_critic")
+    assertEquals(spawns.length, 1)
+    assertEquals(spawns[0].taskId, taskId)
+    // Critic spawned → pendingNudgeAction cleared (next state driven by verdict).
+    assertEquals(get(action, "stateChanges.chatSessions.sess-1.pendingNudgeAction"), "none")
+    // criticCallCount incremented.
+    assertEquals(
+        get(action, `stateChanges.specialData.longTaskByChatId.42.${taskId}.criticCallCount`),
+        1,
+    )
+
+    // Cleanup.
+    try { Deno.removeSync(`${dir}/report.md`) } catch { /* ignore */ }
+    try { Deno.removeSync(dir) } catch { /* ignore */ }
+})
+
+Deno.test("hook-stop: taskCheck without report.md increments consecutiveIdleStops but does NOT nudge on real Stop (below threshold)", () => {
+    const taskId = "TaskDemo0002"
+    const core = makeCore({
+        chatSessions: {
+            "sess-1": session("sess-1", {
+                longTaskId: taskId,
+                pendingNudgeAction: "taskCheck",
+            }),
+        },
+        specialData: {
+            longTaskByChatId: {
+                "42": {
+                    [taskId]: {
+                        id: taskId,
+                        state: "in_progress",
+                        workerSessionId: "sess-1",
+                        definition: "stub",
+                        consecutiveIdleStops: 0,
+                    },
+                },
+            },
+        },
+    })
+    const action = stop(stopEvent({ ts: 100_000 }), core)
+    assertEquals(effectsOfType(action, "send_text_to_claude").length, 0)
+    assertEquals(
+        get(action, `stateChanges.specialData.longTaskByChatId.42.${taskId}.consecutiveIdleStops`),
+        1,
+    )
+    // pendingNudgeAction unchanged — still watching.
+    assertEquals(get(action, "stateChanges.chatSessions.sess-1.pendingNudgeAction"), undefined)
+})
+
+Deno.test("hook-stop: taskCheck without report.md on a SYNTHETIC Stop nudges immediately", () => {
+    const taskId = "TaskDemo0003"
+    const core = makeCore({
+        chatSessions: {
+            "sess-1": session("sess-1", {
+                longTaskId: taskId,
+                pendingNudgeAction: "taskCheck",
+            }),
+        },
+        specialData: {
+            longTaskByChatId: {
+                "42": {
+                    [taskId]: {
+                        id: taskId,
+                        state: "in_progress",
+                        workerSessionId: "sess-1",
+                        definition: "stub",
+                        consecutiveIdleStops: 0,
+                        totalNudges: 0,
+                    },
+                },
+            },
+        },
+    })
+    // synthetic flag short-circuits the "need 2 consecutive idle Stops" guard.
+    const action = stop({ ...stopEvent({ ts: 100_000 }), synthetic: true }, core)
+    const nudges = effectsOfType(action, "send_text_to_claude")
+    assertEquals(nudges.length, 1)
+    assert(nudges[0].text.includes(`long task ${taskId}`))
+    assertEquals(
+        get(action, `stateChanges.specialData.longTaskByChatId.42.${taskId}.totalNudges`),
+        1,
+    )
 })
 
 Deno.test("hook-stop: missing session -> no-op", () => {

@@ -1,7 +1,7 @@
 // commands/start.js — Action-returning hot command.
 //
 // Public: anyone in a DM can run /start to see pairing instructions.
-// (Allowlist gate in telegram-user.js only blocks plain text, not
+// (Allowlist gate in chat-user.js only blocks plain text, not
 // commands, so unpaired users can still reach /start / /help / /ping /
 // /status / /version.)
 
