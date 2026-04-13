@@ -83,6 +83,25 @@ export const commands = {
             parts.push("No desktop scheduled tasks found.")
         }
 
+        // CBG-managed scheduled tasks (from specialData.scheduledTaskByChatId)
+        const byChat = _core?.specialData?.scheduledTaskByChatId ?? {}
+        const cbgTasks = []
+        for (const [chatId, tasks] of Object.entries(byChat)) {
+            for (const [id, task] of Object.entries(tasks ?? {})) {
+                cbgTasks.push({ chatId, id, task })
+            }
+        }
+        if (cbgTasks.length > 0) {
+            parts.push("")
+            parts.push(`<b>CBG Scheduled Tasks</b> (${cbgTasks.length})`)
+            parts.push("")
+            for (const { id, task } of cbgTasks) {
+                parts.push(`⏰ <code>${esc(id)}</code> — ${esc(task.title ?? "")}`)
+                parts.push(`   state=${esc(task.state ?? "?")} next=${esc(task.tracking?.nextFireAt ?? "?")}`)
+                parts.push(`   /schedule_status_${esc(id)}   /schedule_cancel_${esc(id)}`)
+            }
+        }
+
         parts.push("")
         parts.push("<b>Session Cron Jobs (/loop)</b>")
         parts.push("Session cron jobs are in-memory only and cannot be listed externally.")
