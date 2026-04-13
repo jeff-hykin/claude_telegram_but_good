@@ -49,7 +49,7 @@ These commands are sent as messages to your bot in Telegram.
 | --- | --- |
 | `/list` | Show all connected sessions with cwd, git branch, and timing info. Tap `/switch_<id>` to change focus. |
 | `/cancel` | Send Escape to the focused session via dtach — interrupts whatever Claude is doing. Falls back to SIGINT for non-dtach sessions. |
-| `/new/new [title]` | Launch a new Claude Code session in dtach. Auto-switches focus after 3s. |
+| `/new [title]` | Launch a new Claude Code session in dtach. Auto-switches focus after 3s. |
 | `/title <name>` | Set a display name for the focused session. No argument auto-generates from directory + branch. |
 | `/ping` | Health check — replies "pong". |
 | `/pause` | Suspend the focused session (SIGTSTP). |
@@ -77,7 +77,7 @@ Multiple Claude Code sessions can connect simultaneously. The bot acts as a hub:
 - Each session registers via IPC when it starts
 - `/list` shows all sessions — tap `/switch_<id>` to change which one receives your messages
 - Telegram-reply routing: reply to a bot message to target the session that sent it (via `/switch_<id>` headers)
-- `/new/new` creates new sessions from Telegram
+- `/new` creates new sessions from Telegram
 - If the focused session disconnects, focus auto-moves to the next available session
 - Messages sent when no sessions are connected get queued and delivered when one connects
 
