@@ -120,7 +120,7 @@ Deno.test("long-task-submit: already-submitted rejects", () => {
 
 // ── critic-verdict ──────────────────────────────────────────────────
 
-Deno.test("critic: certified notifies worker + drops task from hot set", () => {
+Deno.test("critic: certified drops task from hot set + edits the critic status message", () => {
     const core = coreWithTask(baseTask({ state: "in_progress", definition: "x" }))
     const action = critic({
         taskId: "t1",
@@ -129,13 +129,16 @@ Deno.test("critic: certified notifies worker + drops task from hot set", () => {
         elapsedMs: 1234,
     }, core)
     assertEquals(get(action, "stateChanges.specialData.longTaskByChatId.42.t1"), undefined)
-    const toClaude = effectsOfType(action, "send_text_to_claude")
-    assertEquals(toClaude.length, 1)
-    assertEquals(toClaude[0].sessionId, "worker")
+    // We deliberately do NOT notify the worker on certified — the bot
+    // already posts its own "✅ certified" message via the edited
+    // "Critic running…" bubble, and a second worker-authored summary
+    // was redundant.
+    assertEquals(effectsOfType(action, "deliver_channel_event").length, 0)
+    assertEquals(effectsOfType(action, "send_text_to_claude").length, 0)
     assertEquals(effectsOfType(action, "cold_append")[0].entry.event, "certified")
 })
 
-Deno.test("critic: revisions tells worker to read revisions.md and flips state to in_progress", () => {
+Deno.test("critic: revisions tells worker to read revisions.md + re-arms taskCheck + flips state to in_progress", () => {
     const core = coreWithTask(baseTask({ state: "in_progress", definition: "x" }))
     const action = critic({
         taskId: "t1",
@@ -147,8 +150,18 @@ Deno.test("critic: revisions tells worker to read revisions.md and flips state t
     const patch = get(action, "stateChanges.specialData.longTaskByChatId.42.t1")
     assertEquals(patch.state, "in_progress")
     assertEquals(patch.consecutiveIdleStops, 0)
-    const toClaude = effectsOfType(action, "send_text_to_claude")
-    assert(toClaude[0].text.includes("requested_revisions"))
+    // Session re-arm: without this, the next Stop after the worker's
+    // revision turn would see pendingNudgeAction:"none" (cleared by
+    // claude-hook-stop when the critic spawned) and silently no-op —
+    // the critic cycle would never re-fire.
+    const sessionPatch = get(action, "stateChanges.chatSessions.worker")
+    assertEquals(sessionPatch.pendingNudgeAction, "taskCheck")
+    // Notification via MCP channel, not dtach.
+    const delivers = effectsOfType(action, "deliver_channel_event")
+    assertEquals(delivers.length, 1)
+    assertEquals(delivers[0].sessionId, "worker")
+    assert(delivers[0].content.includes("requested_revisions"))
+    assertEquals(effectsOfType(action, "send_text_to_claude").length, 0)
 })
 
 Deno.test("critic: revisions archives requested_revisions.md under revisions/<ts>.md and deletes old report.md", () => {
@@ -179,12 +192,13 @@ Deno.test("critic: revisions archives requested_revisions.md under revisions/<ts
     assert(deletes[0].path.endsWith("/report.md"))
 
     // The nudge to the worker points at the archive path (the one they
-    // should actually read), not the vanished root-level file.
-    const toClaude = effectsOfType(action, "send_text_to_claude")
-    assertEquals(toClaude.length, 1)
+    // should actually read), not the vanished root-level file. Sent via
+    // deliver_channel_event (MCP channel), not send_text_to_claude.
+    const delivers = effectsOfType(action, "deliver_channel_event")
+    assertEquals(delivers.length, 1)
     assert(
-        toClaude[0].text.includes("/revisions/requested_revisions.") && toClaude[0].text.includes(".md"),
-        `worker nudge should point at the archive path: ${toClaude[0].text}`,
+        delivers[0].content.includes("/revisions/requested_revisions.") && delivers[0].content.includes(".md"),
+        `worker nudge should point at the archive path: ${delivers[0].content}`,
     )
 
     // Cold-storage entry records where the revision was archived.
@@ -204,18 +218,26 @@ Deno.test("critic: anomaly verdict is logged distinctly but otherwise same as re
     assertEquals(effectsOfType(action, "cold_append")[0].entry.event, "revisions_requested_anomaly")
 })
 
-Deno.test("critic: clarification_needed asks the user and flips state", () => {
+Deno.test("critic: legacy clarification_needed verdict is routed as revisions (no user asking)", () => {
+    // Tasks run without a user present after the definition is locked,
+    // so the critic is no longer allowed to ask questions. The verdict
+    // constant still exists as a legacy event shape; it's routed to
+    // handleRevisions so the worker keeps going alone.
     const core = coreWithTask(baseTask({ state: "in_progress", definition: "x" }))
     const action = critic({
         taskId: "t1",
         chatId: "42",
         verdict: "clarification_needed",
     }, core)
+    // Routed to handleRevisions → state goes back to in_progress,
+    // NOT awaiting_clarification. A move_file effect is emitted for
+    // the (missing) requested_revisions.md — the handler doesn't check
+    // presence, it just emits the archive intent.
     assertEquals(
         get(action, "stateChanges.specialData.longTaskByChatId.42.t1.state"),
-        "awaiting_clarification",
+        "in_progress",
     )
-    assertEquals(effectsOfType(action, "send_text_to_user").length, 1)
+    assertEquals(effectsOfType(action, "move_file").length, 1)
 })
 
 Deno.test("critic: indecisive retry-eligible verdict spawns another critic under 3 attempts", () => {
