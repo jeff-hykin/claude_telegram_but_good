@@ -1,9 +1,10 @@
 export const tips = []
 
-const { STATE_DIR, ACCESS_FILE } = await import(`../lib/protocol.js#${Math.random()}`)
+// Hot commands live outside the cbgVersion import graph, so they use a
+// random cache-buster per load. `saveAccess` is imported directly here
+// (the state bridge only exposes read-side loadAccess); this lets the
+// command atomically update access.json without going through an effect.
 const { saveAccess } = await import(`../lib/access.js#${Math.random()}`)
-
-const OTP_FILE = `${STATE_DIR}/pending_otp.json`
 
 export const commands = {
     approve_user: async (ctx, bot, state) => {
@@ -28,18 +29,11 @@ export const commands = {
         }
         const token = otpMatch[1]
 
-        // Read the pending OTP
-        let pending
-        try {
-            pending = JSON.parse(Deno.readTextFileSync(OTP_FILE))
-        } catch {
-            await ctx.reply('No approval is pending. Run `cbg onboard` first.')
-            return true
-        }
-
-        // Check token
-        if (token !== pending.code) {
-            await ctx.reply('Invalid token.')
+        // Look up the OTP in the daemon's in-memory state (stashed by
+        // `cbg onboard` or `cbg authorize` over IPC). No disk file.
+        const pending = state.getPendingOtp(token)
+        if (!pending) {
+            await ctx.reply('No approval is pending for that token. Run `cbg onboard` or `cbg authorize` first.')
             return true
         }
 
@@ -53,8 +47,8 @@ export const commands = {
         // Save access.json atomically
         saveAccess(access)
 
-        // Delete the OTP file (one-time use)
-        try { Deno.removeSync(OTP_FILE) } catch { /* ignore */ }
+        // Consume the OTP (single-use) from daemon state
+        state.consumePendingOtp(token)
 
         await ctx.reply(
             `Approved! (Your user ID is ${senderId})\n\n` +

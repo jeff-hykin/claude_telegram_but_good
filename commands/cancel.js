@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process'
+import { $ } from '../imports.js'
 
 export const tips = [
     "/cancel will stop the current request",
@@ -24,16 +24,17 @@ export const commands = {
 
     try {
       if (focused.dtachSocket) {
-        // Send Escape via dtach socket — triggers TUI cancel
-        execSync(`printf '\\033' | dtach -p "${focused.dtachSocket}"`, {
-          timeout: 3000,
-          encoding: 'utf8',
-          shell: true,
-        })
+        // Send Escape (0x1b) via dtach socket — triggers TUI cancel.
+        // `.stdinText("\x1b")` pipes the byte directly; dax handles the
+        // socket argument as a properly-quoted arg, so no shell-injection
+        // risk from the session id.
+        await $`dtach -p ${focused.dtachSocket}`
+          .stdinText("\x1b")
+          .timeout(3000)
         await ctx.reply(`Sent Escape to session ${focused.id} via dtach`)
       } else {
         // Fallback: SIGINT to Claude Code process
-        process.kill(focused.pid, 'SIGINT')
+        Deno.kill(focused.pid, "SIGINT")
         await ctx.reply(`Sent SIGINT to Claude Code (PID ${focused.pid})`)
       }
     } catch (err) {

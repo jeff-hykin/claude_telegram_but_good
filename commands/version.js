@@ -1,13 +1,27 @@
+// commands/version.js — Action-returning hot command.
+
+import { versionedImport } from "../lib/version.js"
+const { VERSION } = await versionedImport("../lib/version.js", import.meta)
+
 export const tips = []
 
 export const descriptions = {
-  version: "Show the telegram plugin version",
+    version: "Show the telegram plugin version",
 }
 
 export const commands = {
-  version: async (ctx, bot, state) => {
-    if (ctx.chat?.type !== 'private') return true
-    await ctx.reply(`telegram plugin v${state.PLUGIN_VERSION}`)
-    return true
-  },
+    version: (event, _core) => {
+        if (event.chatType !== "private") {
+            return { effects: [] }
+        }
+        return {
+            effects: [
+                {
+                    type: "send_text_to_user",
+                    chatId: event.chatId,
+                    text: `telegram plugin v${VERSION}`,
+                },
+            ],
+        }
+    },
 }

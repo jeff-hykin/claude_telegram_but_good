@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs'
 
+const { escapeHtml: escHtml } = await import(`../lib/pure/html.js#${Math.random()}`)
+
 export const tips = [
     "/peek shows what a session is doing right now — no need to attach.",
     "/peek 100 shows more output, /peek &lt;session_id&gt; peeks at a specific session.",
@@ -192,7 +194,6 @@ export const commands = {
         }
 
         // Try with code block formatting, fall back to plain text
-        const escHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         try {
             await ctx.reply(`${escHtml(header)}\n<pre>${escHtml(body)}</pre>`, { parse_mode: 'HTML' })
         } catch (e) {

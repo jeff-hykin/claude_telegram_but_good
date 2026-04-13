@@ -1,8 +1,9 @@
-import { execSync } from 'node:child_process'
 import { writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-// Dynamic import with cache-busting so hot-reload picks up edits to protocol.js
-const { STATE_DIR } = await import(`../lib/protocol.js#${Math.random()}`)
+import { $ } from '../imports.js'
+// Dynamic import with cache-busting so hot-reload picks up edits.
+const { paths } = await import(`../lib/paths.js#${Math.random()}`)
+const { generateName } = await import(`../lib/pure/ids.js#${Math.random()}`)
 
 /**
  * After dtach spawns Claude, poll the log file for the "trust this folder"
@@ -10,7 +11,7 @@ const { STATE_DIR } = await import(`../lib/protocol.js#${Math.random()}`)
  */
 function watchForTrustPrompt(dtachSock, logFile, maxWaitMs = 15000) {
     const start = Date.now()
-    const poll = () => {
+    const poll = async () => {
         if (Date.now() - start > maxWaitMs) { return }
         try {
             if (!existsSync(logFile)) {
@@ -28,9 +29,10 @@ function watchForTrustPrompt(dtachSock, logFile, maxWaitMs = 15000) {
                 .replace(/\x1b./g, '')
                 .replace(/[\x00-\x08\x0e-\x1f\x7f]/g, '')
             if (/trust this folder|trust this project|Yes,?\s*I\s*trust/i.test(text)) {
-                // Send Enter key via dtach -p
+                // Send Enter (\n) via dtach -p. dax interpolates the
+                // socket path as a single properly-quoted arg.
                 try {
-                    execSync(`printf '\\n' | dtach -p "${dtachSock}"`, { timeout: 3000 })
+                    await $`dtach -p ${dtachSock}`.stdinText("\n").timeout(3000)
                 } catch { /* ignore */ }
                 return
             }
@@ -58,19 +60,22 @@ export const commands = {
     if (!access.allowFrom.includes(senderId)) return true
 
     // Check for dtach
-    try { execSync('which dtach', { stdio: 'ignore' }) } catch {
+    if (!(await $.commandExists("dtach"))) {
       await ctx.reply('dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach')
       return true
     }
 
-    // Pre-assign the session ID so we know the switch command ahead of time
-    const sessionId = state.generateName()
+    // Pre-assign the session ID so we know the switch command ahead of time.
+    // Using generateName directly rather than state.generateName because
+    // buildHotCommandState doesn't expose the latter — this is the one
+    // hot command that needs fresh session ids.
+    const sessionId = generateName()
     const title = ctx.message?.text?.replace(/^\/new\s*/, '').trim() || undefined
 
     // Read permission args from config file
     let permArgs = ''
     try {
-        permArgs = readFileSync(join(STATE_DIR, 'permission_args'), 'utf8').trim()
+        permArgs = readFileSync(paths.PERMISSION_ARGS_FILE, 'utf8').trim()
     } catch {
         // no permission config — use defaults
     }
@@ -80,11 +85,11 @@ export const commands = {
     // next_session.json — stripping the pre-assigned session id.
     const claudeCmd = `claude --no-tele ${permArgs} --channels plugin:telegram@claude-plugins-official`.replace(/  +/g, ' ').trim()
     const home = state.homedir()
-    const dtachSock = join(STATE_DIR, `dtach-${sessionId}.sock`)
-    const logFile = join(STATE_DIR, `dtach-${sessionId}.log`)
+    const dtachSock = paths.dtachSockFile(sessionId)
+    const logFile = paths.dtachLogFile(sessionId)
 
     // Strip env vars that would confuse the child Claude session
-    const cleanEnv = { ...process.env }
+    const cleanEnv = { ...Deno.env.toObject() }
     for (const key of Object.keys(cleanEnv)) {
       if (key.startsWith('CLAUDE_') || key.startsWith('MCP_')) {
         delete cleanEnv[key]
@@ -106,7 +111,7 @@ export const commands = {
     } catch { /* best-effort — the watchForTrustPrompt fallback will handle it */ }
 
     // Write pre-assigned session info for the new server to pick up on startup
-    writeFileSync(join(STATE_DIR, 'next_session.json'), JSON.stringify({
+    writeFileSync(paths.NEXT_SESSION_FILE, JSON.stringify({
       id: sessionId,
       title: title || undefined,
       dtachSocket: dtachSock,
@@ -120,14 +125,22 @@ export const commands = {
       // exits 0 because the fork succeeded.
       // -f flushes after each write so watchForTrustPrompt can see output
       // live; without it the log only appears when script exits.
+      //
+      // dax interpolation quotes each ${arg} as a single shell argument, so
+      // `${inner}` lands as one arg to `bash -c` (or `script -c`) with no
+      // extra escaping needed — this is the main win over execSync, which
+      // required manually quoting the socket path, log path, etc.
       const inner = `cd "${home}" && ${claudeCmd}`
-      const scriptPart = process.platform === 'darwin'
-        ? `script -q -F "${logFile}" bash -c '${inner}'`
-        : `script -fq -c '${inner}' "${logFile}"`
-      execSync(
-        `dtach -n "${dtachSock}" -Ez ${scriptPart}`,
-        { env: cleanEnv, timeout: 5000, encoding: 'utf8' }
-      )
+      const isDarwin = Deno.build.os === 'darwin'
+      const cmd = isDarwin
+        ? $`dtach -n ${dtachSock} -Ez script -q -F ${logFile} bash -c ${inner}`
+        : $`dtach -n ${dtachSock} -Ez script -fq -c ${inner} ${logFile}`
+      await cmd
+        .clearEnv()
+        .env(cleanEnv)
+        .timeout(5000)
+        .stdout("piped")
+        .stderr("piped")
 
       // Watch for trust prompt and auto-accept it
       watchForTrustPrompt(dtachSock, logFile)

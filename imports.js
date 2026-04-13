@@ -52,13 +52,20 @@ export {
     animals as nameAnimals,
 } from "https://esm.sh/unique-names-generator@4.7.1"
 
+// === dax (cross-platform shell + process helpers) ===
+// Tagged-template `$\`cmd ${arg}\`` runs a command with proper arg quoting,
+// throws on non-zero unless `.noThrow()`, and exposes `.text()`, `.lines()`,
+// `.timeout(ms)`, `.env({...})`, `.stdinText("...")`, `.commandExists(bin)`,
+// etc. Docs: https://github.com/dsherret/dax
+export { default as $ } from "jsr:@david/dax@0.42.0"
+
 // === helpers ===
 
 /**
  * Resolve a sibling path relative to a module's import.meta.url.
  * Works for both file: (local) and https: (remote/URL-installed) modules.
  *
- * Usage: sibling(import.meta, "../standalone-server.js")
+ * Usage: sibling(import.meta, "../main-server.js")
  */
 export function sibling(meta, relativePath) {
     const resolved = new URL(relativePath, meta.url)

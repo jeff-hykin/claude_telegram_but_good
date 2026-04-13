@@ -1,14 +1,16 @@
-// Dynamic import with cache-busting so hot-reload picks up edits to _shared.js
-const { shared } = await import(`./_shared.js#${Math.random()}`)
+// commands/list.js — Action-returning hot command.
+//
+// Reads core.chatSessions to format a per-session summary. Pure: no
+// state mutation, no external I/O.
+
+import { versionedImport } from "../lib/version.js"
+const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
 
 export const tips = [
     "Tap a session ID from /list to switch to it.",
     "Replying to a message that has /chat_&lt;id&gt; at the top will always send the response to that chat (even if its not your currently-active session)",
 ]
-
-function esc(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
 
 function timeAgo(ts) {
     if (!ts) {
@@ -29,12 +31,10 @@ function timeAgo(ts) {
 function sessionBlock(s, { shortPath, isActive }) {
     const lines = []
 
-    // Title as bold
-    const title = shared.titles.get(s.id) || s.title || s.id
+    const title = s.title || s.id
     const marker = isActive ? " [active]" : ""
     lines.push(`<b>${esc(title)}</b>${marker}`)
 
-    // Bullet list with emojis
     const active = timeAgo(s.lastActive)
     if (active) {
         lines.push(`  \u2022 \u26A1 active: ${esc(active)}`)
@@ -58,43 +58,56 @@ function sessionBlock(s, { shortPath, isActive }) {
         }
     }
 
-    // Chat command at the bottom
     lines.push(`  \u2022 /chat_${esc(s.id)}`)
-
-    return lines.join('\n')
+    return lines.join("\n")
 }
 
 export const descriptions = {
     list: "Show connected Claude Code sessions",
 }
 
+function reply(chatId, text, options = { parse_mode: "HTML" }) {
+    return {
+        effects: [{ type: "send_text_to_user", chatId, text, options }],
+    }
+}
+
 export const commands = {
-    list: async (ctx, bot, state) => {
-        if (ctx.chat?.type !== 'private') {
-            return true
+    list: (event, core) => {
+        if (event.chatType !== "private") {
+            return { effects: [] }
         }
-        const access = state.loadAccess()
-        const senderId = String(ctx.from?.id)
+        const access = loadAccess()
+        const senderId = String(event.userId ?? "")
         if (!access.allowFrom.includes(senderId)) {
-            return true
+            return { effects: [] }
         }
 
-        if (!state.isPrimary) {
-            await ctx.reply('This session is a secondary — /list is only available on the primary.')
-            return true
-        }
+        const sessions = Object.values(core.chatSessions ?? {}).map(s => ({
+            id: s.id,
+            pid: s.pid,
+            cwd: s.cwd,
+            title: s.title ?? null,
+            gitBranch: s.gitBranch ?? null,
+            dtachSocket: s.dtachSocket,
+            connectedAt: s.connectedAt,
+            lastActive: s.lastActive ?? null,
+            recentMessages: s.recentMessages ?? [],
+        }))
 
-        const sessions = state.allSessions()
         if (sessions.length === 0) {
-            await ctx.reply('No sessions connected. Use /new/new to make one from here')
-            return true
+            return reply(event.chatId, "No sessions connected. Use /new/new to make one from here", {})
         }
 
-        const home = state.homedir()
-        const shortPath = (p) => p.startsWith(home) ? '~' + p.slice(home.length) : p
+        const home = Deno.env.get("HOME") ?? ""
+        const shortPath = (p) => {
+            if (!p) { return "" }
+            return p.startsWith(home) ? "~" + p.slice(home.length) : p
+        }
 
-        const active = sessions.find(s => s.id === state.focusedSessionId)
-        const others = sessions.filter(s => s.id !== state.focusedSessionId)
+        const focusedId = core.chatState?.focusedSessionId
+        const active = sessions.find(s => s.id === focusedId)
+        const others = sessions.filter(s => s.id !== focusedId)
 
         const parts = []
         if (active) {
@@ -103,7 +116,7 @@ export const commands = {
         for (const s of others) {
             parts.push(sessionBlock(s, { shortPath, isActive: false }))
         }
-        await ctx.reply(parts.join('\n\n'), { parse_mode: 'HTML' })
-        return true
+
+        return reply(event.chatId, parts.join("\n\n"))
     },
 }

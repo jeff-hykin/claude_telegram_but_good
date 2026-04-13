@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# run/tests — execute the full Deno unit-test suite.
+#
+# Resolves the repo root relative to this script so it works regardless
+# of the caller's CWD. `deno test tests/` doesn't discover files in
+# this layout (names don't end in _test.ts/.js), so we glob explicitly.
+
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo="$(cd "$here/.." && pwd)"
+cd "$repo"
+
+exec deno test --allow-all tests/*.js "$@"

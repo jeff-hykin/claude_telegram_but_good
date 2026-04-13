@@ -1,3 +1,5 @@
+// commands/help.js — Action-returning hot command.
+
 export const tips = [
     "Claude can send you whole files, even large ones",
     "Attach files, claude will see them no problem",
@@ -13,30 +15,40 @@ export const tips = [
 ]
 
 export const descriptions = {
-  help: "What this bot can do",
+    help: "What this bot can do",
 }
 
+const HELP_BODY =
+    `Messages you send here route to a paired Claude Code session. ` +
+    `Text and photos are forwarded; replies and reactions come back.\n\n` +
+    `/start — pairing instructions\n` +
+    `/status — check your pairing state\n` +
+    `/list — show connected sessions (tap an ID to switch)\n` +
+    `/title <name> — label the focused session\n` +
+    `/new/new_d — launch a new Claude Code session\n` +
+    `/cron — list scheduled tasks\n` +
+    `/cancel — send Ctrl+C to the focused session\n` +
+    `/pause — suspend the focused session (Ctrl+Z)\n` +
+    `/resume — resume a paused session\n` +
+    `/fkill — force kill the focused session\n` +
+    `/fkill_all — force kill all sessions\n` +
+    `/reload — hot-reload command handlers\n` +
+    `/new_command — how to create custom commands\n` +
+    `/ping — test if the bot is alive`
+
 export const commands = {
-  help: async (ctx, bot, state) => {
-    if (ctx.chat?.type !== 'private') return true
-    await ctx.reply(
-      `Messages you send here route to a paired Claude Code session. ` +
-      `Text and photos are forwarded; replies and reactions come back.\n\n` +
-      `/start — pairing instructions\n` +
-      `/status — check your pairing state\n` +
-      `/list — show connected sessions (tap an ID to switch)\n` +
-      `/title <name> — label the focused session\n` +
-      `/new/new_d — launch a new Claude Code session\n` +
-      `/cron — list scheduled tasks\n` +
-      `/cancel — send Ctrl+C to the focused session\n` +
-      `/pause — suspend the focused session (Ctrl+Z)\n` +
-      `/resume — resume a paused session\n` +
-      `/fkill — force kill the focused session\n` +
-      `/fkill_all — force kill all sessions\n` +
-      `/reload — hot-reload command handlers\n` +
-      `/new_command — how to create custom commands\n` +
-      `/ping — test if the bot is alive`
-    )
-    return true
-  },
+    help: (event, _core) => {
+        if (event.chatType !== "private") {
+            return { effects: [] }
+        }
+        return {
+            effects: [
+                {
+                    type: "send_text_to_user",
+                    chatId: event.chatId,
+                    text: HELP_BODY,
+                },
+            ],
+        }
+    },
 }

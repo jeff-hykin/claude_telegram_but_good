@@ -20,7 +20,7 @@ I made this fork of the offical telegram support cause my team and I were annoye
 curl -fsSL https://deno.land/install.sh | sh
 export PATH="$PATH:$HOME/.deno/bin/deno"
 # Install the `cbg` command
-deno install -Agfr -n cbg https://raw.githubusercontent.com/jeff-hykin/claude_telegram_but_good/refs/heads/master/mod.js
+deno install -Agfr -n cbg https://raw.githubusercontent.com/jeff-hykin/claude_telegram_but_good/refs/heads/master/event-generators/cli/cli.js
 
 # Run onboarding (will help setup a bot)
 cbg onboard
@@ -97,7 +97,7 @@ See [CLAUDE.md](./CLAUDE.md) for the full architecture overview. The short versi
 
 - **`shim.ts`** — MCP server loaded by Claude Code, one per session. Proxies tool calls to the standalone server over a Unix socket.
 - **`standalone-server.ts`** — Long-lived daemon owning the Telegram bot. Routes messages between Telegram and focused sessions.
-- **`mod.ts`** — CLI entry point for `cbg`.
+- **`event-generators/cli/cli.js`** — CLI entry point for `cbg`.
 
 Communication uses newline-delimited JSON over `~/.local/share/cbg/state/ipc.sock`.
 

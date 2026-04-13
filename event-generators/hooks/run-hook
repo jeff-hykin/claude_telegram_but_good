@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+# Claude Code PreToolUse/PostToolUse/Stop hook — forwards events to the cbg server.
+# Resolves hook.js relative to this script's own location so the wrapper
+# works regardless of where the repo is checked out.
+
+# make sure deno is on the path for the hook
+export PATH="$PATH:$HOME/.deno/bin/deno"
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec deno run -A "$SCRIPT_DIR/hook.js"

@@ -1,11 +1,11 @@
-// Dynamic import with cache-busting: static imports of protocol.js would be
+// Dynamic import with cache-busting: static imports of paths.js would be
 // cached from the first load and not pick up edits on hot-reload.
-const { CUSTOM_COMMANDS_DIR } = await import(`../lib/protocol.js#${Math.random()}`)
+const { paths } = await import(`../lib/paths.js#${Math.random()}`)
 
 export const tips = [
     "custom commands don't need to involve an agent, they're just JavaScript ( /new_command )",
     "the /new_command command lets you make your own",
-    `custom telegram commands are saved in <code>${CUSTOM_COMMANDS_DIR}/</code> if you want to edit them`,
+    `custom telegram commands are saved in <code>${paths.CUSTOM_COMMANDS_DIR}/</code> if you want to edit them`,
 ]
 
 export const descriptions = {

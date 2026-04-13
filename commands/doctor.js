@@ -1,7 +1,8 @@
-import { spawn } from 'node:child_process'
 import { join } from 'node:path'
-// Dynamic import with cache-busting so hot-reload picks up edits to protocol.js
-const { STATE_DIR, LOG_FILE, MESSAGES_FILE } = await import(`../lib/protocol.js#${Math.random()}`)
+import { $ } from '../imports.js'
+// Dynamic import with cache-busting so hot-reload picks up edits to paths.js
+const { paths } = await import(`../lib/paths.js#${Math.random()}`)
+const { escapeHtml: escHtml } = await import(`../lib/pure/html.js#${Math.random()}`)
 
 export const tips = [
     "/doctor asks Claude to read the server logs + recent Telegram messages and diagnose issues.",
@@ -15,8 +16,8 @@ export const descriptions = {
 const DEFAULT_PROMPT = `You are diagnosing the cbg ("claude_telegram_but_good") Telegram channel.
 
 Two files hold the relevant signal:
-  - ${LOG_FILE}        — structured debug log from the standalone server and shims
-  - ${MESSAGES_FILE}   — JSONL of every inbound/outbound Telegram message (direction: "in" | "out")
+  - ${paths.LOG_FILE}        — structured debug log from the standalone server and shims
+  - ${paths.MESSAGES_FILE}   — JSONL of every inbound/outbound Telegram message (direction: "in" | "out")
 
 Read the tail of both files (roughly the last ~300 lines of main.log and last ~100 lines of messages.jsonl — more if something looks suspicious). Cross-reference them: for each recent user command, check whether the server actually handled it and whether the reply the user saw matches what the server sent.
 
@@ -27,50 +28,41 @@ Report in this shape, terse:
 
 Do not speculate about code you have not read. If the evidence is inconclusive, say so.`
 
-function escHtml(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-function runClaude(prompt, cwd, state) {
-    return new Promise((resolve) => {
-        const cleanEnv = { ...process.env }
-        for (const key of Object.keys(cleanEnv)) {
-            if (key.startsWith('CLAUDE_') || key.startsWith('MCP_')) {
-                delete cleanEnv[key]
-            }
+async function runClaude(prompt, cwd, state) {
+    const cleanEnv = { ...Deno.env.toObject() }
+    for (const key of Object.keys(cleanEnv)) {
+        if (key.startsWith('CLAUDE_') || key.startsWith('MCP_')) {
+            delete cleanEnv[key]
         }
-        // --no-tele bypasses the cbg shim wrapper so this invocation doesn't
-        // register with the standalone server or spawn a dtach session.
-        const child = spawn('claude', ['--no-tele', '-p', prompt], {
-            cwd,
-            env: cleanEnv,
-            stdio: ['ignore', 'pipe', 'pipe'],
-        })
-
-        let stdout = ''
-        let stderr = ''
-        child.stdout.on('data', (d) => { stdout += d.toString() })
-        child.stderr.on('data', (d) => { stderr += d.toString() })
-
-        const timeout = setTimeout(() => {
-            state.dbg('DOCTOR', 'claude -p timed out after 180s, killing')
-            try {
-                child.kill('SIGKILL')
-            } catch (e) {
-                state.dbg('DOCTOR', 'kill failed:', e)
-            }
-        }, 180_000)
-
-        child.on('error', (err) => {
-            clearTimeout(timeout)
-            state.dbg('DOCTOR', 'spawn error:', err)
-            resolve({ ok: false, stdout, stderr: stderr + `\nspawn error: ${err.message}` })
-        })
-        child.on('close', (code) => {
-            clearTimeout(timeout)
-            resolve({ ok: code === 0, code, stdout, stderr })
-        })
-    })
+    }
+    // --no-tele bypasses the cbg shim wrapper so this invocation doesn't
+    // register with the standalone server or spawn a dtach session.
+    // dax hard-quotes `${prompt}` so the full prompt text lands as a
+    // single argv entry with no shell interpretation.
+    try {
+        const result = await $`claude --no-tele -p ${prompt}`
+            .cwd(cwd)
+            .clearEnv()
+            .env(cleanEnv)
+            .stdin("null")
+            .stdout("piped")
+            .stderr("piped")
+            .timeout(180_000)
+            .noThrow()
+        return {
+            ok: result.code === 0,
+            code: result.code,
+            stdout: result.stdout,
+            stderr: result.stderr,
+        }
+    } catch (err) {
+        state.dbg('DOCTOR', 'spawn error:', err)
+        return {
+            ok: false,
+            stdout: '',
+            stderr: `spawn error: ${err instanceof Error ? err.message : String(err)}`,
+        }
+    }
 }
 
 export const commands = {
@@ -87,7 +79,7 @@ export const commands = {
 
         await ctx.reply('Running <i>claude -p</i> to diagnose — this can take up to a minute.', { parse_mode: 'HTML' })
 
-        const result = await runClaude(prompt, STATE_DIR, state)
+        const result = await runClaude(prompt, paths.STATE_DIR, state)
 
         const body = (result.stdout || '').trim() || '(no output from claude -p)'
         const header = result.ok ? 'Doctor report:' : `Doctor report (claude -p exited ${result.code}):`

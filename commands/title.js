@@ -1,61 +1,80 @@
-import { execSync } from 'node:child_process'
-// Dynamic import with cache-busting so hot-reload picks up edits to _shared.js
-const { shared } = await import(`./_shared.js#${Math.random()}`)
+// commands/title.js — Action-returning hot command.
+//
+// Labels the focused session. Mutates via stateChanges instead of the
+// legacy `state.setTitle(id, title)` imperative helper.
+
+import { $ } from "../imports.js"
+import { versionedImport } from "../lib/version.js"
+const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 
 export const tips = [
     "/title without any argument will auto-generate a title",
     "use /title &lt;name&gt; to label your claude sessions",
 ]
 
-function autoTitle(session) {
-  const parts = []
-  const dirName = session.cwd.split('/').filter(Boolean).pop() || session.cwd
-  parts.push(dirName)
-  let branch = session.gitBranch
-  if (!branch) {
-    try {
-      branch = execSync('git rev-parse --abbrev-ref HEAD', {
-        cwd: session.cwd, encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore']
-      }).trim()
-    } catch {}
-  }
-  if (branch && branch !== 'main' && branch !== 'master') {
-    parts.push(`(${branch})`)
-  }
-  return parts.join(' ')
+async function autoTitle(session) {
+    const parts = []
+    const dirName = session.cwd.split("/").filter(Boolean).pop() || session.cwd
+    parts.push(dirName)
+    let branch = session.gitBranch
+    if (!branch) {
+        try {
+            branch = (await $`git rev-parse --abbrev-ref HEAD`
+                .cwd(session.cwd)
+                .timeout(3000)
+                .stderr("null")
+                .text()).trim()
+        } catch (e) {
+            // Best-effort — no branch detected.
+        }
+    }
+    if (branch && branch !== "main" && branch !== "master") {
+        parts.push(`(${branch})`)
+    }
+    return parts.join(" ")
 }
 
 export const descriptions = {
-  title: "Label the focused session",
+    title: "Label the focused session",
 }
 
 export const commands = {
-  title: async (ctx, bot, state) => {
-    if (ctx.chat?.type !== 'private') return true
-    const access = state.loadAccess()
-    const senderId = String(ctx.from?.id)
-    if (!access.allowFrom.includes(senderId)) return true
+    title: async (event, core) => {
+        if (event.chatType !== "private") {
+            return { effects: [] }
+        }
+        const access = loadAccess()
+        const senderId = String(event.userId ?? "")
+        if (!access.allowFrom.includes(senderId)) {
+            return { effects: [] }
+        }
 
-    if (!state.isPrimary) {
-      await ctx.reply('Only available on the primary.')
-      return true
-    }
+        const text = event.text ?? ""
+        let title = text.replace(/^\/title\s*/i, "").trim()
 
-    const text = ctx.message?.text || ''
-    let title = text.replace(/^\/title\s*/i, '').trim()
+        const focusedId = core.chatState?.focusedSessionId
+        const focused = focusedId ? core.chatSessions?.[focusedId] : null
+        if (!focused) {
+            return {
+                effects: [
+                    { type: "send_text_to_user", chatId: event.chatId, text: "No focused session." },
+                ],
+            }
+        }
 
-    const focused = state.allSessions().find(s => s.id === state.focusedSessionId)
-    if (!focused) {
-      await ctx.reply('No focused session.')
-      return true
-    }
+        if (!title) {
+            title = await autoTitle(focused)
+        }
 
-    if (!title) {
-      title = autoTitle(focused)
-    }
-
-    shared.titles.set(focused.id, title)
-    await ctx.reply(`Title: ${title}`)
-    return true
-  },
+        return {
+            stateChanges: {
+                chatSessions: {
+                    [focused.id]: { title },
+                },
+            },
+            effects: [
+                { type: "send_text_to_user", chatId: event.chatId, text: `Title: ${title}` },
+            ],
+        }
+    },
 }

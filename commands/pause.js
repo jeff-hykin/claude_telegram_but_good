@@ -1,63 +1,92 @@
-// Dynamic import with cache-busting so hot-reload picks up edits to _shared.js
-const { shared } = await import(`./_shared.js#${Math.random()}`)
+// commands/pause.js — Action-returning hot commands (pause + resume).
+//
+// Deno.kill stays inline — it's an in-process syscall, not a
+// subprocess spawn, and has no effect-layer analogue. State mutation
+// flows through stateChanges.
+
+import { versionedImport } from "../lib/version.js"
+const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 
 export const tips = [
     "/pause suspends the whole claude process — it won't use resources until you /resume.",
 ]
 
-const pausedSessions = shared.pausedSessions
-
 export const descriptions = {
-  pause: "Suspend the focused session (SIGTSTP)",
-  resume: "Resume a paused session (SIGCONT)",
+    pause: "Suspend the focused session (SIGTSTP)",
+    resume: "Resume a paused session (SIGCONT)",
+}
+
+function reply(chatId, text) {
+    return { effects: [{ type: "send_text_to_user", chatId, text }] }
+}
+
+function findFocused(core) {
+    const focusedId = core.chatState?.focusedSessionId
+    return focusedId ? core.chatSessions?.[focusedId] : null
 }
 
 export const commands = {
-  pause: async (ctx, bot, state) => {
-    if (ctx.chat?.type !== 'private') return true
-    const access = state.loadAccess()
-    if (!access.allowFrom.includes(String(ctx.from?.id))) return true
+    pause: (event, core) => {
+        if (event.chatType !== "private") { return { effects: [] } }
+        const access = loadAccess()
+        if (!access.allowFrom.includes(String(event.userId ?? ""))) {
+            return { effects: [] }
+        }
+        const focused = findFocused(core)
+        if (!focused) { return reply(event.chatId, "No focused session.") }
 
-    const focused = state.allSessions().find(s => s.id === state.focusedSessionId)
-    if (!focused) { await ctx.reply('No focused session.'); return true }
+        if (focused.paused) {
+            return reply(event.chatId, "Session is already paused. Use /resume to continue.")
+        }
 
-    if (pausedSessions.has(focused.id)) {
-      await ctx.reply('Session is already paused. Use /resume to continue.')
-      return true
-    }
+        try {
+            Deno.kill(focused.pid, "SIGTSTP")
+        } catch (err) {
+            return reply(event.chatId, `Pause failed: ${err instanceof Error ? err.message : err}`)
+        }
+        return {
+            stateChanges: {
+                chatSessions: { [focused.id]: { paused: true } },
+            },
+            effects: [
+                {
+                    type: "send_text_to_user",
+                    chatId: event.chatId,
+                    text: `Paused session ${focused.id} (PID ${focused.pid})`,
+                },
+            ],
+        }
+    },
 
-    // focused.pid is the Claude Code process (shim reports process.ppid)
-    try {
-      process.kill(focused.pid, 'SIGTSTP')
-      pausedSessions.add(focused.id)
-      await ctx.reply(`Paused session ${focused.id} (PID ${focused.pid})`)
-    } catch (err) {
-      await ctx.reply(`Pause failed: ${err instanceof Error ? err.message : err}`)
-    }
-    return true
-  },
+    resume: (event, core) => {
+        if (event.chatType !== "private") { return { effects: [] } }
+        const access = loadAccess()
+        if (!access.allowFrom.includes(String(event.userId ?? ""))) {
+            return { effects: [] }
+        }
+        const focused = findFocused(core)
+        if (!focused) { return reply(event.chatId, "No focused session.") }
 
-  resume: async (ctx, bot, state) => {
-    if (ctx.chat?.type !== 'private') return true
-    const access = state.loadAccess()
-    if (!access.allowFrom.includes(String(ctx.from?.id))) return true
+        if (!focused.paused) {
+            return reply(event.chatId, "Session is not paused.")
+        }
 
-    const focused = state.allSessions().find(s => s.id === state.focusedSessionId)
-    if (!focused) { await ctx.reply('No focused session.'); return true }
-
-    if (!pausedSessions.has(focused.id)) {
-      await ctx.reply('Session is not paused.')
-      return true
-    }
-
-    // focused.pid is the Claude Code process (shim reports process.ppid)
-    try {
-      process.kill(focused.pid, 'SIGCONT')
-      pausedSessions.delete(focused.id)
-      await ctx.reply(`Resumed session ${focused.id} (PID ${focused.pid})`)
-    } catch (err) {
-      await ctx.reply(`Resume failed: ${err instanceof Error ? err.message : err}`)
-    }
-    return true
-  },
+        try {
+            Deno.kill(focused.pid, "SIGCONT")
+        } catch (err) {
+            return reply(event.chatId, `Resume failed: ${err instanceof Error ? err.message : err}`)
+        }
+        return {
+            stateChanges: {
+                chatSessions: { [focused.id]: { paused: false } },
+            },
+            effects: [
+                {
+                    type: "send_text_to_user",
+                    chatId: event.chatId,
+                    text: `Resumed session ${focused.id} (PID ${focused.pid})`,
+                },
+            ],
+        }
+    },
 }

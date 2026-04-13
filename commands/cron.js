@@ -1,86 +1,102 @@
+// commands/cron.js — Action-returning hot command.
+//
+// Reads $HOME/.claude/scheduled-tasks/* from the filesystem. The read
+// stays inline; it's bounded and has no state side effects.
+
+import { readdirSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+import { versionedImport } from "../lib/version.js"
+const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
+
 export const tips = [
     "/cron shows all scheduled tasks — set them up with the /schedule skill. JK! I haven't finished this feature yet",
 ]
 
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
-
-function esc(s) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
 function readScheduledTasks(homeDir) {
-  const tasksDir = join(homeDir, '.claude', 'scheduled-tasks')
-  const tasks = []
-  let dirs
-  try {
-    dirs = readdirSync(tasksDir, { withFileTypes: true })
-  } catch {
-    return tasks
-  }
-
-  for (const entry of dirs) {
-    if (!entry.isDirectory()) continue
-    const skillFile = join(tasksDir, entry.name, 'SKILL.md')
+    const tasksDir = join(homeDir, ".claude", "scheduled-tasks")
+    const tasks = []
+    let dirs
     try {
-      const content = readFileSync(skillFile, 'utf8')
-      // Parse frontmatter
-      const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
-      let name = entry.name
-      let description = ''
-      let prompt = content
+        dirs = readdirSync(tasksDir, { withFileTypes: true })
+    } catch (e) {
+        return tasks
+    }
 
-      if (fmMatch) {
-        const fm = fmMatch[1]
-        prompt = fmMatch[2].trim()
-        const nameMatch = fm.match(/^name:\s*(.+)$/m)
-        const descMatch = fm.match(/^description:\s*(.+)$/m)
-        if (nameMatch) name = nameMatch[1].trim()
-        if (descMatch) description = descMatch[1].trim()
-      }
+    for (const entry of dirs) {
+        if (!entry.isDirectory()) { continue }
+        const skillFile = join(tasksDir, entry.name, "SKILL.md")
+        try {
+            const content = readFileSync(skillFile, "utf8")
+            const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
+            let name = entry.name
+            let description = ""
+            let prompt = content
 
-      tasks.push({ name, description, prompt: prompt.slice(0, 100), dir: entry.name })
-    } catch {}
-  }
-  return tasks
+            if (fmMatch) {
+                const fm = fmMatch[1]
+                prompt = fmMatch[2].trim()
+                const nameMatch = fm.match(/^name:\s*(.+)$/m)
+                const descMatch = fm.match(/^description:\s*(.+)$/m)
+                if (nameMatch) { name = nameMatch[1].trim() }
+                if (descMatch) { description = descMatch[1].trim() }
+            }
+
+            tasks.push({ name, description, prompt: prompt.slice(0, 100), dir: entry.name })
+        } catch (e) {
+            // Best effort per entry — a malformed SKILL.md shouldn't hide the rest.
+        }
+    }
+    return tasks
 }
 
 export const descriptions = {
-  cron: "List scheduled tasks",
+    cron: "List scheduled tasks",
 }
 
 export const commands = {
-  cron: async (ctx, bot, state) => {
-    if (ctx.chat?.type !== 'private') return true
-    const access = state.loadAccess()
-    const senderId = String(ctx.from?.id)
-    if (!access.allowFrom.includes(senderId)) return true
+    cron: (event, _core) => {
+        if (event.chatType !== "private") {
+            return { effects: [] }
+        }
+        const access = loadAccess()
+        const senderId = String(event.userId ?? "")
+        if (!access.allowFrom.includes(senderId)) {
+            return { effects: [] }
+        }
 
-    const home = state.homedir()
-    const parts = []
+        const home = Deno.env.get("HOME") ?? ""
+        const parts = []
 
-    // Desktop scheduled tasks (from filesystem)
-    const tasks = readScheduledTasks(home)
-    if (tasks.length > 0) {
-      parts.push(`<b>Scheduled Tasks</b> (${tasks.length})`)
-      parts.push('')
-      for (const t of tasks) {
-        let line = `📋 <b>${esc(t.name)}</b>`
-        if (t.description) line += `\n   ${esc(t.description)}`
-        if (t.prompt) line += `\n   <i>${esc(t.prompt)}${t.prompt.length >= 100 ? '...' : ''}</i>`
-        parts.push(line)
-      }
-    } else {
-      parts.push('<b>Scheduled Tasks</b>')
-      parts.push('No desktop scheduled tasks found.')
-    }
+        const tasks = readScheduledTasks(home)
+        if (tasks.length > 0) {
+            parts.push(`<b>Scheduled Tasks</b> (${tasks.length})`)
+            parts.push("")
+            for (const t of tasks) {
+                let line = `📋 <b>${esc(t.name)}</b>`
+                if (t.description) { line += `\n   ${esc(t.description)}` }
+                if (t.prompt) { line += `\n   <i>${esc(t.prompt)}${t.prompt.length >= 100 ? "..." : ""}</i>` }
+                parts.push(line)
+            }
+        } else {
+            parts.push("<b>Scheduled Tasks</b>")
+            parts.push("No desktop scheduled tasks found.")
+        }
 
-    parts.push('')
-    parts.push('<b>Session Cron Jobs (/loop)</b>')
-    parts.push('Session cron jobs are in-memory only and cannot be listed externally.')
-    parts.push('Use /loop inside a Claude Code session to manage them.')
+        parts.push("")
+        parts.push("<b>Session Cron Jobs (/loop)</b>")
+        parts.push("Session cron jobs are in-memory only and cannot be listed externally.")
+        parts.push("Use /loop inside a Claude Code session to manage them.")
 
-    await ctx.reply(parts.join('\n'), { parse_mode: 'HTML' })
-    return true
-  },
+        return {
+            effects: [
+                {
+                    type: "send_text_to_user",
+                    chatId: event.chatId,
+                    text: parts.join("\n"),
+                    options: { parse_mode: "HTML" },
+                },
+            ],
+        }
+    },
 }
