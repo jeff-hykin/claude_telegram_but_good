@@ -56,9 +56,104 @@ These commands are sent as messages to your bot in Telegram.
 | `/resume` | Resume a paused session (SIGCONT). |
 | `/kill` | Force kill the focused session (SIGKILL). |
 | `/status` | Show pairing status and running Claude processes. |
+| `/task <description>` | Start a long-running task. See [Long Tasks](#long-tasks) below. |
+| `/task_status_<id>` | Show the current state of a long task (definition status, nudges, critic activity). |
+| `/task_view_<id>` | Print the locked definition of done. |
+| `/task_update_<id> <new definition>` | Replace the definition of done. Also revives a task stuck in `awaiting_clarification`. |
+| `/task_cancel_<id>` | Cancel a long task. Keeps the entry around so `/task_resume_<id>` can revive it. |
+| `/task_resume_<id>` | Revive a previously cancelled long task. |
 | `/cron` | List scheduled tasks. |
 | `/help` | Show the full command list. |
 | `/start` | Show pairing instructions for new users. |
+
+## Long Tasks
+
+`/task <description>` starts a **long-running task** — work that'll take
+many turns, that you don't want to babysit, and that needs an
+independent check at the end. Designed for the "I'm going to bed, show
+me the result in the morning" case: after the task is locked in, the
+user can disappear and the worker keeps going without ever asking for
+clarification.
+
+### Life cycle
+
+1. **Define.** You send `/task <description>`. The focused worker
+   session enters a short drafting phase where it writes a
+   `context.md` describing the starting state, asks any clarifying
+   questions via `reply`, and once it has enough, calls the
+   `submit_long_task_definition` MCP tool to lock in a concrete,
+   falsifiable definition of done. Only then does the task actually
+   *start* — the bot confirms with
+   `Task <id> started (N char definition locked)`.
+2. **Work.** The worker writes progress notes to `progress.md` and
+   eventually a finished `report.md` describing what it did, with
+   evidence. Everything lives under
+   `~/.local/share/cbg/long-tasks/<id>/`.
+3. **Critic.** When the Stop hook fires and `report.md` exists, CBG
+   spawns a **critic subprocess** — an independent `claude -p`
+   instance that only reads the task files. It judges the worker's
+   report against the locked definition and emits one of:
+   - `Accepted:` — the task is certified and you see
+     `✅ Task <id> certified by critic.`
+   - `Revisions:` — the critic lists concrete fixes the worker must
+     make alone. The archive is saved under `revisions/`, the old
+     `report.md` is deleted, and the worker gets a new turn to redraft.
+     You see `⚠️ … critic requested revisions. Worker is re-drafting.`
+4. **Retry / escalate.** If the critic can't decide or errors out, CBG
+   retries up to 3 times. If all 3 fail, the task is escalated back to
+   you with `❌ Task <id>: critic failed after 3 attempts — Please
+   intervene.`
+
+The critic **cannot ask clarifying questions** (you may be asleep) —
+the prompt explicitly tells it to pick the most defensible reading of
+a vague criterion and judge against that.
+
+### Recovery & introspection
+
+- `/task_status_<id>` — see the task's state, nudge history, critic
+  attempt count, and last-nudge age.
+- `/task_view_<id>` — print the locked definition of done.
+- `/task_update_<id> <new definition>` — overwrite the definition
+  mid-run; also used to unstick a task that bounced to
+  `awaiting_clarification`.
+- `/task_cancel_<id>` — stop the task. The entry is kept on disk with
+  `state: "cancelled"` so you can `/task_resume_<id>` it later.
+- `/task_resume_<id>` — revive a previously cancelled task in place,
+  restoring it to its pre-cancel state and re-notifying the worker.
+- `/cancel` — state-aware: if the focused session owns a live long
+  task, it cancels the *task*; otherwise it sends `ESC` to the TUI.
+
+### What's on disk
+
+Each task lives at `~/.local/share/cbg/long-tasks/<id>/`:
+
+```
+context.md                 worker's description of the starting state
+definition_of_done.md      locked definition (transiently present during critic runs)
+progress.md                worker's running notes
+report.md                  worker's final completion claim + evidence
+certification.md           critic's pass verdict (if certified)
+requested_revisions.md     critic's fail verdict (before archival)
+revisions/                 archived critic rounds, timestamped
+critic_output.attemptN.log raw stdout/stderr of each critic subprocess
+```
+
+A locked definition also lives at
+`~/.local/share/cbg/state/long-task-definitions/<id>.md` as a
+restart-survivable backup.
+
+### Config
+
+Critic model is configurable:
+
+```sh
+cbg config critic_model claude-haiku-4-5-20251001   # default, fast
+cbg config critic_fallback_model claude-sonnet-4-6  # overload fallback
+```
+
+Aliases like `sonnet` / `haiku` are accepted by the `claude` CLI.
+Swap to sonnet primary if you want stronger judgment for complex
+code-review tasks — the trade-off is ~3–5× slower critic runs.
 
 ## Custom Commands
 
