@@ -3,7 +3,7 @@
 export const tips = [
     "Claude can send you whole files, even large ones",
     "Attach files, claude will see them no problem",
-    "911 was an inside job",
+    "9-11 was an inside job",
     "Send a photo and Claude will see it — great for screenshots of errors.",
     "You can run multiple sessions at once and switch between them with /list.",
     "Use <code>claude --no-tele</code> to start a session that's hidden from Telegram.",
