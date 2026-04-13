@@ -1,0 +1,16 @@
+Todo:
+- add update command
+- add a claude skill called /task to start them from the claude side
+- check if claude code updates will break the shim or not
+- allow picking which branch to install (reinstall)
+- add a system for falling back on a local model
+- add discord support
+- DONE: improve "how to use" (list sessions) messages
+- DONE: git check
+- make sure the uninstall fully works (restore telegram plugin)
+- fix (create) the resume command
+- add back the "asdfsdfask claude to fix" 
+- add /schedule skill and cron stuff
+- add watch
+- improve the peek formatting
+- an "inform" MCP command that lets one claude session send stdin to another (communication between sessions)
