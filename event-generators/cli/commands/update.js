@@ -1,7 +1,20 @@
 // ---------------------------------------------------------------------------
-// `cbg update` — fetch the latest released tag from the upstream repo,
-// check it out in paths.LOCAL_REPO, then hot-reload the running daemon
-// in place.
+// `cbg update [ref]` — fetch from origin, check out a ref in
+// paths.LOCAL_REPO, then hot-reload the running daemon in place.
+//
+// Argument modes:
+//   cbg update           → pick the largest version-shaped tag
+//                          (v?\d+\.\d+\.\d+ ...) and check it out.
+//   cbg update <ref>     → check out whatever `<ref>` names. The
+//                          resolver tries, in order:
+//                            1. refs/tags/<ref>   — explicit tag
+//                            2. refs/remotes/origin/<ref> — branch
+//                            3. <ref>             — raw SHA / other
+//                          First match wins. For a branch, this
+//                          resolves to origin's tip AFTER the fetch,
+//                          so `cbg update main` always lands on the
+//                          latest commit regardless of the local
+//                          main's staleness.
 //
 // What this does NOT do:
 //   - Touch the plugin or .mcp.json files (use `cbg reinstall` for that).
@@ -11,9 +24,8 @@
 //     regular `cbg start` / reboot regardless.
 //
 // `cbg reinstall` covers the "everything" case. `cbg update` is the
-// narrow "I want the latest upstream release without rebuilding the
-// marketplace symlink or re-registering hooks" flow — the common
-// case after a release-tag publish.
+// narrow "move my on-disk code to a specific ref" flow — the common
+// case after a release-tag publish or when testing a branch.
 //
 // Dev mode: if paths.LOCAL_REPO is a symlink (set by `CBG_DEV=... cbg
 // onboard` during development), we REFUSE to touch it. A git
@@ -83,8 +95,8 @@ function isDevSymlink() {
 /**
  * Match a version-like tag: `1.2.3`, `v1.2.3`, `1.2.3-rc1`,
  * `v2.0.0-beta.4`, etc. Rejects names that aren't version numbers
- * (`latest`, `nightly`, `release-2026-04-12`) so `cbg update` only
- * moves to actual releases. Whitespace-anchored.
+ * (`latest`, `nightly`, `release-2026-04-12`) so `cbg update` without
+ * an explicit ref only moves to actual releases. Anchored.
  */
 const VERSION_TAG = /^v?\d+\.\d+\.\d+(?:[-+.].+)?$/
 
@@ -119,7 +131,54 @@ function latestTag() {
     }
 }
 
-export async function runUpdate(_args) {
+/**
+ * True iff `git rev-parse --verify <candidate>^{commit}` succeeds.
+ * Used to probe whether a user-supplied ref exists locally.
+ */
+function revParseCommit(candidate) {
+    try {
+        const { stdout } = gitInRepo(["rev-parse", "--verify", `${candidate}^{commit}`])
+        return stdout.length > 0 ? stdout : null
+    } catch (e) {
+        dbg("UPDATE", `revParseCommit(${candidate}):`, e)
+        return null
+    }
+}
+
+/**
+ * Resolve a user-supplied `ref` string to something git-checkout-able.
+ * Tries tag → remote branch → raw ref in order. Returns
+ * `{ kind, name, sha }` on success, null on failure.
+ *
+ *   kind: "tag" | "branch" | "ref"
+ *   name: the canonical display name (e.g. "v1.2.3", "origin/main")
+ *   sha:  the resolved commit SHA
+ */
+function resolveUserRef(ref) {
+    // Tag first — explicit tag names win over branches with the same
+    // name (tags are supposed to be immutable release markers; we
+    // prefer them when they exist).
+    const tagSha = revParseCommit(`refs/tags/${ref}`)
+    if (tagSha) {
+        return { kind: "tag", name: ref, sha: tagSha }
+    }
+    // Remote branch — resolves AFTER `git fetch` to origin's current
+    // tip, not to the possibly-stale local branch.
+    const remoteBranchSha = revParseCommit(`refs/remotes/origin/${ref}`)
+    if (remoteBranchSha) {
+        return { kind: "branch", name: `origin/${ref}`, sha: remoteBranchSha }
+    }
+    // Fallback: whatever the user gave (raw SHA, symbolic-ref, etc.).
+    const raw = revParseCommit(ref)
+    if (raw) {
+        return { kind: "ref", name: ref, sha: raw }
+    }
+    return null
+}
+
+export async function runUpdate(args) {
+    const userRef = args?.[0]  // optional — tag, branch, or SHA
+
     console.log()
     console.log(c.bold.white("  Updating cbg..."))
     console.log(c.dim("  " + "\u2500".repeat(40)))
@@ -157,8 +216,12 @@ export async function runUpdate(_args) {
         Deno.exit(1)
     }
 
-    // ── Fetch tags from origin ─────────────────────────────────────
-    console.log(c.dim("  Fetching tags from origin..."))
+    // ── Fetch from origin ──────────────────────────────────────────
+    // `--tags` brings in every remote tag; the base fetch brings in
+    // remote branches (so `origin/main` reflects the actual tip).
+    // `--prune --prune-tags` drops refs that have been deleted
+    // upstream so a branch-delete doesn't linger locally.
+    console.log(c.dim("  Fetching from origin..."))
     try {
         gitInRepo(["fetch", "--tags", "--prune", "--prune-tags", "origin"])
         console.log(c.green("  \u2714 Fetched."))
@@ -169,39 +232,65 @@ export async function runUpdate(_args) {
         Deno.exit(1)
     }
 
-    // ── Resolve latest tag ─────────────────────────────────────────
-    const tag = latestTag()
-    if (!tag) {
-        console.log(
-            c.yellow("  \u26A0 ") +
-            "No tags found in the upstream repo.",
-        )
-        console.log(c.dim("    Nothing to check out. Use `cbg reinstall` for a tip-of-branch update."))
-        Deno.exit(1)
+    // ── Resolve target ref ─────────────────────────────────────────
+    let target   // { kind: "tag" | "branch" | "ref", name, sha }
+    if (userRef) {
+        target = resolveUserRef(userRef)
+        if (!target) {
+            console.log(
+                c.yellow("  \u26A0 ") +
+                "Could not resolve " + c.white(userRef) + " to any tag, remote branch, or revision.",
+            )
+            console.log(c.dim("    Check the name — `cbg update` accepts tag names, branch names, or SHAs."))
+            Deno.exit(1)
+        }
+    } else {
+        const tag = latestTag()
+        if (!tag) {
+            console.log(
+                c.yellow("  \u26A0 ") +
+                "No version-shaped tags in the upstream repo.",
+            )
+            console.log(c.dim("    Pass an explicit ref: `cbg update <tag-or-branch>`."))
+            Deno.exit(1)
+        }
+        const sha = revParseCommit(`refs/tags/${tag}`)
+        if (!sha) {
+            console.log(c.yellow("  \u26A0 rev-parse failed for ") + c.white(tag))
+            Deno.exit(1)
+        }
+        target = { kind: "tag", name: tag, sha }
     }
 
-    // ── Already at that tag? ───────────────────────────────────────
-    let currentSha
-    try { currentSha = gitInRepo(["rev-parse", "HEAD"]).stdout } catch (e) { dbg("UPDATE", "rev-parse HEAD:", e); currentSha = "" }
-    let tagSha
-    try { tagSha = gitInRepo(["rev-parse", tag]).stdout } catch (e) { dbg("UPDATE", "rev-parse tag:", e); tagSha = "" }
-
-    if (currentSha && currentSha === tagSha) {
+    // ── Already at that ref? ───────────────────────────────────────
+    const currentSha = revParseCommit("HEAD")
+    if (currentSha && currentSha === target.sha) {
+        const label = target.kind === "tag"
+            ? `${target.name}`
+            : `${target.name} (${target.sha.slice(0, 10)})`
         console.log(
-            c.green("  \u2714 Already on ") + c.white(tag) + c.green(" — nothing to do."),
+            c.green("  \u2714 Already on ") + c.white(label) + c.green(" — nothing to do."),
         )
         console.log()
         return
     }
 
-    // ── Check out the tag ──────────────────────────────────────────
-    console.log(c.dim("  Checking out ") + c.white(tag) + c.dim("..."))
+    // ── Check out the resolved SHA ─────────────────────────────────
+    // Always detach at the SHA. Branches checked out this way land
+    // at a specific commit rather than tracking the local branch,
+    // which is what we want for a daemon update: no stray merges,
+    // no accidental divergence between local and origin/<branch>.
+    // If the working tree has uncommitted changes git will refuse —
+    // that's the right behavior, this CLI is not in the business of
+    // stomping user edits.
+    const shortSha = target.sha.slice(0, 10)
+    const humanLabel = target.kind === "tag"
+        ? target.name
+        : `${target.name} @ ${shortSha}`
+    console.log(c.dim("  Checking out ") + c.white(humanLabel) + c.dim("..."))
     try {
-        // Detach cleanly; if the working tree has uncommitted changes
-        // git will refuse, which is the right behavior — this CLI is
-        // not in the business of stomping user edits.
-        gitInRepo(["checkout", "--detach", tag])
-        console.log(c.green("  \u2714 Checked out ") + c.white(tag) + c.green("."))
+        gitInRepo(["checkout", "--detach", target.sha])
+        console.log(c.green("  \u2714 Checked out ") + c.white(humanLabel) + c.green("."))
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.log(c.yellow("  \u26A0 git checkout failed: " + msg))
@@ -235,6 +324,6 @@ export async function runUpdate(_args) {
     }
 
     console.log()
-    console.log(c.green("  \u2714 Update complete (") + c.white(tag) + c.green(")."))
+    console.log(c.green("  \u2714 Update complete (") + c.white(humanLabel) + c.green(")."))
     console.log()
 }

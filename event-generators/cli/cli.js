@@ -28,7 +28,7 @@ function printUsage() {
         ["config <key>",     "Print a single config value"],
         ["config <key> <v>", "Set a config value (value is YAML-parsed)"],
         ["authorize",        "Generate a one-time pairing code for a new user"],
-        ["update",           "Check out the latest release tag + hot-reload daemon in place"],
+        ["update [ref]",     "Check out latest tag (or given tag/branch) + hot-reload daemon"],
         ["reinstall",        "Refresh plugin/hooks/CLI shim on disk + hot-reload daemon in place"],
         ["uninstall",        "Stop services and remove the claude shim"],
     ]
