@@ -476,6 +476,48 @@ Deno.writeTextFileSync(paths.PID_FILE, String(Deno.pid))
 // and lib/event-handlers/stall-check.js for the detector pair.
 enqueueEvent({ type: "screen_snapshot_tick" })
 
+// ── Scheduled-task rehydration ─────────────────────────────────────────
+// For each non-terminal scheduled task in specialData, enqueue a
+// scheduled_task_rehydrate event so the schedule_timer_set effect
+// fires again and repopulates lib/scheduler/timer-registry.js's
+// in-memory map. Orphaned runs (currentRun set from a daemon crash
+// mid-run) get a synthetic scheduled_task_run_complete with status
+// "errored" so they clean up properly.
+try {
+    const byChat = specialData?.scheduledTaskByChatId ?? {}
+    let rehydratedCount = 0
+    let orphanCount = 0
+    for (const [chatId, tasks] of Object.entries(byChat)) {
+        for (const [scheduleTaskId, task] of Object.entries(tasks ?? {})) {
+            if (!task || typeof task !== "object") { continue }
+            if (task.state === "cancelled" || task.state === "completed" || task.state === "errored") {
+                continue
+            }
+            if (task.currentRun) {
+                enqueueEvent({
+                    type: "scheduled_task_run_complete",
+                    chatId,
+                    scheduleTaskId,
+                    runIso: task.currentRun.runIso,
+                    status: "errored",
+                    summary: "daemon restarted mid-run; orphaned run cleaned up",
+                })
+                orphanCount++
+            }
+            enqueueEvent({
+                type: "scheduled_task_rehydrate",
+                chatId,
+                scheduleTaskId,
+                rule: task.rule,
+            })
+            rehydratedCount++
+        }
+    }
+    dbg("MAIN", `scheduled-task rehydrate: ${rehydratedCount} timers queued, ${orphanCount} orphans cleaned`)
+} catch (e) {
+    dbg("MAIN", "scheduled-task rehydrate failed:", e)
+}
+
 // ── Go ─────────────────────────────────────────────────────────────────
 dbg("MAIN", `main-server ready (cbgVersion=${globalThis.cbgVersion}, pid=${Deno.pid})`)
 await eventLoop()
