@@ -366,6 +366,23 @@ const platform = getConfig().bot_platform ?? "telegram"
 const bot = await startChatBot(platform)
 if (bot) {
     core.bot = bot
+    // Publish the current slash-command menu to the platform.
+    // Replacement-style: whatever's in the registry right now IS the
+    // menu after this call, so stale commands from older versions
+    // (including anything a previous BotFather session added by hand)
+    // get cleaned up on every boot.
+    try {
+        const { getCommandDescriptions } = await versionedImport("./lib/hot-commands.js", import.meta)
+        const entries = [...getCommandDescriptions().entries()].map(
+            ([command, description]) => ({ command, description }),
+        )
+        if (entries.length > 0) {
+            const ok = await bot.setCommands(entries)
+            dbg("MAIN", `published ${entries.length} slash commands to ${platform} (ok=${ok})`)
+        }
+    } catch (e) {
+        dbg("MAIN", "setCommands failed:", e)
+    }
 }
 
 async function startChatBot(platform) {

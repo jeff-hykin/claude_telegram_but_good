@@ -47,6 +47,15 @@ export const commands = {
                     type: "send_text_to_user",
                     chatId: event.chatId,
                     text: HELP_BODY,
+                    // The help body contains literal `/title <name>`.
+                    // send_text_to_user defaults to format:"html", and
+                    // Telegram's HTML parser rejects the message with
+                    // "can't parse entities: Unsupported start tag
+                    // 'name' at byte offset 259" — the `<name>`
+                    // placeholder looks like an unopened tag. Same
+                    // failure class /status hit. Help doesn't need any
+                    // HTML, so plain is the right fix.
+                    options: { format: "plain" },
                 },
             ],
         }

@@ -11,6 +11,10 @@ const { loadAccess, saveAccess } = await versionedImport("../lib/access.js", imp
 
 export const tips = []
 
+export const descriptions = {
+    approve_user: "Redeem a one-time pairing token to join the allowlist",
+}
+
 function reply(chatId, text) {
     return { effects: [{ type: "send_text_to_user", chatId, text }] }
 }
