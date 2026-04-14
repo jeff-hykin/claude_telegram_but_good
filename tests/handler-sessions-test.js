@@ -42,6 +42,22 @@ Deno.test("session-register: first session auto-focuses", () => {
     assertEquals(sessionPatch.lastActive, 5_000)
 })
 
+Deno.test("session-register: reconnect preserves prior lastActive", () => {
+    // Session "s1" was registered previously and later did real work at
+    // ts=3_000_000. The daemon restarts; on reload chatSessions still
+    // has the s1 entry (with lastActive=3_000_000) but no _conn. When
+    // the shim reconnects and re-registers at event.ts=5_000, the
+    // handler must NOT clobber lastActive back to 5_000 — registration
+    // is not activity.
+    const core = makeCore({
+        chatState: { focusedSessionId: null },
+        chatSessions: { "s1": { id: "s1", lastActive: 3_000_000 } },
+    })
+    const action = register(regEvent("s1"), core)
+    const sessionPatch = get(action, "stateChanges.chatSessions.s1")
+    assertEquals(sessionPatch.lastActive, 3_000_000)
+})
+
 Deno.test("session-register: additional session does NOT steal focus", () => {
     const core = makeCore({
         chatState: { focusedSessionId: "existing" },
