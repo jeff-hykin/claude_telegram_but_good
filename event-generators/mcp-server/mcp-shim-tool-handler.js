@@ -121,6 +121,35 @@ export const TOOLS = [
         },
     },
     {
+        name: "start_long_well_defined_task",
+        description:
+            "Commit yourself to a long-running task that you ALREADY have a concrete, well-understood definition of done for. " +
+            "ONLY call this tool AFTER you already have a clear, falsifiable definition of done in mind — if you still need " +
+            "clarifying questions from the user, ask those first and DO NOT call this tool until the user " +
+            "has answered them. Calling this tool locks in the definition of done; there is no drafting or " +
+            "clarification phase after the call. " +
+            "The server will record the task, create its working directory on disk, and route future critic/channel messages " +
+            "back to you so you'll know when the task is considered complete or needs revision.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                chat_id: {
+                    type: "string",
+                    description: "The Telegram chat id this task belongs to (from the inbound message's meta). A status message will be posted there.",
+                },
+                description: {
+                    type: "string",
+                    description: "Short human-readable description of what the task is (becomes the task's originalPrompt).",
+                },
+                definition_of_done: {
+                    type: "string",
+                    description: "Markdown definition of done — concrete and falsifiable criteria the critic will later evaluate your report.md against. Must be non-empty.",
+                },
+            },
+            required: ["chat_id", "description", "definition_of_done"],
+        },
+    },
+    {
         name: "cbg_debug",
         description: "Returns the path to the CBG server log and a fresh server state dump for debugging.",
         inputSchema: { type: "object", properties: {} },

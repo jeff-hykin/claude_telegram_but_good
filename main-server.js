@@ -308,7 +308,18 @@ core.ipcListener = ipcListener
 dbg("MAIN", "IPC listening on", paths.IPC_SOCK)
 
 ;(async () => {
-    for await (const conn of ipcListener) {
+    while (true) {
+        let conn
+        try {
+            conn = await ipcListener.accept()
+        } catch (e) {
+            if (e instanceof Deno.errors.BadResource) {
+                dbg("IPC", "listener closed, exiting accept loop")
+                break
+            }
+            dbg("IPC", "accept failed, continuing:", e)
+            continue
+        }
         spawnIpcReadLoop(conn)
     }
 })()
