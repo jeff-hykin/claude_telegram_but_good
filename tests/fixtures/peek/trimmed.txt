@@ -1,0 +1,46 @@
+=== rendered 80x50, lines=3000 ===
+  Read 1 file, listed 2 directories (ctrl+o to expand)
+
+⏺ Update(run/tests)
+  ⎿  Added 11 lines, removed 2 linesdax
+       1  #!/usr/bin/env bash
+       2 -# run/tests — execute the full Deno unit-t
+         -est suite.
+       2 +# run/tests — execute the full Deno unit-t
+         +est suite and regenerate
+       3 +# snapshot fixtures (e.g. the peek TUI ren
+         +derer goldens).
+       4  #
+       5  # Resolves the repo root relative to this
+          script so it works regardless
+       6  # of the caller's CWD. `deno test tests/`
+          doesn't discover files in
+       7  # this layout (names don't end in _test.ts
+          /.js), so we glob explicitly.
+       8 +#
+       9 +# After running, check `git status` / `git
+         + diff tests/fixtures/` — any
+      10 +# change there is a snapshot diff that nee
+         +ds human review before commit.
+      11
+      12  set -euo pipefail
+      13
+     ...
+      15  repo="$(cd "$here/.." && pwd)"
+      16  cd "$repo"
+      17
+      14 -exec deno test --allow-all tests/*.js "$@"
+      18 +echo "==> deno unit tests"
+      19 +deno test --allow-all tests/*.js "$@"
+      20 +
+      21 +echo
+      22 +echo "==> regenerating peek TUI fixtures"
+      23 +deno run --allow-read --allow-write tests/
+         +fixtures/peek/generate.js
+
+⏺ Bash(./run/tests 2>&1 | tail -30)
+  ⎿  Running…
+
+✽ Ionizing… (45s · ↓ 449 tokens)
+
+=== end (1386 chars) ===
