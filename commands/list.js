@@ -45,37 +45,43 @@ function sessionBlock(s, { shortPath, isActive }) {
     }
     lines.push(`<b>${esc(title)}</b>${marker}`)
 
+    // /chat_<id> sits directly under the title so it's the first thing
+    // you can tap for a reachable session. A disconnected session can't
+    // be messaged, so we surface its stale-metadata hint instead.
+    if (s.hasConn) {
+        lines.push(`  • /chat_${esc(s.id)}`)
+    } else {
+        lines.push(`  • <i>(gone — start a new one with /new)</i>`)
+    }
+
     const active = timeAgo(s.lastActive)
     if (active) {
-        lines.push(`  \u2022 \u26A1 active: ${esc(active)}`)
+        lines.push(`  • ⚡ active: ${esc(active)}`)
     }
     if (s.connectedAt) {
-        lines.push(`  \u2022 \uD83D\uDD52 started: ${esc(timeAgo(s.connectedAt))}`)
+        lines.push(`  • 🕒 started: ${esc(timeAgo(s.connectedAt))}`)
     }
     if (s.gitBranch) {
-        lines.push(`  \u2022 \uD83C\uDF3F branch: <code>${esc(s.gitBranch)}</code>`)
+        lines.push(`  • 🌿 branch: <code>${esc(s.gitBranch)}</code>`)
     }
     const sp = shortPath(s.cwd)
     if (sp === "~") {
-        lines.push(`  \u2022 \uD83D\uDCC2 dir: <code>(home dir)</code>`)
+        lines.push(`  • 📂 dir: <code>(home dir)</code>`)
     } else {
-        lines.push(`  \u2022 \uD83D\uDCC2 dir: <code>${esc(sp)}</code>`)
+        lines.push(`  • 📂 dir: <code>${esc(sp)}</code>`)
     }
     if (s.recentMessages && s.recentMessages.length > 0) {
         for (const msg of s.recentMessages) {
-            const icon = msg.role === "bot" ? "\uD83E\uDD16" : "\uD83D\uDDE3"
+            const icon = msg.role === "bot" ? "🤖" : "🗣"
             lines.push(`  ${icon} <i>${esc(msg.text.replace(/\n+/g, " "))}</i>`)
         }
     }
 
-    // Only offer /chat_<id> for sessions the user can actually reach.
-    // A disconnected session's metadata stays visible so the user
-    // knows its history exists, but the command link would just trip
-    // the "no active connection" error in chat-user.js.
+    // /close_<id> sits at the bottom of the block so it's the last
+    // item in each session's section. Graceful close only makes sense
+    // for a session that's actually connected.
     if (s.hasConn) {
-        lines.push(`  \u2022 /chat_${esc(s.id)}`)
-    } else {
-        lines.push(`  \u2022 <i>(gone — start a new one with /new)</i>`)
+        lines.push(`  • /close_${esc(s.id)}`)
     }
     return lines.join("\n")
 }

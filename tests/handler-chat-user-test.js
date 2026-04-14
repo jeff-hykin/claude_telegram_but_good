@@ -289,6 +289,42 @@ Deno.test("chat-user: /switch_<id> reports not-found when target missing", async
     assert(msgs[0].text.includes("not found"))
 })
 
+Deno.test("chat-user: /close_<id> injects /exit and schedules force-close timer", async () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "sess_a" },
+        chatSessions: {
+            "sess_a": { id: "sess_a", pid: 12345, _conn: {}, title: "A" },
+        },
+    })
+    const action = await handle(baseEvent({ text: "/close_sess_a" }), core)
+
+    const dtachSends = effectsOfType(action, "send_text_to_claude")
+    assertEquals(dtachSends.length, 1)
+    assertEquals(dtachSends[0].sessionId, "sess_a")
+    assertEquals(dtachSends[0].text, "/exit")
+
+    const timers = effectsOfType(action, "set_timer")
+    assertEquals(timers.length, 1)
+    assertEquals(timers[0].event.type, "session_force_close")
+    assertEquals(timers[0].event.sessionId, "sess_a")
+    assert(typeof timers[0].delayMs === "number" && timers[0].delayMs > 0)
+
+    const msgs = effectsOfType(action, "send_text_to_user")
+    assert(msgs.length >= 1)
+    assert(msgs[0].text.includes("Closing session"))
+})
+
+Deno.test("chat-user: /close_<id> reports not-found when target missing", async () => {
+    const core = makeCore({ chatState: { focusedSessionId: null } })
+    const action = await handle(baseEvent({ text: "/close_ghost" }), core)
+    const msgs = effectsOfType(action, "send_text_to_user")
+    assertEquals(msgs.length, 1)
+    assert(msgs[0].text.includes("not found"))
+    // No dtach or timer effects should fire for a missing session.
+    assertEquals(effectsOfType(action, "send_text_to_claude").length, 0)
+    assertEquals(effectsOfType(action, "set_timer").length, 0)
+})
+
 Deno.test("chat-user: /task <description> creates a long task + notifies worker", async () => {
     const core = makeCore({
         chatState: { focusedSessionId: "worker" },

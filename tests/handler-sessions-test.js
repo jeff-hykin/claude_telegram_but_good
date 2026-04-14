@@ -13,6 +13,7 @@ setupTempPaths("cbg-sessions-test-")
 const register = (await import("../lib/event-handlers/session-register.js")).default
 const unregister = (await import("../lib/event-handlers/session-unregister.js")).default
 const ipcClosed = (await import("../lib/event-handlers/ipc-connection-closed.js")).default
+const forceClose = (await import("../lib/event-handlers/session-force-close.js")).default
 
 function regEvent(id, overrides = {}) {
     return {
@@ -186,5 +187,43 @@ Deno.test("ipc-closed: matching conn on non-focused session leaves focus alone",
     })
     const action = ipcClosed({ _conn: s2Conn }, core)
     assertEquals(get(action, "stateChanges.chatSessions.s2"), undefined)
+    assertEquals(get(action, "stateChanges.chatState"), undefined)
+})
+
+// ── session_force_close ────────────────────────────────────────────────
+
+Deno.test("session-force-close: no-op when session already gone", () => {
+    const core = makeCore({ chatState: {}, chatSessions: {} })
+    const action = forceClose({ type: "session_force_close", sessionId: "gone" }, core)
+    assertEquals(action, null)
+})
+
+Deno.test("session-force-close: SIGTERMs live session and drops it from state", () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "s1" },
+        chatSessions: { "s1": { id: "s1", pid: 12345 } },
+    })
+    const action = forceClose(
+        { type: "session_force_close", sessionId: "s1", requestChatId: "42" },
+        core,
+    )
+    const sigs = effectsOfType(action, "signal_process")
+    assertEquals(sigs.length, 1)
+    assertEquals(sigs[0].pid, 12345)
+    assertEquals(sigs[0].signal, "SIGTERM")
+    assertEquals(get(action, "stateChanges.chatSessions.s1"), undefined)
+    assertEquals(get(action, "stateChanges.chatState.focusedSessionId"), null)
+    const notices = effectsOfType(action, "send_text_to_user")
+    assertEquals(notices.length, 1)
+    assertEquals(notices[0].chatId, "42")
+})
+
+Deno.test("session-force-close: leaves focus alone when a different session is focused", () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "other" },
+        chatSessions: { "s1": { id: "s1", pid: 12345 } },
+    })
+    const action = forceClose({ type: "session_force_close", sessionId: "s1" }, core)
+    assertEquals(get(action, "stateChanges.chatSessions.s1"), undefined)
     assertEquals(get(action, "stateChanges.chatState"), undefined)
 })
