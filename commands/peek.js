@@ -19,7 +19,12 @@ export const tips = [
 
 const DEFAULT_WIDTH = 80
 const DEFAULT_HEIGHT = 50
-const DEFAULT_HISTORY_LINES = 3000 // we need a lot of history for things to render correctly
+// Peek starts by replaying the last DEFAULT_HISTORY_START lines of raw
+// dtach log bytes through the VT100 emulator. If the rendered virtual
+// screen ends up shorter than the target height (e.g. a short session
+// or a recent clear-screen), we double the history window and re-render
+// until either the screen fills up or we've consumed the entire log.
+const DEFAULT_HISTORY_START = 3000
 
 // Claude Code's TUI refuses to render below ~60 cols, so that's the
 // min virtual screen width we can ask for. But Telegram on narrow
@@ -64,6 +69,33 @@ function smartWrap(text, maxWidth) {
     return text.split("\n").map((l) => smartWrapLine(l, maxWidth)).join("\n")
 }
 
+/**
+ * Render the tail of `rawLines` through the VT100 emulator, growing
+ * the history window until the rendered (+ trailing-marker-trimmed)
+ * screen has at least `height` non-blank rows or we've consumed every
+ * line in the log.
+ *
+ * Returns the rendered screen and the number of raw log lines that
+ * ended up contributing to it (for the header readout).
+ */
+function renderWithGrowingHistory(rawLines, { width, height, historyStart }) {
+    const totalLines = rawLines.length
+    let historyLines = historyStart
+    let rendered = ""
+    let taken = 0
+    while (true) {
+        taken = Math.min(historyLines, totalLines)
+        const ingest = rawLines.slice(-taken).join("\n")
+        rendered = renderTui(ingest, { width, height, ansi: false, trim: true })
+        rendered = trimTrailingMarker(rendered)
+        const nonBlank = rendered.split("\n").filter((l) => l.trim().length > 0).length
+        if (nonBlank >= height || taken >= totalLines) {
+            return { rendered, historyUsed: taken }
+        }
+        historyLines *= 2
+    }
+}
+
 export const descriptions = {
     peek: "Show the current virtual screen of a session",
 }
@@ -86,7 +118,7 @@ export const commands = {
         let targetId = null
         let width = DEFAULT_WIDTH
         let height = DEFAULT_HEIGHT
-        let historyLines = DEFAULT_HISTORY_LINES
+        let historyStart = DEFAULT_HISTORY_START
         for (const arg of args) {
             const kv = arg.match(/^([whl]|w|h|lines|width|height)=(\d+)$/i)
             if (kv) {
@@ -94,11 +126,11 @@ export const commands = {
                 const val = parseInt(kv[2], 10)
                 if (key === "w" || key === "width") { width = val }
                 else if (key === "h" || key === "height") { height = val }
-                else if (key === "l" || key === "lines") { historyLines = val }
+                else if (key === "l" || key === "lines") { historyStart = val }
                 continue
             }
             if (/^\d+$/.test(arg)) {
-                historyLines = parseInt(arg, 10)
+                historyStart = parseInt(arg, 10)
             } else {
                 targetId = arg
             }
@@ -141,13 +173,13 @@ export const commands = {
         }
 
         const rawLines = content.split(/\r?\n/)
-        const ingest = rawLines.slice(-historyLines).join("\n")
 
         let rendered
+        let historyUsed = 0
         try {
-            rendered = renderTui(ingest, { width, height, ansi: false, trim: true })
-            rendered = trimTrailingMarker(rendered)
-            rendered = smartWrap(rendered, SMART_WRAP_WIDTH)
+            const out = renderWithGrowingHistory(rawLines, { width, height, historyStart })
+            rendered = smartWrap(out.rendered, SMART_WRAP_WIDTH)
+            historyUsed = out.historyUsed
         } catch (e) {
             dbg("PEEK", "renderTui failed:", e)
             return reply(event.chatId, `Failed to render session "${session.id}".`)
@@ -156,7 +188,7 @@ export const commands = {
             return reply(event.chatId, `Log file for session "${session.id}" rendered empty.`)
         }
 
-        const header = `${session.id}${session.title ? ` (${session.title})` : ""} [${width}x${height}]:`
+        const header = `${session.id}${session.title ? ` (${session.title})` : ""} [${width}x${height}, ${historyUsed}L]:`
         let body = rendered
         const bodyBudget = TELEGRAM_MAX_MESSAGE_CHARS - header.length - HTML_WRAPPER_OVERHEAD_CHARS
         if (body.length > bodyBudget) {
