@@ -228,6 +228,100 @@ spinnerTest("spinner:append — hidden tools (mcp__plugin_telegram_*) don't reac
     assertEquals(bot.calls.length, 0)
 })
 
+spinnerTest("spinner:append — PostTool event overwrites its PreTool sibling in place", async () => {
+    const bot = fakeBot()
+    const core = makeCore({
+        chatState: { focusedSessionId: "sess-1" },
+        chatSessions: {
+            "sess-1": {
+                id: "sess-1",
+                activeSpinner: {
+                    chatId: "42",
+                    messageId: "9001",
+                    headerHtml: "",
+                    items: [],
+                    createdAt: 0,
+                },
+            },
+        },
+        specialData: {
+            telegramMessagesByChatId: {
+                "42": { "9001": { id: "9001", kind: "spinner", items: [] } },
+            },
+        },
+        bot,
+    })
+    // PreToolUse for Read
+    await applySpinnerPolicy(preEvent({ toolUseId: "tu-1" }), null, core)
+    let items = core.chatSessions["sess-1"].activeSpinner.items
+    assertEquals(items.length, 1)
+    assert(items[0].rendered.includes("Reading"))
+
+    // PostToolUse for the SAME tool_use_id — must overwrite, not append
+    await applySpinnerPolicy(
+        {
+            type: "claude_hook_post_tool_use",
+            ts: 10,
+            sessionId: "sess-1",
+            toolName: "Read",
+            toolUseId: "tu-1",
+            inputPreview: JSON.stringify({ file_path: "/tmp/a.js" }),
+            outputPreview: null,
+            isError: false,
+        },
+        null,
+        core,
+    )
+    items = core.chatSessions["sess-1"].activeSpinner.items
+    assertEquals(items.length, 1)
+    // "Read" (past tense, from formatPostToolUse) replaces "Reading"
+    assert(items[0].rendered.includes("Read"))
+    assert(!items[0].rendered.includes("Reading"))
+    assertEquals(items[0].toolUseId, "tu-1")
+})
+
+spinnerTest("spinner:append — PostTool with unknown tool_use_id appends as a new item", async () => {
+    const bot = fakeBot()
+    const core = makeCore({
+        chatState: { focusedSessionId: "sess-1" },
+        chatSessions: {
+            "sess-1": {
+                id: "sess-1",
+                activeSpinner: {
+                    chatId: "42",
+                    messageId: "9001",
+                    headerHtml: "",
+                    items: [{ rendered: "<i>existing</i>", ts: 1, toolUseId: "tu-other" }],
+                    createdAt: 0,
+                },
+            },
+        },
+        specialData: {
+            telegramMessagesByChatId: {
+                "42": { "9001": { id: "9001", kind: "spinner", items: [] } },
+            },
+        },
+        bot,
+    })
+    await applySpinnerPolicy(
+        {
+            type: "claude_hook_post_tool_use",
+            ts: 10,
+            sessionId: "sess-1",
+            toolName: "Read",
+            toolUseId: "tu-unknown",
+            inputPreview: JSON.stringify({ file_path: "/tmp/a.js" }),
+            outputPreview: null,
+            isError: false,
+        },
+        null,
+        core,
+    )
+    const items = core.chatSessions["sess-1"].activeSpinner.items
+    assertEquals(items.length, 2)
+    assertEquals(items[1].toolUseId, "tu-unknown")
+})
+
 spinnerTest("spinner:append — rolling buffer caps at 10 items (drops oldest)", async () => {
     const bot = fakeBot()
     const core = makeCore({

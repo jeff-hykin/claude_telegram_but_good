@@ -1,46 +1,46 @@
 === rendered 80x50, lines=3000 ===
-      29 -        // Send both \r and \n: \r is what Claude's raw-mode TUI b
-         -inds to
-      30 -        // "submit" (the terminal's Enter key), while \n alone is
-         -Ctrl+J and
-      31 -        // only inserts a literal newline into the prompt buffer —
-         - which left
-      32 -        // earlier nudges visibly accumulating in the input area w
-         -ithout ever
-      33 -        // being submitted as a turn.
-      34 -        await w.write(new TextEncoder().encode(text + "\r\n"))
-      35 -        await w.close()
-      36 -        await proc.status
-      54 +        // Step 1: write the text bytes alone. From Ink's side thi
-         +s
-      55 +        // looks like pasted content arriving in the prompt buffer
-         +.
-      56 +        await pushToDtach(dtachSocket, new TextEncoder().encode(te
-         +xt))
-      57 +        // Step 2: brief pause so Ink can finish its render cycle.
-      58 +        await new Promise((resolve) => setTimeout(resolve, SUBMIT_
-         +DELAY_MS))
-      59 +        // Step 3: send Enter as its own write so Ink sees it as a
-      60 +        // distinct keypress event, not a paste trailer.
-      61 +        await pushToDtach(dtachSocket, ENTER_KEYSTROKE)
-      62 +        dbg("DTACH-OUT", `injected text+Enter to ${sessionId} (${t
-         +ext.length} chars)`)
-      63      } catch (e) {
-      64          dbg("DTACH-OUT", `inject failed for ${sessionId}:`, e)
-      65      }
+  ⎿  Running…
 
-✳ Channeling… (33s · ↓ 973 tokens)
+
+✻ Ionizing… (3m 45s · ↓ 2.6k tokens · thought for 5s)
+⏺
+
+❯ [au  PID  PPIDiCOMMANDou received a Telegram message but haven't replied yet.
+  Ple20280al8704eteelpeek.outply tool now to respond to the user.
+     ---
+     … +2 lines (ctrl+o to expand)
+
+   ─────────────────────────────────────────────────────────────────────────────
+✶ Ionizing… (3m 46s · ↓ 2.7k tokens · thought for 5s)
+        a    e   s              t        c  l
+────────────────────────────────────────────────────────────────────────────────
+───
+❯ [automated reminder] You received a Telegram message but haven't replied yet.
+
+✶ Ionizing…ll th51tele↓ram reply tool thinking)      to the user.
+
+
+⏺─Found it — tee peek.out (PID 20280) from an old shell─session─still─has─a─writ
+e──
+  fd onpthe originaloinode,(which+mvbjustcrenamed. That's why it keeps growing
+  after every claude turn. Fix: truncate-to-5000-lines, unlink the current file
+                                                                   ⧉ In input.lo
+  (orphans the tee fd), writ  a freshFone, chsod 444. i   e       t       d    l
+
+✢ Ionizing… (4m 2s · ↓ 2.7k tokens · thought for 11s)
+
 
 ────────────────────────────────────────────────────────────────────────────────
-⏺─Bash(deno check lib/effects/dtach-outbound.js 2>&1 | tail -5 && ./run/tests 2>
-&1[automated reminder] You received a Telegram message but haven't replied yet.
-  Plea|etaill-10) telegram reply tool now to respond to the user.
-  ⎿  Running…
-⏺  ─────────────────────────────────────────────────────────────────────────────
-
-✽ Channeling… (36s · ↓ 997 tokens)       c  l                      ⧉ In input.lo
+ ─Listing 1 directory… (ctrl+  to expand)
+  ⎿  $ tail -n 5000 tests/fixtures/peek/input.log > /tmp/input.log.trim && wc -l
+  Please call the telegram reply tool now to respond to the user.
+     /tmp/input.log.trim && ls -lh /tmp/input.log.trim
+   ─────────────────────────────────────────────────────────────────────────────
+⏺
+✳ Ionizing… (4m 3s · ↓ 2.8k tokens · thought for 11s)              ⧉ In input.lo
 g
-✽ Channeling…rem9nder] 1.0k tokens) a Telegram message but haven't replied yet.
+
+✶ Ionizing…d reminder] You received a Telegram message but haven't replied yet.
 
   Please call the telegram reply tool now to respond to the user.
 
@@ -48,4 +48,4 @@ g
 ───
   ⏵⏵ bypass permissions on (shift+tab to cycle)                    ⧉ In input.lo
 g
-=== end (2300 chars) ===
+=== end (1949 chars) ===
