@@ -1,51 +1,51 @@
 === rendered 80x50, lines=3000 ===
-  Read 1 file, listed 2 directories (ctrl+o to expand)
+      29 -        // Send both \r and \n: \r is what Claude's raw-mode TUI b
+         -inds to
+      30 -        // "submit" (the terminal's Enter key), while \n alone is
+         -Ctrl+J and
+      31 -        // only inserts a literal newline into the prompt buffer —
+         - which left
+      32 -        // earlier nudges visibly accumulating in the input area w
+         -ithout ever
+      33 -        // being submitted as a turn.
+      34 -        await w.write(new TextEncoder().encode(text + "\r\n"))
+      35 -        await w.close()
+      36 -        await proc.status
+      54 +        // Step 1: write the text bytes alone. From Ink's side thi
+         +s
+      55 +        // looks like pasted content arriving in the prompt buffer
+         +.
+      56 +        await pushToDtach(dtachSocket, new TextEncoder().encode(te
+         +xt))
+      57 +        // Step 2: brief pause so Ink can finish its render cycle.
+      58 +        await new Promise((resolve) => setTimeout(resolve, SUBMIT_
+         +DELAY_MS))
+      59 +        // Step 3: send Enter as its own write so Ink sees it as a
+      60 +        // distinct keypress event, not a paste trailer.
+      61 +        await pushToDtach(dtachSocket, ENTER_KEYSTROKE)
+      62 +        dbg("DTACH-OUT", `injected text+Enter to ${sessionId} (${t
+         +ext.length} chars)`)
+      63      } catch (e) {
+      64          dbg("DTACH-OUT", `inject failed for ${sessionId}:`, e)
+      65      }
 
-⏺ Update(run/tests)
-  ⎿  Added 11 lines, removed 2 linesdax
-       1  #!/usr/bin/env bash
-       2 -# run/tests — execute the full Deno unit-t
-         -est suite.
-       2 +# run/tests — execute the full Deno unit-t
-         +est suite and regenerate
-       3 +# snapshot fixtures (e.g. the peek TUI ren
-         +derer goldens).
-       4  #
-       5  # Resolves the repo root relative to this
-          script so it works regardless
-       6  # of the caller's CWD. `deno test tests/`
-          doesn't discover files in
-       7  # this layout (names don't end in _test.ts
-          /.js), so we glob explicitly.
-       8 +#
-       9 +# After running, check `git status` / `git
-         + diff tests/fixtures/` — any
-      10 +# change there is a snapshot diff that nee
-         +ds human review before commit.
-      11
-      12  set -euo pipefail
-      13
-     ...
-      15  repo="$(cd "$here/.." && pwd)"
-      16  cd "$repo"
-      17
-      14 -exec deno test --allow-all tests/*.js "$@"
-      18 +echo "==> deno unit tests"
-      19 +deno test --allow-all tests/*.js "$@"
-      20 +
-      21 +echo
-      22 +echo "==> regenerating peek TUI fixtures"
-      23 +deno run --allow-read --allow-write tests/
-         +fixtures/peek/generate.js
+✳ Channeling… (33s · ↓ 973 tokens)
 
-⏺ Bash(./run/tests 2>&1 | tail -30)
+────────────────────────────────────────────────────────────────────────────────
+⏺─Bash(deno check lib/effects/dtach-outbound.js 2>&1 | tail -5 && ./run/tests 2>
+&1[automated reminder] You received a Telegram message but haven't replied yet.
+  Plea|etaill-10) telegram reply tool now to respond to the user.
   ⎿  Running…
+⏺  ─────────────────────────────────────────────────────────────────────────────
 
-✽ Ionizing… (45s · ↓ 449 tokens)
+✽ Channeling… (36s · ↓ 997 tokens)       c  l                      ⧉ In input.lo
+g
+✽ Channeling…rem9nder] 1.0k tokens) a Telegram message but haven't replied yet.
 
-───────────────────────────────────────────────────────────
-❯ if you write it in deno, use deno dax
-───────────────────────────────────────────────────────────
-  ⏵⏵ bypass permissions on (shift+tab to cycle)
-                               ⧉ In peek.screen.untrimmed
-=== end (1652 chars) ===
+  Please call the telegram reply tool now to respond to the user.
+
+────────────────────────────────────────────────────────────────────────────────
+───
+  ⏵⏵ bypass permissions on (shift+tab to cycle)                    ⧉ In input.lo
+g
+=== end (2300 chars) ===

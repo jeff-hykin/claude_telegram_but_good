@@ -30,11 +30,57 @@ Deno.test("claude-channel: reply emits send_text_to_user with recordAs metadata"
     const action = handle(makeEvent("reply", { chat_id: "42", text: "hi" }), core)
     const sends = effectsOfType(action, "send_text_to_user")
     assertEquals(sends.length, 1)
-    assertEquals(sends[0].text, "hi")
+    // Every agent reply is prepended with a /chat_<id> routing header.
+    assertEquals(sends[0].text, "/chat_sess-1\n\nhi")
     assertEquals(sends[0].chatId, "42")
     assertEquals(sends[0].recordAs.from, "agent")
     assertEquals(sends[0].recordAs.kind, "regular")
     assertEquals(sends[0].recordAs.sessionId, "sess-1")
+    // recordAs.text keeps the original (pre-header) text so cold storage
+    // history isn't polluted with the display-only routing prefix.
+    assertEquals(sends[0].recordAs.text, "hi")
+})
+
+Deno.test("claude-channel: reply header includes session title when set", () => {
+    const core = makeCore({
+        chatSessions: {
+            "sess-1": { id: "sess-1", title: "cbg / master" },
+        },
+    })
+    const action = handle(makeEvent("reply", { chat_id: "42", text: "hi" }), core)
+    const sends = effectsOfType(action, "send_text_to_user")
+    assertEquals(sends[0].text, "/chat_sess-1 (cbg / master)\n\nhi")
+})
+
+Deno.test("claude-channel: reply html format leaves /chat_ bare so it stays tappable", () => {
+    // The /chat_<id> must NOT be wrapped in <code> or <pre> — Telegram
+    // auto-detects bare /command text as a bot command and makes it
+    // tap-to-send. Wrapping would turn it into tap-to-copy, which is
+    // not what we want.
+    const core = makeCore({
+        chatSessions: {
+            "sess-1": { id: "sess-1", title: "cbg / master" },
+        },
+    })
+    const action = handle(makeEvent("reply", {
+        chat_id: "42",
+        text: "<b>hi</b>",
+        format: "html",
+    }), core)
+    const sends = effectsOfType(action, "send_text_to_user")
+    assertEquals(
+        sends[0].text,
+        "/chat_sess-1 (<i>cbg / master</i>)\n\n<b>hi</b>",
+    )
+    assertEquals(sends[0].options.parse_mode, "HTML")
+})
+
+Deno.test("claude-channel: reply without sessionId emits no header", () => {
+    const core = makeCore()
+    const event = makeEvent("reply", { chat_id: "42", text: "hi" }, { sessionId: null })
+    const action = handle(event, core)
+    const sends = effectsOfType(action, "send_text_to_user")
+    assertEquals(sends[0].text, "hi")
 })
 
 Deno.test("claude-channel: reply without a sessionId still works (no clear_spinner)", () => {
@@ -104,8 +150,8 @@ Deno.test("claude-channel: reply with files emits send_file_to_user per file", (
     }), core)
     const sends = effectsOfType(action, "send_file_to_user")
     assertEquals(sends.length, 2)
-    // First file carries the caption (text)
-    assertEquals(sends[0].caption, "caption")
+    // First file carries the caption (text) with the routing header prepended.
+    assertEquals(sends[0].caption, "/chat_sess-1\n\ncaption")
     // Second file has no caption (undefined)
     assertEquals(sends[1].caption, undefined)
 })
