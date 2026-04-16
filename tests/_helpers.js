@@ -35,6 +35,7 @@ export function setupTempPaths(prefix = "cbg-handler-test-") {
     Deno.mkdirSync(paths.STATE_DIR, { recursive: true })
     Deno.mkdirSync(paths.INBOX_DIR, { recursive: true })
     Deno.mkdirSync(paths.LONG_TASKS_DIR, { recursive: true })
+    Deno.mkdirSync(paths.SCHEDULED_TASKS_DIR, { recursive: true })
     Deno.mkdirSync(paths.COLD_STORAGE_DIR, { recursive: true })
     return { tempDir, paths }
 }

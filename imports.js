@@ -45,6 +45,23 @@ export { colors } from "https://esm.sh/jsr/@cliffy/ansi@1.0.0/colors"
 // === timeago ===
 export { format as timeago } from "https://esm.sh/timeago.js@4.0.2"
 
+// === rrule.js (RFC 5545 recurrence rules) ===
+// Used for recurrence-structure logic (freq / byhour / byday / etc.).
+// Docs: https://github.com/jkbrzt/rrule
+//
+// Footgun: rrule@2.8.x's built-in tzid support is broken — byhour is
+// interpreted as UTC regardless of the tzid field. We do our own
+// timezone correction using luxon (below): run rrule WITHOUT tzid,
+// then reinterpret each output's wall-clock components as being in
+// the target tz via luxon.DateTime.fromISO(iso, { zone: tzid }).
+export { RRule, RRuleSet, rrulestr } from "https://esm.sh/rrule@2.8.1"
+
+// === luxon (timezone-aware date math) ===
+// We only need DateTime for tzid conversion around rrule.js. See
+// lib/scheduler/index.js for the real→phantom and phantom→real
+// helpers that work around rrule.js's tzid bug.
+export { DateTime as LuxonDateTime } from "https://esm.sh/luxon@3.5.0"
+
 // === unique-names-generator (session name generator) ===
 export {
     uniqueNamesGenerator,
