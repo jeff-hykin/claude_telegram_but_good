@@ -30,6 +30,7 @@ export async function runResume(args) {
                 name: `Session ${s.id}`,
                 value: s.id,
             })),
+            search: true,
         })
         attachSession(selected)
     } catch (e) {
