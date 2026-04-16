@@ -1,10 +1,12 @@
 Todo:
-- add update command
-- add a claude skill called /task to start them from the claude side
+- add a /one_off that executes something with claude -p  
+- create a better stdin sender
+- add a /btw that uses stdin
+- extract the name out of claude rename (and have title on telegram set the rename on the claude side)
+- needs fixing: add a claude skill called /task to start tasks them from the claude side
 - check if claude code updates will break the shim or not
-- allow picking which branch to install (reinstall)
 - add a system for falling back on a local model
-- add discord support
+- needs testing: add discord support
 - DONE: improve "how to use" (list sessions) messages
 - DONE: git check
 - make sure the uninstall fully works (restore telegram plugin)
@@ -14,3 +16,5 @@ Todo:
 - add watch
 - improve the peek formatting
 - an "inform" MCP command that lets one claude session send stdin to another (communication between sessions)
+- DONE: add update command
+- allow picking which branch to install (reinstall)
