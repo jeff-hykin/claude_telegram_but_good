@@ -1,0 +1,188 @@
+// commands/refresh.js — Action-returning hot command.
+//
+// Spawns a new Claude session in the current topic, binding it to the
+// topic and feeding the last 50 messages as context.
+
+import { writeFileSync, readFileSync, existsSync } from "node:fs"
+import { join } from "node:path"
+import { $ } from "../imports.js"
+import { versionedImport } from "../lib/version.js"
+const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { dbg } = await versionedImport("../lib/logging.js", import.meta)
+const { paths } = await versionedImport("../lib/paths.js", import.meta)
+const { generateName } = await versionedImport("../lib/pure/ids.js", import.meta)
+
+export const descriptions = {
+    refresh: "Spawn a new session in this topic",
+}
+
+function reply(chatId, text, threadId) {
+    const options = { parse_mode: "HTML" }
+    if (threadId != null) { options.message_thread_id = Number(threadId) }
+    return { effects: [{ type: "send_text_to_user", chatId, text, options }] }
+}
+
+/**
+ * After dtach spawns Claude, poll the log file for the "trust this
+ * folder" prompt. If detected, send Enter to accept it.
+ */
+function watchForTrustPrompt(dtachSock, logFile, maxWaitMs = 15000) {
+    const start = Date.now()
+    const poll = async () => {
+        if (Date.now() - start > maxWaitMs) { return }
+        try {
+            if (!existsSync(logFile)) {
+                setTimeout(poll, 500)
+                return
+            }
+            const raw = readFileSync(logFile, "utf8")
+            const text = raw
+                .replace(/\x1b\[\d*C/g, " ")
+                .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, "")
+                .replace(/\x1b\[[0-9;?]*[a-zA-Z~]/g, "")
+                .replace(/\x1b[>=<]/g, "")
+                .replace(/\x1b[()][0-9A-Za-z]/g, "")
+                .replace(/\x1b./g, "")
+                .replace(/[\x00-\x08\x0e-\x1f\x7f]/g, "")
+            if (/trust this folder|trust this project|Yes,?\s*I\s*trust/i.test(text)) {
+                try {
+                    await $`dtach -p ${dtachSock}`.stdinText("\n").timeout(3000)
+                } catch (e) { dbg("REFRESH", "trust-prompt send failed:", e) }
+                return
+            }
+        } catch (e) {
+            dbg("REFRESH", "trust prompt poll error:", e)
+        }
+        setTimeout(poll, 500)
+    }
+    setTimeout(poll, 1000)
+}
+
+export const commands = {
+    refresh: async (event, core) => {
+        const access = loadAccess()
+        const ccChatId = access.commandCenterChatId
+
+        if (!ccChatId || String(event.chatId) !== String(ccChatId)) {
+            return reply(event.chatId, "This command only works in the command center group.")
+        }
+
+        const threadId = event.threadId
+        if (!threadId) {
+            return reply(event.chatId, "This command must be used inside a topic.", null)
+        }
+
+        if (!(await $.commandExists("dtach"))) {
+            return reply(event.chatId, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach", threadId)
+        }
+
+        const cc = core.chatState?.commandCenter ?? {}
+        const threadKey = String(threadId)
+
+        // Determine title from the topic — use existing mapping or event context
+        // For now use the text after /refresh as title, or fall back
+        const titleFromCmd = event.text?.replace(/^\/refresh\s*/, "").trim()
+        const existingSessionId = cc.threadMap?.[threadKey]
+        const existingTitle = existingSessionId ? core.chatSessions?.[existingSessionId]?.title : null
+        const title = titleFromCmd || existingTitle || `Topic${threadKey}`
+
+        const sessionId = generateName()
+
+        let permArgs = ""
+        try {
+            permArgs = readFileSync(paths.PERMISSION_ARGS_FILE, "utf8").trim()
+        } catch (e) {
+            dbg("REFRESH", "no permission args:", e)
+        }
+        const claudeCmd = `claude --no-tele ${permArgs} --channels plugin:telegram@claude-plugins-official`
+            .replace(/  +/g, " ")
+            .trim()
+        const home = Deno.env.get("HOME") ?? ""
+        const dtachSock = paths.dtachSockFile(sessionId)
+        const logFile = paths.dtachLogFile(sessionId)
+
+        const cleanEnv = { ...Deno.env.toObject() }
+        for (const key of Object.keys(cleanEnv)) {
+            if (key.startsWith("CLAUDE_") || key.startsWith("MCP_")) {
+                delete cleanEnv[key]
+            }
+        }
+        cleanEnv.SHELL = "/bin/bash"
+
+        // Pre-accept workspace trust
+        try {
+            const claudeJsonPath = join(home, ".claude.json")
+            const claudeJson = JSON.parse(readFileSync(claudeJsonPath, "utf8"))
+            if (!claudeJson.projects) { claudeJson.projects = {} }
+            if (!claudeJson.projects[home]) { claudeJson.projects[home] = {} }
+            claudeJson.projects[home].hasTrustDialogAccepted = true
+            writeFileSync(claudeJsonPath, JSON.stringify(claudeJson, null, 2))
+        } catch (e) {
+            dbg("REFRESH", "trust pre-accept failed:", e)
+        }
+
+        writeFileSync(paths.NEXT_SESSION_FILE, JSON.stringify({
+            id: sessionId,
+            title: title,
+            dtachSocket: dtachSock,
+        }))
+
+        try {
+            const inner = `cd "${home}" && ${claudeCmd}`
+            const isDarwin = Deno.build.os === "darwin"
+            const cmd = isDarwin
+                ? $`dtach -n ${dtachSock} -Ez script -q -F ${logFile} bash -c ${inner}`
+                : $`dtach -n ${dtachSock} -Ez script -fq -c ${inner} ${logFile}`
+            await cmd
+                .clearEnv()
+                .env(cleanEnv)
+                .timeout(5000)
+                .stdout("piped")
+                .stderr("piped")
+
+            watchForTrustPrompt(dtachSock, logFile)
+
+            // Update topic maps
+            const topicMap = { ...(cc.topicMap ?? {}) }
+            const threadMap = { ...(cc.threadMap ?? {}) }
+
+            // Unbind old session if any
+            if (existingSessionId) {
+                delete topicMap[existingSessionId]
+            }
+
+            topicMap[sessionId] = threadKey
+            threadMap[threadKey] = sessionId
+
+            return {
+                stateChanges: {
+                    chatState: {
+                        pendingFocusId: sessionId,
+                        commandCenter: {
+                            ...cc,
+                            topicMap,
+                            threadMap,
+                        },
+                    },
+                },
+                effects: [{
+                    type: "send_text_to_user",
+                    chatId: event.chatId,
+                    text: `Spawned new session <code>${sessionId}</code> (${title})`,
+                    options: { parse_mode: "HTML", message_thread_id: Number(threadId) },
+                }],
+            }
+        } catch (err) {
+            let detail = ""
+            if (err instanceof Error) {
+                detail = err.message
+                if (err.stderr) { detail += `\nstderr: ${err.stderr}` }
+                if (err.stdout) { detail += `\nstdout: ${err.stdout}` }
+            } else {
+                detail = String(err)
+            }
+            dbg("REFRESH", "failed:", detail)
+            return reply(event.chatId, `Failed to spawn session:\n${detail}`, threadId)
+        }
+    },
+}

@@ -562,11 +562,11 @@ export async function onboard() {
     let token = getBotToken()
     if (token) {
         ok("Token already configured.")
-        const change = await Confirm.prompt({
-            message: c.dim("  Change it?"),
-            default: false,
+        const keepToken = await Confirm.prompt({
+            message: c.dim("  Use it?"),
+            default: true,
         })
-        if (change) {
+        if (!keepToken) {
             token = null
         }
     }
@@ -689,11 +689,11 @@ export async function onboard() {
     const existingAllowFrom = readAccessAllowFrom()
     if (existingAllowFrom.length > 0) {
         ok(`Already paired (${existingAllowFrom.length} user(s) on allowlist).`)
-        const repair = await Confirm.prompt({
-            message: c.dim("  Pair another account?"),
-            default: false,
+        const keepPairing = await Confirm.prompt({
+            message: c.dim("  Use that account?"),
+            default: true,
         })
-        if (!repair) {
+        if (keepPairing) {
             await doShimAndVerify(cacheDir)
             return
         }
@@ -725,8 +725,95 @@ export async function onboard() {
 }
 
 async function doShimAndVerify(pluginDir) {
-    // --- Step 8: Claude shim ---
-    header("8", "Claude Shim")
+    // --- Step 8: Command Center (optional) ---
+    header("8", "Command Center (optional)")
+    info("A command center is a Telegram group with Topics enabled where")
+    info("each Claude session gets its own topic thread.")
+    console.log()
+
+    let existingCcId = null
+    try {
+        const raw = Deno.readTextFileSync(paths.ACCESS_FILE)
+        const access = JSON.parse(raw)
+        existingCcId = access.commandCenterChatId ?? null
+    } catch (e) {
+        dbg("ONBOARD", "read commandCenterChatId:", e)
+    }
+
+    if (existingCcId) {
+        ok(`Command center already configured (group ${existingCcId}).`)
+        const keepCc = await Confirm.prompt({
+            message: c.dim("  Use it?"),
+            default: true,
+        })
+        if (!keepCc) {
+            // Clear it
+            try {
+                const raw = Deno.readTextFileSync(paths.ACCESS_FILE)
+                const access = JSON.parse(raw)
+                delete access.commandCenterChatId
+                if (access.groups?.[existingCcId]) {
+                    delete access.groups[existingCcId]
+                }
+                const tmp = paths.ACCESS_FILE + ".tmp"
+                Deno.writeTextFileSync(tmp, JSON.stringify(access, null, 2) + "\n")
+                Deno.renameSync(tmp, paths.ACCESS_FILE)
+                info("Command center cleared.")
+            } catch (e) {
+                dbg("ONBOARD", "clear commandCenterChatId:", e)
+            }
+            existingCcId = null
+        }
+    }
+
+    if (!existingCcId) {
+        const wantCc = await Confirm.prompt({
+            message: c.dim("  Set up a command center group?"),
+            default: true,
+        })
+        if (wantCc) {
+            console.log()
+            info("To set up a command center:")
+            console.log()
+            console.log("    1. Create a Telegram supergroup")
+            console.log("    2. Enable " + c.white("Topics") + " in group settings")
+            console.log("    3. Add your bot to the group")
+            console.log("    4. Promote the bot to " + c.white("admin"))
+            console.log("    5. Send " + c.cyan("/set_command_center") + " in the group")
+            console.log()
+            info("The bot will confirm once it's active.")
+            info("You can do this now or later — it's optional.")
+            console.log()
+
+            const waitForIt = await Confirm.prompt({
+                message: c.dim("  Wait for /set_command_center to be sent?"),
+                default: true,
+            })
+            if (waitForIt) {
+                info("Waiting for command center setup...")
+                while (true) {
+                    try {
+                        const raw = Deno.readTextFileSync(paths.ACCESS_FILE)
+                        const access = JSON.parse(raw)
+                        if (access.commandCenterChatId) {
+                            ok(`Command center activated (group ${access.commandCenterChatId}).`)
+                            break
+                        }
+                    } catch (e) {
+                        dbg("ONBOARD", "poll commandCenterChatId:", e)
+                    }
+                    await new Promise(r => setTimeout(r, 1500))
+                }
+            } else {
+                info("Skipped. You can set it up later with /set_command_center in a group.")
+            }
+        } else {
+            info("Skipped. You can set it up later with /set_command_center in a group.")
+        }
+    }
+
+    // --- Step 9: Claude shim ---
+    header("9", "Claude Shim")
     info("Wraps the claude command to auto-add Telegram + dtach.")
     const shimResult = installShim()
     if (shimResult.ok) {
@@ -735,8 +822,8 @@ async function doShimAndVerify(pluginDir) {
         fail(shimResult.message)
     }
 
-    // --- Step 9: Verify ---
-    header("9", "Verification")
+    // --- Step 10: Verify ---
+    header("10", "Verification")
     const checks = [
         { name: "dtach", ok: isDtachInstalled() },
         { name: "bot token", ok: !!getBotToken() },

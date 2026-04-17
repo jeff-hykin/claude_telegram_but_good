@@ -2,7 +2,7 @@ import { versionedImport } from "../../../lib/version.js"
 
 const [
     { Select, colors },
-    { attachSession, listDtachSockets },
+    { attachSession, listDtachSockets, resolveSessionName },
     { dbg },
 ] = await Promise.all([
     versionedImport("../../../imports.js", import.meta),
@@ -11,9 +11,23 @@ const [
 ])
 const c = colors
 
+function formatSessionLabel(s) {
+    if (s.title) {
+        return `${s.title}  ${c.dim(`(${s.id})`)}`
+    }
+    return s.id
+}
+
 export async function runResume(args) {
     if (args[0]) {
-        attachSession(args[0])
+        const name = args.join(" ")
+        const resolved = resolveSessionName(name)
+        if (resolved) {
+            attachSession(resolved)
+        } else {
+            // Fall back to treating it as a raw session ID
+            attachSession(name)
+        }
         return
     }
     const sockets = listDtachSockets()
@@ -27,7 +41,7 @@ export async function runResume(args) {
         const selected = await Select.prompt({
             message: "Select a session to resume:",
             options: sockets.map(s => ({
-                name: `Session ${s.id}`,
+                name: formatSessionLabel(s),
                 value: s.id,
             })),
             search: true,
@@ -37,8 +51,9 @@ export async function runResume(args) {
         dbg("CBG", "Select.prompt failed, falling back to list:", e)
         console.log(c.bold.white("  Active dtach sessions:"))
         for (const s of sockets) {
-            console.log(`    ${c.cyan(s.id)}  ${c.dim(s.socketPath)}`)
+            const titlePart = s.title ? `  ${c.white(s.title)}` : ""
+            console.log(`    ${c.cyan(s.id)}${titlePart}  ${c.dim(s.socketPath)}`)
         }
-        console.log(c.dim("\n  Usage: ") + c.white("cbg resume <session-id>"))
+        console.log(c.dim("\n  Usage: ") + c.white("cbg resume <name-or-id>"))
     }
 }

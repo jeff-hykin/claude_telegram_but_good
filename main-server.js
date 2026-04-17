@@ -34,9 +34,17 @@ import {
     getEventQueueMax,
     getHandlerWarnMs,
 } from "./lib/config-manager.js"
-import { loadPersistedState, setCoreRef as setPersistenceCoreRef } from "./lib/effects/persistence.js"
+// persistence.js must also be loaded via versionedImport for the same
+// reason as hot-commands.js: the event loop's main-event-processor.js
+// imports it versioned, so setCoreRef must target the same instance.
+const { loadPersistedState, setCoreRef: setPersistenceCoreRef } = await versionedImport("./lib/effects/persistence.js", import.meta)
 import { stripFieldsResetOnRestartFromAllSessions } from "./lib/pure/field-stripper.js"
-import { loadCommands, getCommandDescriptions } from "./lib/hot-commands.js"
+// hot-commands.js is loaded via versionedImport (not static import)
+// because the event loop's main-event-processor.js imports it via
+// versionedImport too. Static import creates a DIFFERENT module instance
+// (no ?v= suffix) from the versioned one, so loadCommands would populate
+// the wrong registry — the event loop would see an empty Map.
+const { loadCommands, getCommandDescriptions } = await versionedImport("./lib/hot-commands.js", import.meta)
 import { startShimWatcher } from "./lib/effects/shim-watcher.js"
 import { TelegramBot } from "./lib/bot/telegram-bot.js"
 import { DiscordBot } from "./lib/bot/discord-bot.js"
@@ -80,6 +88,7 @@ const _defaultChatState = {
     pendingFocusId: null,
     pendingOtps: {},
     pendingPermissions: {},
+    commandCenter: null,
     stats: { eventsProcessed: 0, queueDepth: 0 },
 }
 const _defaultSpecialData = {
