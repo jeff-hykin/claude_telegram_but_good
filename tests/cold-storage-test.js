@@ -1,10 +1,10 @@
 import { assertEquals, assertExists } from "https://deno.land/std@0.224.0/assert/mod.ts"
 
-// IMPORTANT: set paths.HOME and TELEGRAM_STATE_DIR BEFORE importing cold-storage,
+// IMPORTANT: set HOME and CBG_DIR BEFORE importing cold-storage,
 // so lib/paths.js captures the temp paths rather than the real ~/.local/share.
 const TEST_HOME = Deno.makeTempDirSync({ prefix: "cbg-cold-test-" })
-Deno.env.set("paths.HOME", TEST_HOME)
-Deno.env.set("TELEGRAM_STATE_DIR", `${TEST_HOME}/.local/share/cbg/state`)
+Deno.env.set("HOME", TEST_HOME)
+Deno.env.set("CBG_DIR", `${TEST_HOME}/.local/share/cbg`)
 
 const cs = await import("../lib/cold-storage.js")
 const {

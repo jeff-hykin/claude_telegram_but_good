@@ -47,16 +47,32 @@ function reply(chatId, text) {
     return { effects: [{ type: "send_text_to_user", chatId, text }] }
 }
 
+function findSessionForEvent(event, core, label = "CMD") {
+    const access = loadAccess()
+    const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
+    if (isCC && event.threadId) {
+        const cc = core.chatState?.commandCenter ?? {}
+        const sid = cc.threadMap?.[String(event.threadId)]
+        if (sid) {
+            dbg(label, `CC topic ${event.threadId} → session ${sid}`)
+            return core.chatSessions?.[sid] ?? null
+        }
+        dbg(label, `CC topic ${event.threadId} has no mapped session`)
+    }
+    const focusedId = core.chatState?.focusedSessionId
+    return focusedId ? core.chatSessions?.[focusedId] : null
+}
+
 export const commands = {
     cancel: async (event, core) => {
-        if (event.chatType !== "private") { return { effects: [] } }
         const access = loadAccess()
-        if (!access.allowFrom.includes(String(event.userId ?? ""))) {
+        const isCommandCenter = String(event.chatId) === String(access.commandCenterChatId ?? "")
+        if (event.chatType !== "private" && !isCommandCenter) { return { effects: [] } }
+        if (!isCommandCenter && !access.allowFrom.includes(String(event.userId ?? ""))) {
             return { effects: [] }
         }
 
-        const focusedId = core.chatState?.focusedSessionId
-        const focused = focusedId ? core.chatSessions?.[focusedId] : null
+        const focused = findSessionForEvent(event, core, "CANCEL")
         if (!focused) { return reply(event.chatId, "No focused session.") }
 
         // Mode 1: long-task cancel. Takes priority over ESC-to-dtach so

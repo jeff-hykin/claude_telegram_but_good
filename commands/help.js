@@ -38,8 +38,10 @@ const HELP_BODY =
 
 export const commands = {
     help: (event, _core) => {
-        if (event.chatType !== "private") {
-            return { effects: [] }
+        // help is safe in any context — no gating needed
+        const options = { format: "plain" }
+        if (event.threadId) {
+            options.message_thread_id = Number(event.threadId)
         }
         return {
             effects: [
@@ -55,7 +57,7 @@ export const commands = {
                     // placeholder looks like an unopened tag. Same
                     // failure class /status hit. Help doesn't need any
                     // HTML, so plain is the right fix.
-                    options: { format: "plain" },
+                    options,
                 },
             ],
         }

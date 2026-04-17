@@ -18,3 +18,4 @@ Todo:
 - an "inform" MCP command that lets one claude session send stdin to another (communication between sessions)
 - DONE: add update command
 - allow picking which branch to install (reinstall)
+- better resume (there is almost no color, and the width doesn't match/adjust and the previous text output doesn't get replayed)

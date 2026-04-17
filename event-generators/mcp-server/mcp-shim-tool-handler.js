@@ -170,9 +170,47 @@ export const TOOLS = [
         },
     },
     {
+        name: "create_scheduled_task",
+        description:
+            "Create a recurring scheduled task directly — skips the Telegram /schedule drafting flow. " +
+            "Provide the recurrence rule AND definition of done up front. The task goes straight to " +
+            "'scheduled' state and the first fire is registered immediately. " +
+            "Use this when you already have a clear schedule and DoD without needing user clarification.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                title: { type: "string", description: "Short display title for the task." },
+                description: { type: "string", description: "Human-readable description of what the task does." },
+                rule: {
+                    type: "object",
+                    description: "rrule.js-compatible JSON: { freq: DAILY|WEEKLY|MONTHLY|YEARLY|HOURLY|MINUTELY, interval?, byhour?, byminute?, byday? (e.g. [\"MO\",\"TU\"]), bymonth?, bymonthday?, count?, until?, tzid? (IANA string) }. Include tzid explicitly.",
+                },
+                definitionOfDone: {
+                    type: "string",
+                    description: "Markdown definition of done — concrete, falsifiable criteria. MUST name the exact path the worker should write output to (e.g. runs/<runIso>/report.md under the task dir).",
+                },
+            },
+            required: ["title", "rule", "definitionOfDone"],
+        },
+    },
+    {
         name: "cbg_debug",
-        description: "Returns the path to the CBG server log and a fresh server state dump for debugging.",
-        inputSchema: { type: "object", properties: {} },
+        description:
+            "Returns the path to the CBG server log and a fresh server state dump for debugging. " +
+            "Optionally filter by session_id, topic_thread_id, title, or pid to get only relevant state. " +
+            "Also extracts matching log lines from main.log when a filter is provided.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                filter: {
+                    type: "string",
+                    description:
+                        "Filter the debug output. Matches against: session ID (e.g. 'MassCapybara'), " +
+                        "topic thread ID (e.g. '19'), session title, PID, or topic name. " +
+                        "When provided, only matching sessions/topics are included and relevant log lines are extracted.",
+                },
+            },
+        },
     },
 ]
 
@@ -240,6 +278,16 @@ export async function handleToolCall(req, ctx) {
             definitionOfDone: args.definitionOfDone,
             title: args.title,
         }
+    } else if (name === "create_scheduled_task") {
+        ipcMessage = {
+            type: "create_scheduled_task",
+            sessionId,
+            requestId,
+            title: args.title,
+            description: args.description ?? args.title,
+            rule: args.rule,
+            definitionOfDone: args.definitionOfDone,
+        }
     } else if (name === "cbg_debug") {
         // server_dump event (not cli_command!) — the dedicated MCP path.
         // cli_command routes close the connection after replying, which
@@ -251,6 +299,7 @@ export async function handleToolCall(req, ctx) {
             source: "mcp_tool",
             requestId,
             sessionId,
+            filter: args.filter ?? null,
         }
     } else {
         // reply, react, download_attachment, edit_message, reload, new_command

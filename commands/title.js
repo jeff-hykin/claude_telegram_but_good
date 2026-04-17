@@ -40,20 +40,30 @@ export const descriptions = {
 
 export const commands = {
     title: async (event, core) => {
-        if (event.chatType !== "private") {
+        const access = loadAccess()
+        const isCommandCenter = String(event.chatId) === String(access.commandCenterChatId ?? "")
+        if (event.chatType !== "private" && !isCommandCenter) {
             return { effects: [] }
         }
-        const access = loadAccess()
         const senderId = String(event.userId ?? "")
-        if (!access.allowFrom.includes(senderId)) {
+        if (!isCommandCenter && !access.allowFrom.includes(senderId)) {
             return { effects: [] }
         }
 
         const text = event.text ?? ""
         let title = text.replace(/^\/title\s*/i, "").trim()
 
-        const focusedId = core.chatState?.focusedSessionId
-        const focused = focusedId ? core.chatSessions?.[focusedId] : null
+        // In command center, target the session bound to this topic
+        let focused = null
+        if (isCommandCenter && event.threadId) {
+            const cc = core.chatState?.commandCenter ?? {}
+            const sid = cc.threadMap?.[String(event.threadId)]
+            if (sid) { focused = core.chatSessions?.[sid] ?? null }
+        }
+        if (!focused) {
+            const focusedId = core.chatState?.focusedSessionId
+            focused = focusedId ? core.chatSessions?.[focusedId] : null
+        }
         if (!focused) {
             return {
                 effects: [

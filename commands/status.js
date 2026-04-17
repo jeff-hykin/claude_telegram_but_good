@@ -60,13 +60,14 @@ async function listClaudeSessions() {
 
 export const commands = {
     status: async (event, _core) => {
-        if (event.chatType !== "private") {
-            return { effects: [] }
-        }
         if (!event.userId) {
             return { effects: [] }
         }
         const access = loadAccess()
+        const isCommandCenter = String(event.chatId) === String(access.commandCenterChatId ?? "")
+        if (event.chatType !== "private" && !isCommandCenter) {
+            return { effects: [] }
+        }
         const senderId = String(event.userId)
         const parts = []
 
@@ -97,13 +98,17 @@ export const commands = {
             parts.push(`\nNo Claude Code processes detected.`)
         }
 
+        const options = { format: "plain" }
+        if (isCommandCenter && event.threadId) {
+            options.message_thread_id = Number(event.threadId)
+        }
         return {
             effects: [
                 {
                     type: "send_text_to_user",
                     chatId: event.chatId,
                     text: parts.join("\n"),
-                    options: { format: "plain" },
+                    options,
                 },
             ],
         }

@@ -11,6 +11,29 @@ const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { generateName } = await versionedImport("../lib/pure/ids.js", import.meta)
+const { tailColdStream } = await versionedImport("../lib/cold-storage.js", import.meta)
+
+const CONTEXT_MESSAGE_LIMIT = 50
+
+function gatherSessionContext(oldSessionId) {
+    if (!oldSessionId) { return null }
+    try {
+        const all = tailColdStream("messages", 500)
+        const sessionMsgs = all.filter(m => m.sessionId === oldSessionId && m.text)
+        const recent = sessionMsgs.slice(-CONTEXT_MESSAGE_LIMIT)
+        if (recent.length === 0) { return null }
+        const lines = recent.map(m => {
+            const who = m.from === "user" ? "User" : "Agent"
+            const ts = m.ts ? new Date(m.ts).toISOString().slice(0, 16) : ""
+            const text = (m.text ?? "").slice(0, 500)
+            return `[${ts}] ${who}: ${text}`
+        })
+        return { count: recent.length, text: lines.join("\n\n") }
+    } catch (e) {
+        dbg("REFRESH", "gatherSessionContext failed:", e)
+        return null
+    }
+}
 
 export const descriptions = {
     refresh: "Spawn a new session in this topic",
@@ -140,11 +163,32 @@ export const commands = {
                 .stdout("piped")
                 .stderr("piped")
 
+            // Gather context from the old session's message history
+            const context = gatherSessionContext(existingSessionId)
+            let contextFile = null
+            if (context) {
+                contextFile = join(paths.STATE_DIR, `refresh-context-${sessionId}.md`)
+                const contextMd = [
+                    `# Previous session context`,
+                    ``,
+                    `The following is the recent conversation history (last ${context.count} messages) from the previous session in this topic. Use it to understand what was being worked on.`,
+                    ``,
+                    context.text,
+                ].join("\n")
+                try {
+                    writeFileSync(contextFile, contextMd)
+                } catch (e) {
+                    dbg("REFRESH", "failed to write context file:", e)
+                    contextFile = null
+                }
+            }
+
             watchForTrustPrompt(dtachSock, logFile)
 
             // Update topic maps
             const topicMap = { ...(cc.topicMap ?? {}) }
             const threadMap = { ...(cc.threadMap ?? {}) }
+            const topicNames = { ...(cc.topicNames ?? {}) }
 
             // Unbind old session if any
             if (existingSessionId) {
@@ -153,24 +197,69 @@ export const commands = {
 
             topicMap[sessionId] = threadKey
             threadMap[threadKey] = sessionId
+            topicNames[threadKey] = title
+
+            const contextNote = context
+                ? `\nSending last ${context.count} messages for context.`
+                : (existingSessionId
+                    ? `\nNo message history found for previous session — starting fresh.`
+                    : "")
+            const effects = [{
+                type: "send_text_to_user",
+                chatId: event.chatId,
+                text: `Spawned new session <code>${sessionId}</code> (${title})${contextNote}`,
+                options: { parse_mode: "HTML", message_thread_id: Number(threadId) },
+            }]
+
+            // Kill old session: send /exit gracefully, then schedule a
+            // force-close as fallback in case it doesn't exit cleanly.
+            if (existingSessionId) {
+                const oldSession = core.chatSessions?.[existingSessionId]
+                if (oldSession) {
+                    effects.push({
+                        type: "send_text_to_claude",
+                        sessionId: existingSessionId,
+                        text: "/exit",
+                    })
+                    effects.push({
+                        type: "set_timer",
+                        delayMs: 15000,
+                        event: {
+                            type: "session_force_close",
+                            sessionId: existingSessionId,
+                        },
+                    })
+                    dbg("REFRESH", `killing old session ${existingSessionId}`)
+                }
+            }
+
+            // Queue context as a channel message so it's delivered
+            // through the event queue when the session registers and
+            // becomes focused — no dtach race with user messages.
+            const messageQueue = [...(core.chatState?.messageQueue ?? [])]
+            if (contextFile) {
+                messageQueue.push({
+                    content: `Read the file ${contextFile} for context from the previous session in this topic. Then briefly acknowledge what was being discussed and ask how you can help.`,
+                    meta: { source: "refresh-context" },
+                    queuedAt: Date.now(),
+                })
+                dbg("REFRESH", `queued context (${context.count} msgs) for ${sessionId}`)
+            }
 
             return {
                 stateChanges: {
                     chatState: {
                         pendingFocusId: sessionId,
+                        messageQueue,
                         commandCenter: {
                             ...cc,
                             topicMap,
                             threadMap,
+                            topicNames,
                         },
                     },
                 },
-                effects: [{
-                    type: "send_text_to_user",
-                    chatId: event.chatId,
-                    text: `Spawned new session <code>${sessionId}</code> (${title})`,
-                    options: { parse_mode: "HTML", message_thread_id: Number(threadId) },
-                }],
+                effects,
             }
         } catch (err) {
             let detail = ""

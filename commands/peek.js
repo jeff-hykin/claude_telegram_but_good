@@ -106,9 +106,10 @@ function reply(chatId, text, options) {
 
 export const commands = {
     peek: (event, core) => {
-        if (event.chatType !== "private") { return { effects: [] } }
         const access = loadAccess()
-        if (!access.allowFrom.includes(String(event.userId ?? ""))) {
+        const isCommandCenter = String(event.chatId) === String(access.commandCenterChatId ?? "")
+        if (event.chatType !== "private" && !isCommandCenter) { return { effects: [] } }
+        if (!isCommandCenter && !access.allowFrom.includes(String(event.userId ?? ""))) {
             return { effects: [] }
         }
 
@@ -133,6 +134,18 @@ export const commands = {
                 historyStart = parseInt(arg, 10)
             } else {
                 targetId = arg
+            }
+        }
+
+        // In command center, resolve session from topic if no explicit target
+        if (!targetId && isCommandCenter && event.threadId) {
+            const cc = core.chatState?.commandCenter ?? {}
+            const mappedSession = cc.threadMap?.[String(event.threadId)]
+            if (mappedSession) {
+                dbg("PEEK", `CC topic ${event.threadId} → session ${mappedSession}`)
+                targetId = mappedSession
+            } else {
+                dbg("PEEK", `CC topic ${event.threadId} has no mapped session`)
             }
         }
 
@@ -195,10 +208,14 @@ export const commands = {
             body = TRUNCATION_PREFIX + body.slice(-(bodyBudget - TRUNCATION_PREFIX.length))
         }
 
+        const replyOpts = { parse_mode: "HTML" }
+        if (isCommandCenter && event.threadId) {
+            replyOpts.message_thread_id = Number(event.threadId)
+        }
         return reply(
             event.chatId,
             `${escHtml(header)}\n<pre>${escHtml(body)}</pre>`,
-            { parse_mode: "HTML" },
+            replyOpts,
         )
     },
 }

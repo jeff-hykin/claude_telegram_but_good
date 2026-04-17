@@ -98,12 +98,13 @@ function reply(chatId, text, options = { parse_mode: "HTML" }) {
 
 export const commands = {
     list: (event, core) => {
-        if (event.chatType !== "private") {
+        const access = loadAccess()
+        const isCommandCenter = String(event.chatId) === String(access.commandCenterChatId ?? "")
+        if (event.chatType !== "private" && !isCommandCenter) {
             return { effects: [] }
         }
-        const access = loadAccess()
         const senderId = String(event.userId ?? "")
-        if (!access.allowFrom.includes(senderId)) {
+        if (!isCommandCenter && !access.allowFrom.includes(senderId)) {
             return { effects: [] }
         }
 
@@ -123,8 +124,13 @@ export const commands = {
             hasConn: !!s._conn,
         }))
 
+        const replyOpts = { parse_mode: "HTML" }
+        if (isCommandCenter && event.threadId) {
+            replyOpts.message_thread_id = Number(event.threadId)
+        }
+
         if (sessions.length === 0) {
-            return reply(event.chatId, "No sessions connected. Use /new to make one from here", {})
+            return reply(event.chatId, "No sessions connected. Use /new to make one from here", replyOpts)
         }
 
         const home = Deno.env.get("HOME") ?? ""
@@ -145,6 +151,6 @@ export const commands = {
             parts.push(sessionBlock(s, { shortPath, isActive: false }))
         }
 
-        return reply(event.chatId, parts.join("\n\n"))
+        return reply(event.chatId, parts.join("\n\n"), replyOpts)
     },
 }

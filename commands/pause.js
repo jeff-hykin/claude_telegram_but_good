@@ -6,6 +6,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 
 export const tips = [
     "/pause suspends the whole claude process — it won't use resources until you /resume.",
@@ -20,19 +21,34 @@ function reply(chatId, text) {
     return { effects: [{ type: "send_text_to_user", chatId, text }] }
 }
 
-function findFocused(core) {
+function findSessionForEvent(event, core, label = "CMD") {
+    const access = loadAccess()
+    const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
+    if (isCC && event.threadId) {
+        const cc = core.chatState?.commandCenter ?? {}
+        const sid = cc.threadMap?.[String(event.threadId)]
+        if (sid) {
+            dbg(label, `CC topic ${event.threadId} → session ${sid}`)
+            return core.chatSessions?.[sid] ?? null
+        }
+        dbg(label, `CC topic ${event.threadId} has no mapped session`)
+    }
     const focusedId = core.chatState?.focusedSessionId
     return focusedId ? core.chatSessions?.[focusedId] : null
 }
 
+function gate(event) {
+    const access = loadAccess()
+    const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
+    if (event.chatType !== "private" && !isCC) { return false }
+    if (!isCC && !access.allowFrom.includes(String(event.userId ?? ""))) { return false }
+    return true
+}
+
 export const commands = {
     pause: (event, core) => {
-        if (event.chatType !== "private") { return { effects: [] } }
-        const access = loadAccess()
-        if (!access.allowFrom.includes(String(event.userId ?? ""))) {
-            return { effects: [] }
-        }
-        const focused = findFocused(core)
+        if (!gate(event)) { return { effects: [] } }
+        const focused = findSessionForEvent(event, core, "PAUSE")
         if (!focused) { return reply(event.chatId, "No focused session.") }
 
         if (focused.paused) {
@@ -59,12 +75,8 @@ export const commands = {
     },
 
     resume: (event, core) => {
-        if (event.chatType !== "private") { return { effects: [] } }
-        const access = loadAccess()
-        if (!access.allowFrom.includes(String(event.userId ?? ""))) {
-            return { effects: [] }
-        }
-        const focused = findFocused(core)
+        if (!gate(event)) { return { effects: [] } }
+        const focused = findSessionForEvent(event, core, "RESUME")
         if (!focused) { return reply(event.chatId, "No focused session.") }
 
         if (!focused.paused) {

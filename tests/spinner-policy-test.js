@@ -89,7 +89,7 @@ spinnerTest("spinner:start — routed chat_user_message sends a spinner + writes
         const sends = bot.calls.filter(c => c.method === "sendText")
         assertEquals(sends.length, 1)
         assertEquals(sends[0].chatId, "42")
-        assert(sends[0].text.includes("processing"))
+        assert(sends[0].text.includes("...</i>"))
 
         const spinner = core.chatSessions["sess-1"].activeSpinner
         assertEquals(spinner.chatId, "42")
