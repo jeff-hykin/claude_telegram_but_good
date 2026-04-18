@@ -17,6 +17,8 @@ export const tips = [
 export const descriptions = {
     que: "Queue a message to send after the agent finishes its current turn",
     queue: "Queue a message to send after the agent finishes its current turn",
+    clear_que: "Clear all queued messages for the current session",
+    clear_queue: "Clear all queued messages for the current session",
 }
 
 export const commands = {
@@ -123,3 +125,47 @@ export const commands = {
 
 // Alias /queue → /que
 commands.queue = commands.que
+
+commands.clear_que = (event, core) => {
+    const access = loadAccess()
+    const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
+    if (event.chatType !== "private" && !isCC) { return { effects: [] } }
+    if (!isCC && !access.allowFrom.includes(String(event.userId ?? ""))) {
+        return { effects: [] }
+    }
+
+    let targetId = null
+    if (isCC && event.threadId) {
+        const cc = core.chatState?.commandCenter ?? {}
+        targetId = cc.threadMap?.[String(event.threadId)] ?? null
+    }
+    if (!targetId) { targetId = core.chatState?.focusedSessionId }
+
+    if (!targetId) {
+        const options = {}
+        if (event.threadId != null) { options.message_thread_id = Number(event.threadId) }
+        return { effects: [{ type: "send_text_to_user", chatId: event.chatId, text: "No session.", options }] }
+    }
+
+    const session = core.chatSessions?.[targetId]
+    const cleared = (session?.pendingQueue ?? []).length
+    const options = {}
+    if (event.threadId != null) { options.message_thread_id = Number(event.threadId) }
+
+    dbg("QUE", `cleared ${cleared} queued messages for ${targetId}`)
+
+    return {
+        stateChanges: {
+            chatSessions: {
+                [targetId]: { pendingQueue: [] },
+            },
+        },
+        effects: [{
+            type: "send_text_to_user",
+            chatId: event.chatId,
+            text: cleared > 0 ? `Cleared ${cleared} queued message(s).` : "Queue was already empty.",
+            options,
+        }],
+    }
+}
+commands.clear_queue = commands.clear_que

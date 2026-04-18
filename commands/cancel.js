@@ -111,13 +111,25 @@ export const commands = {
             )
         }
 
+        // Clear any queued messages — cancelling means "stop everything".
+        const queueLen = (focused.pendingQueue ?? []).length
+        const queueNote = queueLen > 0 ? ` (also cleared ${queueLen} queued message(s))` : ""
+
         try {
             // Pipe ESC (0x1b) into dtach -p — dax quotes the socket
             // path as a single argv entry, no shell injection.
             await $`dtach -p ${focused.dtachSocket}`
                 .stdinText("\x1b")
                 .timeout(DTACH_WRITE_TIMEOUT_MS)
-            return reply(event.chatId, `Sent Escape to session ${focused.id} via dtach`, event.threadId)
+            const r = reply(event.chatId, `Sent Escape to session ${focused.id} via dtach${queueNote}`, event.threadId)
+            return {
+                stateChanges: {
+                    chatSessions: {
+                        [focused.id]: { pendingQueue: [] },
+                    },
+                },
+                effects: r.effects,
+            }
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err)
             dbg("CANCEL", "failed:", msg)
