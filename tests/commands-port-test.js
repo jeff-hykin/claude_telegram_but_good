@@ -61,7 +61,7 @@ Deno.test("commands/version: replies with plugin version", async () => {
     const action = await commands.get("version")(baseEvent({ text: "/version" }), core)
     const sends = effectsOfType(action, "send_text_to_user")
     assertEquals(sends.length, 1)
-    assert(/telegram plugin v\d+/.test(sends[0].text))
+    assert(/cbg (v[\d.]+|build \d+)/.test(sends[0].text))
 })
 
 Deno.test("commands/help: replies with the help body", async () => {
