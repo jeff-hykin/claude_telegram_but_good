@@ -22,12 +22,15 @@ export const descriptions = {
 export const commands = {
     version: (event, _core) => {
         const displayVersion = gitTag || `build ${VERSION}`
+        const options = {}
+        if (event.threadId != null) { options.message_thread_id = Number(event.threadId) }
         return {
             effects: [
                 {
                     type: "send_text_to_user",
                     chatId: event.chatId,
                     text: `cbg ${displayVersion}`,
+                    options,
                 },
             ],
         }
