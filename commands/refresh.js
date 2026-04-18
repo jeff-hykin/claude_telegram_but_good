@@ -3,7 +3,7 @@
 // Spawns a new Claude session in the current topic, binding it to the
 // topic and feeding the last 50 messages as context.
 
-import { writeFileSync, readFileSync, existsSync } from "node:fs"
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
@@ -165,18 +165,62 @@ export const commands = {
 
             // Gather context from the old session's message history
             const context = gatherSessionContext(existingSessionId)
+
+            // Topic memory: persistent .md file that survives refreshes.
+            // Lives at $CBG_DIR/topics/<threadId>/memory.md
+            const topicMemoryFile = paths.topicMemoryFile(threadKey)
+            let topicMemory = null
+            try {
+                if (existsSync(topicMemoryFile)) {
+                    topicMemory = readFileSync(topicMemoryFile, "utf8").trim()
+                }
+            } catch (e) {
+                dbg("REFRESH", "read topic memory failed:", e)
+            }
+
+            // Ensure the topic directory exists so the new session can
+            // write to memory.md immediately.
+            try {
+                mkdirSync(paths.topicDir(threadKey), { recursive: true })
+            } catch (e) {
+                dbg("REFRESH", "mkdir topic dir failed:", e)
+            }
+
             let contextFile = null
-            if (context) {
+            if (context || topicMemory) {
                 contextFile = join(paths.STATE_DIR, `refresh-context-${sessionId}.md`)
-                const contextMd = [
-                    `# Previous session context`,
+                const sections = []
+
+                if (topicMemory) {
+                    sections.push(
+                        `# Topic memory`,
+                        ``,
+                        `This is the persistent memory for this topic. It was written by previous sessions and survives across refreshes.`,
+                        ``,
+                        topicMemory,
+                    )
+                }
+
+                if (context) {
+                    sections.push(
+                        `# Recent conversation history`,
+                        ``,
+                        `The following is the recent conversation history (last ${context.count} messages) from the previous session in this topic.`,
+                        ``,
+                        context.text,
+                    )
+                }
+
+                sections.push(
+                    `# Topic memory file`,
                     ``,
-                    `The following is the recent conversation history (last ${context.count} messages) from the previous session in this topic. Use it to understand what was being worked on.`,
-                    ``,
-                    context.text,
-                ].join("\n")
+                    `Your topic memory file is at: ${topicMemoryFile}`,
+                    `Update this file regularly as you work — it persists across session refreshes and is the primary way context is preserved for the next session in this topic.`,
+                    `Keep it concise and focused: what's being worked on, current state, key decisions, and next steps.`,
+                )
+
                 try {
-                    writeFileSync(contextFile, contextMd)
+                    writeFileSync(contextFile, sections.join("\n"))
                 } catch (e) {
                     dbg("REFRESH", "failed to write context file:", e)
                     contextFile = null
@@ -199,8 +243,11 @@ export const commands = {
             threadMap[threadKey] = sessionId
             topicNames[threadKey] = title
 
-            const contextNote = context
-                ? `\nSending last ${context.count} messages for context.`
+            const contextParts = []
+            if (topicMemory) { contextParts.push("topic memory") }
+            if (context) { contextParts.push(`last ${context.count} messages`) }
+            const contextNote = contextParts.length > 0
+                ? `\nSending ${contextParts.join(" + ")} for context.`
                 : (existingSessionId
                     ? `\nNo message history found for previous session — starting fresh.`
                     : "")
@@ -239,11 +286,20 @@ export const commands = {
             const messageQueue = [...(core.chatState?.messageQueue ?? [])]
             if (contextFile) {
                 messageQueue.push({
-                    content: `Read the file ${contextFile} for context from the previous session in this topic. Then briefly acknowledge what was being discussed and ask how you can help.`,
+                    content: `Read the file ${contextFile} for context from the previous session in this topic. Then briefly acknowledge what was being discussed and ask how you can help. Remember to update your topic memory file at ${topicMemoryFile} as you work.`,
                     meta: { source: "refresh-context" },
                     queuedAt: Date.now(),
                 })
-                dbg("REFRESH", `queued context (${context.count} msgs) for ${sessionId}`)
+                dbg("REFRESH", `queued context (${topicMemory ? "memory+" : ""}${context ? context.count + " msgs" : "memory only"}) for ${sessionId}`)
+            } else {
+                // No previous context, but still tell the session about
+                // its topic memory file.
+                messageQueue.push({
+                    content: `You have a topic memory file at ${topicMemoryFile}. Update it regularly as you work — it persists across session refreshes and helps future sessions understand what was done. Ask how you can help.`,
+                    meta: { source: "refresh-context" },
+                    queuedAt: Date.now(),
+                })
+                dbg("REFRESH", `queued memory-file intro for ${sessionId}`)
             }
 
             return {
