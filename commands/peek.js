@@ -50,7 +50,12 @@ function smartWrapLine(line, maxWidth) {
     const stripped = line.replace(/\s+$/, "")
     if (stripped.length <= maxWidth) { return stripped }
     const indent = stripped.match(/^\s*/)[0]
-    const bodyWidth = Math.max(1, maxWidth - indent.length)
+    // If the indent is too deep, truncate it so we still have room for
+    // content. Reserve at least half of maxWidth for the body text,
+    // otherwise deeply-indented lines degenerate to one char per line.
+    const maxIndent = Math.floor(maxWidth / 2)
+    const effectiveIndent = indent.length > maxIndent ? indent.slice(0, maxIndent) : indent
+    const bodyWidth = Math.max(1, maxWidth - effectiveIndent.length)
     let remaining = stripped.slice(indent.length)
     const pieces = []
     while (remaining.length > bodyWidth) {
@@ -62,7 +67,7 @@ function smartWrapLine(line, maxWidth) {
         remaining = remaining.slice(breakAt).replace(/^\s+/, "")
     }
     if (remaining.length > 0) { pieces.push(remaining) }
-    return pieces.map((p) => indent + p).join("\n")
+    return pieces.map((p) => effectiveIndent + p).join("\n")
 }
 
 function smartWrap(text, maxWidth) {
