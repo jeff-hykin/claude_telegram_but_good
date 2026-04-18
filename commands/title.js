@@ -64,10 +64,13 @@ export const commands = {
             const focusedId = core.chatState?.focusedSessionId
             focused = focusedId ? core.chatSessions?.[focusedId] : null
         }
+        const replyOpts = {}
+        if (event.threadId != null) { replyOpts.message_thread_id = Number(event.threadId) }
+
         if (!focused) {
             return {
                 effects: [
-                    { type: "send_text_to_user", chatId: event.chatId, text: "No focused session." },
+                    { type: "send_text_to_user", chatId: event.chatId, text: "No focused session.", options: replyOpts },
                 ],
             }
         }
@@ -83,7 +86,7 @@ export const commands = {
                 },
             },
             effects: [
-                { type: "send_text_to_user", chatId: event.chatId, text: `Title: ${title}` },
+                { type: "send_text_to_user", chatId: event.chatId, text: `Title: ${title}`, options: replyOpts },
             ],
         }
     },

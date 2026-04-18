@@ -43,8 +43,10 @@ export const descriptions = {
 // leaving the cancel command hanging indefinitely on a dead socket.
 const DTACH_WRITE_TIMEOUT_MS = 3000
 
-function reply(chatId, text) {
-    return { effects: [{ type: "send_text_to_user", chatId, text }] }
+function reply(chatId, text, threadId) {
+    const options = {}
+    if (threadId != null) { options.message_thread_id = Number(threadId) }
+    return { effects: [{ type: "send_text_to_user", chatId, text, options }] }
 }
 
 function findSessionForEvent(event, core, label = "CMD") {
@@ -73,7 +75,7 @@ export const commands = {
         }
 
         const focused = findSessionForEvent(event, core, "CANCEL")
-        if (!focused) { return reply(event.chatId, "No focused session.") }
+        if (!focused) { return reply(event.chatId, "No focused session.", event.threadId) }
 
         // Mode 1: long-task cancel. Takes priority over ESC-to-dtach so
         // a running task gets its full cleanup path (cold-storage entry,
@@ -105,6 +107,7 @@ export const commands = {
                 `Session ${focused.id} has no dtach socket; can't cancel. ` +
                 `This usually means the session was spawned outside the cbg ` +
                 `shim wrapper. Restart it via /new or the cbg CLI.`,
+                event.threadId,
             )
         }
 
@@ -114,11 +117,11 @@ export const commands = {
             await $`dtach -p ${focused.dtachSocket}`
                 .stdinText("\x1b")
                 .timeout(DTACH_WRITE_TIMEOUT_MS)
-            return reply(event.chatId, `Sent Escape to session ${focused.id} via dtach`)
+            return reply(event.chatId, `Sent Escape to session ${focused.id} via dtach`, event.threadId)
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err)
             dbg("CANCEL", "failed:", msg)
-            return reply(event.chatId, `Cancel failed: ${msg}`)
+            return reply(event.chatId, `Cancel failed: ${msg}`, event.threadId)
         }
     },
 }
