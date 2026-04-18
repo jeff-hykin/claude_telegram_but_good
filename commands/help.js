@@ -27,6 +27,7 @@ const HELP_BODY =
     `/title <name> — label the focused session\n` +
     `/new — launch a new Claude Code session\n` +
     `/cron — list scheduled tasks\n` +
+    `/schedule <desc> — create a scheduled task\n` +
     `/cancel — send Ctrl+C to the focused session\n` +
     `/pause — suspend the focused session (Ctrl+Z)\n` +
     `/resume — resume a paused session\n` +

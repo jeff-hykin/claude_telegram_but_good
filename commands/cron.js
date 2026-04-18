@@ -52,6 +52,7 @@ function readScheduledTasks(homeDir) {
 
 export const descriptions = {
     cron: "List scheduled tasks",
+    schedule: "Create or manage a scheduled task",
 }
 
 export const commands = {
