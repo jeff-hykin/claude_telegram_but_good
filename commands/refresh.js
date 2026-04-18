@@ -167,8 +167,9 @@ export const commands = {
             const context = gatherSessionContext(existingSessionId)
 
             // Topic memory: persistent .md file that survives refreshes.
-            // Lives at $CBG_DIR/topics/<threadId>/memory.md
-            const topicMemoryFile = paths.topicMemoryFile(threadKey)
+            // Uses the topic name as the directory name for human readability.
+            // Lives at $CBG_DIR/topics/<topicName>/memory.md
+            const topicMemoryFile = paths.topicMemoryFile(title)
             let topicMemory = null
             try {
                 if (existsSync(topicMemoryFile)) {
@@ -181,7 +182,7 @@ export const commands = {
             // Ensure the topic directory exists so the new session can
             // write to memory.md immediately.
             try {
-                mkdirSync(paths.topicDir(threadKey), { recursive: true })
+                mkdirSync(paths.topicDir(title), { recursive: true })
             } catch (e) {
                 dbg("REFRESH", "mkdir topic dir failed:", e)
             }
