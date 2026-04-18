@@ -14,7 +14,7 @@ import { setupTempPaths, makeCore, effectsOfType, get, paths } from "./_helpers.
 
 setupTempPaths("cbg-stall-test-")
 
-const snapshotHandle = (await import("../lib/event-handlers/screen-snapshot.js")).default
+const snapshotHandle = (await import("../lib/event-handlers/tui-snapshot.js")).default
 const stallMod = await import("../lib/event-handlers/stall-check.js")
 const stallHandle = stallMod.default
 const isStalled = stallMod.isStalled
