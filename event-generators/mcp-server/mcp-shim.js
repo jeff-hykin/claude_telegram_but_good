@@ -190,6 +190,36 @@ const mcp = new McpServer(
 // Pending tool calls awaiting IPC replies from main-server.
 const pendingToolCalls = new Map()  // requestId → { resolve, reject }
 
+// ── Permission request handling ──────────────────────────────────────
+// Claude Code sends `notifications/claude/channel/permission_request`
+// when it needs user approval for a tool call. We forward this to the
+// main-server via IPC, which sends a Telegram message with Allow/Deny
+// buttons. The server replies with `permission_reply` over IPC, and
+// we forward it back to Claude Code as a `notifications/claude/channel/permission`.
+mcp.server.setNotificationHandler(
+    { method: "notifications/claude/channel/permission_request" },
+    async (notification) => {
+        const params = notification.params ?? {}
+        dbg("SHIM", `permission_request: tool=${params.tool_name} req=${params.request_id}`)
+        if (!serverConn) {
+            dbg("SHIM", "permission_request: no server connection — cannot forward")
+            return
+        }
+        try {
+            sendIpc(serverConn, {
+                type: "permission_request",
+                sessionId: SESSION_ID,
+                request_id: params.request_id,
+                tool_name: params.tool_name,
+                description: params.description ?? "",
+                input_preview: params.input_preview ?? "",
+            })
+        } catch (e) {
+            dbg("SHIM", "permission_request forward failed:", e)
+        }
+    },
+)
+
 // Register the full tool list. The mcp-shim-tool-handler dispatch uses
 // these names — keep them in sync if you add handlers there.
 mcp.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -328,6 +358,23 @@ async function handleServerMessage(msg) {
             await handleChannelEvent(msg, mcp)
         } catch (e) {
             dbg("SHIM", "handleChannelEvent failed:", e)
+        }
+        return
+    }
+    if (msg.type === "permission_reply") {
+        // User clicked Allow/Deny in Telegram — forward to Claude Code
+        // as a `notifications/claude/channel/permission` notification.
+        try {
+            await mcp.notification({
+                method: "notifications/claude/channel/permission",
+                params: {
+                    request_id: msg.request_id,
+                    behavior: msg.behavior,
+                },
+            })
+            dbg("SHIM", `permission_reply forwarded: req=${msg.request_id} behavior=${msg.behavior}`)
+        } catch (e) {
+            dbg("SHIM", "permission_reply notification failed:", e)
         }
         return
     }
