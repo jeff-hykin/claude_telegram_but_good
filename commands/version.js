@@ -1,7 +1,17 @@
 // commands/version.js — Action-returning hot command.
 
+import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
 const { VERSION } = await versionedImport("../lib/version.js", import.meta)
+const { paths } = await versionedImport("../lib/paths.js", import.meta)
+
+let gitTag = null
+try {
+    gitTag = (await $`git -C ${paths.LOCAL_REPO} describe --tags --abbrev=0`
+        .timeout(3000).stderr("null").text()).trim()
+} catch (e) {
+    // Best-effort — fallback to hot-reload version if git isn't available.
+}
 
 export const tips = []
 
@@ -11,15 +21,13 @@ export const descriptions = {
 
 export const commands = {
     version: (event, _core) => {
-        if (event.chatType !== "private") {
-            return { effects: [] }
-        }
+        const displayVersion = gitTag || `build ${VERSION}`
         return {
             effects: [
                 {
                     type: "send_text_to_user",
                     chatId: event.chatId,
-                    text: `telegram plugin v${VERSION}`,
+                    text: `cbg ${displayVersion}`,
                 },
             ],
         }
