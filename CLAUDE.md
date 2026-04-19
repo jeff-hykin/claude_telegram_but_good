@@ -135,6 +135,9 @@ $CBG_DIR/
     dtach-<sessionId>.sock / .log
     inbox/                 ← Telegram attachments downloaded here
   long-tasks/              ← on-disk task directories
+  scheduled-tasks/         ← scheduled task directories
+  topics/<topicName>/      ← per-topic persistent memory
+    memory.md              ← topic memory file (survives refreshes)
   debug/<iso-timestamp>.cbg-dump.json
 ```
 
@@ -296,7 +299,24 @@ Claude Code queries the shim's tool list ONCE at MCP server startup. Tool NAMES 
 - **`reload`** — hot-reload all commands in `commands/` + `$CUSTOM_COMMANDS_DIR/`
 - **`new_command`** — write a new command file and hot-reload
 - **`submit_long_task_definition`** — worker submits a long-task definition of done
-- **`cbg_debug`** — returns `{ logPath, dumpPath }` for debugging (writes a fresh server_dump)
+- **`submit_scheduled_task_definition`** — worker submits a scheduled-task definition
+- **`create_scheduled_task`** — create a recurring scheduled task directly (skips drafting flow)
+- **`get_topic_memory`** — returns the path and content of this session's topic memory file
+- **`cbg_debug`** — returns `{ logPath, dumpPath }` for debugging (writes a fresh server_dump). Accepts optional `filter` param.
+
+## Topic memory
+
+Each command center topic gets a persistent memory file at `$CBG_DIR/topics/<topicName>/memory.md`. This file:
+
+- Survives across session refreshes — it's the primary way context is preserved between sessions in a topic
+- Is included in the context file when /refresh spawns a new session
+- Can be read/written by the session at any time via the filesystem
+- Path and content are available via the `get_topic_memory` MCP tool
+- Uses the topic name as the directory name (human-readable); renamed automatically if the Telegram topic is renamed
+
+Sessions should update their topic memory regularly with: what's being worked on, current state, key decisions, and next steps.
+
+**Layout:** `$CBG_DIR/topics/<topicName>/memory.md`
 
 ## Config
 

@@ -6,29 +6,25 @@
 import { versionedImport } from "../lib/version.js"
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const descriptions = {
     archive: "Archive and close a topic",
-}
-
-function reply(chatId, text, threadId) {
-    const options = { parse_mode: "HTML" }
-    if (threadId != null) { options.message_thread_id = Number(threadId) }
-    return { effects: [{ type: "send_text_to_user", chatId, text, options }] }
 }
 
 export const commands = {
     archive: async (event, core) => {
         const access = loadAccess()
         const ccChatId = access.commandCenterChatId
+        const replyTo = makeReplyTo(event, "cmd/archive")
 
         if (!ccChatId || String(event.chatId) !== String(ccChatId)) {
-            return reply(event.chatId, "This command only works in the command center group.")
+            return { effects: [sendEffect(replyTo, "This command only works in the command center group.", { parse_mode: "HTML" })] }
         }
 
         const threadId = event.threadId
         if (!threadId) {
-            return reply(event.chatId, "This command must be used inside a topic.")
+            return { effects: [sendEffect(replyTo, "This command must be used inside a topic.", { parse_mode: "HTML" })] }
         }
 
         const cc = core.chatState?.commandCenter ?? {}
@@ -49,12 +45,7 @@ export const commands = {
         }]
 
         // Notify before deleting the topic
-        effects.push({
-            type: "send_text_to_user",
-            chatId: event.chatId,
-            text: `Archiving topic${sessionId ? ` (session ${sessionId})` : ""}...`,
-            options: { parse_mode: "HTML", message_thread_id: Number(threadId) },
-        })
+        effects.push(sendEffect(replyTo, `Archiving topic${sessionId ? ` (session ${sessionId})` : ""}...`, { parse_mode: "HTML" }))
 
         // Delete the topic from Telegram
         effects.push({

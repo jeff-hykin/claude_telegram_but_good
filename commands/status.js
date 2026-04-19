@@ -25,6 +25,7 @@
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = []
 
@@ -88,6 +89,7 @@ export const commands = {
             }
         }
 
+        const replyTo = makeReplyTo(event, "cmd/status")
         const procs = await listClaudeSessions()
         if (procs.length > 0) {
             parts.push(`\nRunning Claude Code processes (${procs.length}):`)
@@ -98,19 +100,8 @@ export const commands = {
             parts.push(`\nNo Claude Code processes detected.`)
         }
 
-        const options = { format: "plain" }
-        if (isCommandCenter && event.threadId) {
-            options.message_thread_id = Number(event.threadId)
-        }
         return {
-            effects: [
-                {
-                    type: "send_text_to_user",
-                    chatId: event.chatId,
-                    text: parts.join("\n"),
-                    options,
-                },
-            ],
+            effects: [sendEffect(replyTo, parts.join("\n"), { format: "plain" })],
         }
     },
 }

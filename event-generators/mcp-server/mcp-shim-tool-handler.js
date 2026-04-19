@@ -194,6 +194,14 @@ export const TOOLS = [
         },
     },
     {
+        name: "get_topic_memory",
+        description:
+            "Get the path and content of this session's topic memory file. " +
+            "The topic memory is a persistent .md file that survives across session refreshes. " +
+            "Update it regularly to preserve context for future sessions in this topic.",
+        inputSchema: { type: "object", properties: {} },
+    },
+    {
         name: "cbg_debug",
         description:
             "Returns the path to the CBG server log and a fresh server state dump for debugging. " +
@@ -287,6 +295,17 @@ export async function handleToolCall(req, ctx) {
             description: args.description ?? args.title,
             rule: args.rule,
             definitionOfDone: args.definitionOfDone,
+        }
+    } else if (name === "get_topic_memory") {
+        // Routed via the generic tool_request path — the server looks
+        // up the session's topic from topicMap and returns the memory
+        // file path and content.
+        ipcMessage = {
+            type: "tool_request",
+            requestId,
+            sessionId,
+            toolName: "get_topic_memory",
+            args: {},
         }
     } else if (name === "cbg_debug") {
         // server_dump event (not cli_command!) — the dedicated MCP path.

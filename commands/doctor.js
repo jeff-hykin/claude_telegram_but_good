@@ -10,6 +10,7 @@ const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { escapeHtml: escHtml } = await versionedImport("../lib/pure/html.js", import.meta)
+const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/doctor asks Claude to read the server logs + recent Telegram messages and diagnose issues.",
@@ -78,18 +79,14 @@ export const commands = {
             return { effects: [] }
         }
 
+        const replyTo = makeReplyTo(event, "cmd/doctor")
         const extra = (event.text ?? "").replace(/^\/doctor\s*/, "").trim()
         const prompt = extra
             ? `${buildDefaultPrompt()}\n\nAdditional focus from the user: ${extra}`
             : buildDefaultPrompt()
 
         const effects = [
-            {
-                type: "send_text_to_user",
-                chatId: event.chatId,
-                text: "Running <i>claude -p</i> to diagnose — this can take up to a minute.",
-                options: { parse_mode: "HTML" },
-            },
+            sendEffect(replyTo, "Running <i>claude -p</i> to diagnose — this can take up to a minute.", { parse_mode: "HTML" }),
         ]
 
         const result = await runClaude(prompt, paths.STATE_DIR)
@@ -106,21 +103,11 @@ export const commands = {
             trimmed = "..." + body.slice(-(budget - 3))
         }
 
-        effects.push({
-            type: "send_text_to_user",
-            chatId: event.chatId,
-            text: `${opener}${escHtml(trimmed)}${closer}`,
-            options: { parse_mode: "HTML" },
-        })
+        effects.push(sendEffect(replyTo, `${opener}${escHtml(trimmed)}${closer}`, { parse_mode: "HTML" }))
 
         if (!result.ok && result.stderr?.trim()) {
             const errTail = result.stderr.trim().slice(-1500)
-            effects.push({
-                type: "send_text_to_user",
-                chatId: event.chatId,
-                text: `<b>stderr:</b>\n<pre>${escHtml(errTail)}</pre>`,
-                options: { parse_mode: "HTML" },
-            })
+            effects.push(sendEffect(replyTo, `<b>stderr:</b>\n<pre>${escHtml(errTail)}</pre>`, { parse_mode: "HTML" }))
         }
 
         return { effects }

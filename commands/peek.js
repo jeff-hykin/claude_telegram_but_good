@@ -10,6 +10,7 @@ const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { escapeHtml: escHtml } = await versionedImport("../lib/pure/html.js", import.meta)
 const { renderTui, trimTrailingMarker } = await versionedImport("../lib/pure/tui-render.js", import.meta)
+const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/peek shows what a session is doing right now — no need to attach.",
@@ -105,10 +106,6 @@ export const descriptions = {
     peek: "Show the current virtual screen of a session",
 }
 
-function reply(chatId, text, options) {
-    return { effects: [{ type: "send_text_to_user", chatId, text, ...(options ? { options } : {}) }] }
-}
-
 export const commands = {
     peek: (event, core) => {
         const access = loadAccess()
@@ -118,6 +115,7 @@ export const commands = {
             return { effects: [] }
         }
 
+        const replyTo = makeReplyTo(event, "cmd/peek")
         const argText = (event.text ?? "").replace(/^\/peek\s*/, "").trim()
         const args = argText.split(/\s+/).filter(Boolean)
 
@@ -160,7 +158,7 @@ export const commands = {
         if (targetId) {
             session = sessions.find(s => s.id === targetId)
             if (!session) {
-                return reply(event.chatId, `Session "${targetId}" not found. Use /list to see available sessions.`)
+                return { effects: [sendEffect(replyTo, `Session "${targetId}" not found. Use /list to see available sessions.`)] }
             }
         } else {
             const focusedId = core.chatState?.focusedSessionId
@@ -171,11 +169,11 @@ export const commands = {
                 session = sessions[0]
             }
         }
-        if (!session) { return reply(event.chatId, "No active sessions.") }
+        if (!session) { return { effects: [sendEffect(replyTo, "No active sessions.")] } }
 
         const dtachSocket = session.dtachSocket
         if (!dtachSocket) {
-            return reply(event.chatId, `Session "${session.id}" has no dtach socket — can't find log file.`)
+            return { effects: [sendEffect(replyTo, `Session "${session.id}" has no dtach socket — can't find log file.`)] }
         }
         const logPath = dtachSocket.replace(/\.sock$/, ".log")
 
@@ -184,10 +182,10 @@ export const commands = {
             content = readFileSync(logPath, "utf8")
         } catch (e) {
             dbg("PEEK", `read ${logPath} failed:`, e)
-            return reply(event.chatId, `No log file found for session "${session.id}".`)
+            return { effects: [sendEffect(replyTo, `No log file found for session "${session.id}".`)] }
         }
         if (!content.trim()) {
-            return reply(event.chatId, `Log file for session "${session.id}" is empty.`)
+            return { effects: [sendEffect(replyTo, `Log file for session "${session.id}" is empty.`)] }
         }
 
         const rawLines = content.split(/\r?\n/)
@@ -200,10 +198,10 @@ export const commands = {
             historyUsed = out.historyUsed
         } catch (e) {
             dbg("PEEK", "renderTui failed:", e)
-            return reply(event.chatId, `Failed to render session "${session.id}".`)
+            return { effects: [sendEffect(replyTo, `Failed to render session "${session.id}".`)] }
         }
         if (!rendered.trim()) {
-            return reply(event.chatId, `Log file for session "${session.id}" rendered empty.`)
+            return { effects: [sendEffect(replyTo, `Log file for session "${session.id}" rendered empty.`)] }
         }
 
         const header = `${session.id}${session.title ? ` (${session.title})` : ""} [${width}x${height}, ${historyUsed}L]:`
@@ -213,14 +211,8 @@ export const commands = {
             body = TRUNCATION_PREFIX + body.slice(-(bodyBudget - TRUNCATION_PREFIX.length))
         }
 
-        const replyOpts = { parse_mode: "HTML" }
-        if (isCommandCenter && event.threadId) {
-            replyOpts.message_thread_id = Number(event.threadId)
+        return {
+            effects: [sendEffect(replyTo, `${escHtml(header)}\n<pre>${escHtml(body)}</pre>`, { parse_mode: "HTML" })],
         }
-        return reply(
-            event.chatId,
-            `${escHtml(header)}\n<pre>${escHtml(body)}</pre>`,
-            replyOpts,
-        )
     },
 }

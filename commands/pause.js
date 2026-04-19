@@ -7,6 +7,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
+const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/pause suspends the whole claude process — it won't use resources until you /resume.",
@@ -15,12 +16,6 @@ export const tips = [
 export const descriptions = {
     pause: "Suspend the focused session (SIGTSTP)",
     resume: "Resume a paused session (SIGCONT)",
-}
-
-function reply(chatId, text, threadId) {
-    const options = {}
-    if (threadId != null) { options.message_thread_id = Number(threadId) }
-    return { effects: [{ type: "send_text_to_user", chatId, text, options }] }
 }
 
 function findSessionForEvent(event, core, label = "CMD") {
@@ -50,63 +45,47 @@ function gate(event) {
 export const commands = {
     pause: (event, core) => {
         if (!gate(event)) { return { effects: [] } }
+        const replyTo = makeReplyTo(event, "cmd/pause")
         const focused = findSessionForEvent(event, core, "PAUSE")
-        if (!focused) { return reply(event.chatId, "No focused session.", event.threadId) }
+        if (!focused) { return { effects: [sendEffect(replyTo, "No focused session.")] } }
 
         if (focused.paused) {
-            return reply(event.chatId, "Session is already paused. Use /resume to continue.", event.threadId)
+            return { effects: [sendEffect(replyTo, "Session is already paused. Use /resume to continue.")] }
         }
 
         try {
             Deno.kill(focused.pid, "SIGTSTP")
         } catch (err) {
-            return reply(event.chatId, `Pause failed: ${err instanceof Error ? err.message : err}`, event.threadId)
+            return { effects: [sendEffect(replyTo, `Pause failed: ${err instanceof Error ? err.message : err}`)] }
         }
-        const options = {}
-        if (event.threadId != null) { options.message_thread_id = Number(event.threadId) }
         return {
             stateChanges: {
                 chatSessions: { [focused.id]: { paused: true } },
             },
-            effects: [
-                {
-                    type: "send_text_to_user",
-                    chatId: event.chatId,
-                    text: `Paused session ${focused.id} (PID ${focused.pid})`,
-                    options,
-                },
-            ],
+            effects: [sendEffect(replyTo, `Paused session ${focused.id} (PID ${focused.pid})`)],
         }
     },
 
     resume: (event, core) => {
         if (!gate(event)) { return { effects: [] } }
+        const replyTo = makeReplyTo(event, "cmd/resume")
         const focused = findSessionForEvent(event, core, "RESUME")
-        if (!focused) { return reply(event.chatId, "No focused session.", event.threadId) }
+        if (!focused) { return { effects: [sendEffect(replyTo, "No focused session.")] } }
 
         if (!focused.paused) {
-            return reply(event.chatId, "Session is not paused.", event.threadId)
+            return { effects: [sendEffect(replyTo, "Session is not paused.")] }
         }
 
         try {
             Deno.kill(focused.pid, "SIGCONT")
         } catch (err) {
-            return reply(event.chatId, `Resume failed: ${err instanceof Error ? err.message : err}`, event.threadId)
+            return { effects: [sendEffect(replyTo, `Resume failed: ${err instanceof Error ? err.message : err}`)] }
         }
-        const options = {}
-        if (event.threadId != null) { options.message_thread_id = Number(event.threadId) }
         return {
             stateChanges: {
                 chatSessions: { [focused.id]: { paused: false } },
             },
-            effects: [
-                {
-                    type: "send_text_to_user",
-                    chatId: event.chatId,
-                    text: `Resumed session ${focused.id} (PID ${focused.pid})`,
-                    options,
-                },
-            ],
+            effects: [sendEffect(replyTo, `Resumed session ${focused.id} (PID ${focused.pid})`)],
         }
     },
 }

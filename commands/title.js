@@ -6,6 +6,7 @@
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/title without any argument will auto-generate a title",
@@ -53,6 +54,7 @@ export const commands = {
         const text = event.text ?? ""
         let title = text.replace(/^\/title\s*/i, "").trim()
 
+        const replyTo = makeReplyTo(event, "cmd/title")
         // In command center, target the session bound to this topic
         let focused = null
         if (isCommandCenter && event.threadId) {
@@ -64,15 +66,9 @@ export const commands = {
             const focusedId = core.chatState?.focusedSessionId
             focused = focusedId ? core.chatSessions?.[focusedId] : null
         }
-        const replyOpts = {}
-        if (event.threadId != null) { replyOpts.message_thread_id = Number(event.threadId) }
 
         if (!focused) {
-            return {
-                effects: [
-                    { type: "send_text_to_user", chatId: event.chatId, text: "No focused session.", options: replyOpts },
-                ],
-            }
+            return { effects: [sendEffect(replyTo, "No focused session.")] }
         }
 
         if (!title) {
@@ -85,9 +81,7 @@ export const commands = {
                     [focused.id]: { title },
                 },
             },
-            effects: [
-                { type: "send_text_to_user", chatId: event.chatId, text: `Title: ${title}`, options: replyOpts },
-            ],
+            effects: [sendEffect(replyTo, `Title: ${title}`)],
         }
     },
 }
