@@ -6,7 +6,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "Tap a session ID from /list to switch to it.",
@@ -103,7 +103,7 @@ export const commands = {
             return { effects: [] }
         }
 
-        const replyTo = makeReplyTo(event, "cmd/list")
+        const replyTo = replyToFromEvent(event, "cmd/list")
         const sessions = Object.values(core.chatSessions ?? {}).map(s => ({
             id: s.id,
             pid: s.pid,

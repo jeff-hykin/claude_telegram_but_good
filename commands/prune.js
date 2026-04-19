@@ -8,7 +8,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const descriptions = {
     prune: "Remove all disconnected sessions from the session list",
@@ -29,7 +29,7 @@ export const commands = {
             return { effects: [] }
         }
 
-        const replyTo = makeReplyTo(event, "cmd/prune")
+        const replyTo = replyToFromEvent(event, "cmd/prune")
         const sessions = core.chatSessions ?? {}
         const removal = {}
         const removed = []

@@ -17,7 +17,7 @@ const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { generateName } = await versionedImport("../lib/pure/ids.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 /**
  * After dtach spawns Claude, poll the log file for the "trust this
@@ -73,7 +73,7 @@ export const commands = {
             return { effects: [] }
         }
 
-        const replyTo = makeReplyTo(event, "cmd/new")
+        const replyTo = replyToFromEvent(event, "cmd/new")
         if (!(await $.commandExists("dtach"))) {
             return { effects: [sendEffect(replyTo, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach")] }
         }

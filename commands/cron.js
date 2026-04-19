@@ -8,7 +8,7 @@ import { join } from "node:path"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/cron shows all scheduled tasks — set them up with the /schedule skill. JK! I haven't finished this feature yet",
@@ -67,7 +67,7 @@ export const commands = {
             return { effects: [] }
         }
 
-        const replyTo = makeReplyTo(event, "cmd/cron")
+        const replyTo = replyToFromEvent(event, "cmd/cron")
         const home = Deno.env.get("HOME") ?? ""
         const parts = []
 

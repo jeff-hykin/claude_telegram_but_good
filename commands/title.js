@@ -6,7 +6,7 @@
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/title without any argument will auto-generate a title",
@@ -54,7 +54,7 @@ export const commands = {
         const text = event.text ?? ""
         let title = text.replace(/^\/title\s*/i, "").trim()
 
-        const replyTo = makeReplyTo(event, "cmd/title")
+        const replyTo = replyToFromEvent(event, "cmd/title")
         // In command center, target the session bound to this topic
         let focused = null
         if (isCommandCenter && event.threadId) {

@@ -6,7 +6,7 @@
 import { versionedImport } from "../lib/version.js"
 const { readAccessFile, saveAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const descriptions = {
     revoke_command_center: "Disable command center mode",
@@ -14,7 +14,7 @@ export const descriptions = {
 
 export const commands = {
     revoke_command_center: async (event, _core) => {
-        const replyTo = makeReplyTo(event, "cmd/revoke_command_center")
+        const replyTo = replyToFromEvent(event, "cmd/revoke_command_center")
         const access = readAccessFile()
         const ccChatId = access.commandCenterChatId
 

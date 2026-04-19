@@ -28,7 +28,7 @@ import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { buildCancelAction } = await versionedImport("../lib/long-task-actions.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/cancel will stop the current request",
@@ -69,7 +69,7 @@ export const commands = {
             return { effects: [] }
         }
 
-        const replyTo = makeReplyTo(event, "cmd/cancel")
+        const replyTo = replyToFromEvent(event, "cmd/cancel")
         const focused = findSessionForEvent(event, core, "CANCEL")
         if (!focused) { return { effects: [sendEffect(replyTo, "No focused session.")] } }
 

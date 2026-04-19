@@ -41,7 +41,7 @@ Deno.test("commands/ping: emits 'pong' reply", async () => {
     const sends = effectsOfType(action, "send_text_to_user")
     assertEquals(sends.length, 1)
     assertEquals(sends[0].text, "pong")
-    assertEquals(sends[0].chatId, "42")
+    assertEquals(sends[0].replyTo?.chatId, "42")
 })
 
 Deno.test("commands/ping: public — works in group chats too", async () => {

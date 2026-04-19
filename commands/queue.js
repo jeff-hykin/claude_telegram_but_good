@@ -9,7 +9,7 @@ import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/que lets you stack messages — they're delivered one at a time after the agent finishes each turn.",
@@ -31,7 +31,7 @@ export const commands = {
             return { effects: [] }
         }
 
-        const replyTo = makeReplyTo(event, "cmd/que")
+        const replyTo = replyToFromEvent(event, "cmd/que")
         const body = (event.text ?? "").replace(/^\/que(?:ue)?\s*/i, "").trim()
         if (!body) {
             // No message — show current queue
@@ -110,7 +110,7 @@ commands.clear_que = (event, core) => {
         return { effects: [] }
     }
 
-    const replyTo = makeReplyTo(event, "cmd/clear_que")
+    const replyTo = replyToFromEvent(event, "cmd/clear_que")
     let targetId = null
     if (isCC && event.threadId) {
         const cc = core.chatState?.commandCenter ?? {}

@@ -8,7 +8,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "custom commands don't need to involve an agent, they're just JavaScript ( /new_command )",
@@ -28,7 +28,7 @@ export const commands = {
             return { effects: [] }
         }
 
-        const replyTo = makeReplyTo(event, "cmd/new_command")
+        const replyTo = replyToFromEvent(event, "cmd/new_command")
         const text = event.text ?? ""
         const arg = text.replace(/^\/new_command\s*/, "").trim()
         if (!arg) {

@@ -7,7 +7,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/pause suspends the whole claude process — it won't use resources until you /resume.",
@@ -45,7 +45,7 @@ function gate(event) {
 export const commands = {
     pause: (event, core) => {
         if (!gate(event)) { return { effects: [] } }
-        const replyTo = makeReplyTo(event, "cmd/pause")
+        const replyTo = replyToFromEvent(event, "cmd/pause")
         const focused = findSessionForEvent(event, core, "PAUSE")
         if (!focused) { return { effects: [sendEffect(replyTo, "No focused session.")] } }
 
@@ -68,7 +68,7 @@ export const commands = {
 
     resume: (event, core) => {
         if (!gate(event)) { return { effects: [] } }
-        const replyTo = makeReplyTo(event, "cmd/resume")
+        const replyTo = replyToFromEvent(event, "cmd/resume")
         const focused = findSessionForEvent(event, core, "RESUME")
         if (!focused) { return { effects: [sendEffect(replyTo, "No focused session.")] } }
 

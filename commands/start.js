@@ -7,7 +7,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = []
 
@@ -20,7 +20,7 @@ export const commands = {
         if (event.chatType !== "private") {
             return { effects: [] }
         }
-        const replyTo = makeReplyTo(event, "cmd/start")
+        const replyTo = replyToFromEvent(event, "cmd/start")
         const access = loadAccess()
         if (access.dmPolicy === "disabled") {
             return {

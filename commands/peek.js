@@ -10,7 +10,7 @@ const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { escapeHtml: escHtml } = await versionedImport("../lib/pure/html.js", import.meta)
 const { renderTui, trimTrailingMarker } = await versionedImport("../lib/pure/tui-render.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/peek shows what a session is doing right now — no need to attach.",
@@ -115,7 +115,7 @@ export const commands = {
             return { effects: [] }
         }
 
-        const replyTo = makeReplyTo(event, "cmd/peek")
+        const replyTo = replyToFromEvent(event, "cmd/peek")
         const argText = (event.text ?? "").replace(/^\/peek\s*/, "").trim()
         const args = argText.split(/\s+/).filter(Boolean)
 

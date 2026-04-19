@@ -1,7 +1,7 @@
 // commands/help.js — Action-returning hot command.
 
 import { versionedImport } from "../lib/version.js"
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "Claude can send you whole files, even large ones",
@@ -43,7 +43,7 @@ const HELP_BODY =
 export const commands = {
     help: (event, _core) => {
         // help is safe in any context — no gating needed
-        const replyTo = makeReplyTo(event, "cmd/help")
+        const replyTo = replyToFromEvent(event, "cmd/help")
         return {
             effects: [
                 // The help body contains literal `/title <name>`.

@@ -9,7 +9,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/kill asks claude to stop, /fkill doesn't ask",
@@ -50,7 +50,7 @@ function gate(event) {
 export const commands = {
     kill: (event, core) => {
         if (!gate(event)) { return { effects: [] } }
-        const replyTo = makeReplyTo(event, "cmd/kill")
+        const replyTo = replyToFromEvent(event, "cmd/kill")
         const focused = findSessionForEvent(event, core, "KILL")
         if (!focused) { return { effects: [sendEffect(replyTo, "No focused session.")] } }
         try {
@@ -63,7 +63,7 @@ export const commands = {
 
     fkill: (event, core) => {
         if (!gate(event)) { return { effects: [] } }
-        const replyTo = makeReplyTo(event, "cmd/fkill")
+        const replyTo = replyToFromEvent(event, "cmd/fkill")
         const focused = findSessionForEvent(event, core, "FKILL")
         if (!focused) { return { effects: [sendEffect(replyTo, "No focused session.")] } }
         try {
@@ -76,7 +76,7 @@ export const commands = {
 
     relay_shutdown: (event, _core) => {
         if (!gate(event)) { return { effects: [] } }
-        const replyTo = makeReplyTo(event, "cmd/relay_shutdown")
+        const replyTo = replyToFromEvent(event, "cmd/relay_shutdown")
         // Fire the confirmation reply and schedule the exit: we need
         // the event loop to drain the outbound effect before we kill
         // the process, so the user actually sees the message.
@@ -86,7 +86,7 @@ export const commands = {
 
     fkill_all: (event, core) => {
         if (!gate(event)) { return { effects: [] } }
-        const replyTo = makeReplyTo(event, "cmd/fkill_all")
+        const replyTo = replyToFromEvent(event, "cmd/fkill_all")
         const sessions = Object.values(core.chatSessions ?? {})
         for (const s of sessions) {
             try { Deno.kill(s.pid, "SIGKILL") } catch (e) { /* best-effort */ }

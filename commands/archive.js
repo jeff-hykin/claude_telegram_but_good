@@ -6,7 +6,7 @@
 import { versionedImport } from "../lib/version.js"
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const descriptions = {
     archive: "Archive and close a topic",
@@ -16,7 +16,7 @@ export const commands = {
     archive: async (event, core) => {
         const access = loadAccess()
         const ccChatId = access.commandCenterChatId
-        const replyTo = makeReplyTo(event, "cmd/archive")
+        const replyTo = replyToFromEvent(event, "cmd/archive")
 
         if (!ccChatId || String(event.chatId) !== String(ccChatId)) {
             return { effects: [sendEffect(replyTo, "This command only works in the command center group.", { parse_mode: "HTML" })] }

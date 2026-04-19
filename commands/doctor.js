@@ -10,7 +10,7 @@ const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { escapeHtml: escHtml } = await versionedImport("../lib/pure/html.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/doctor asks Claude to read the server logs + recent Telegram messages and diagnose issues.",
@@ -79,7 +79,7 @@ export const commands = {
             return { effects: [] }
         }
 
-        const replyTo = makeReplyTo(event, "cmd/doctor")
+        const replyTo = replyToFromEvent(event, "cmd/doctor")
         const extra = (event.text ?? "").replace(/^\/doctor\s*/, "").trim()
         const prompt = extra
             ? `${buildDefaultPrompt()}\n\nAdditional focus from the user: ${extra}`

@@ -12,7 +12,7 @@ const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { generateName } = await versionedImport("../lib/pure/ids.js", import.meta)
 const { tailColdStream } = await versionedImport("../lib/cold-storage.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 const CONTEXT_MESSAGE_LIMIT = 50
 
@@ -81,7 +81,7 @@ export const commands = {
     refresh: async (event, core) => {
         const access = loadAccess()
         const ccChatId = access.commandCenterChatId
-        const replyTo = makeReplyTo(event, "cmd/refresh")
+        const replyTo = replyToFromEvent(event, "cmd/refresh")
 
         if (!ccChatId || String(event.chatId) !== String(ccChatId)) {
             return { effects: [sendEffect(replyTo, "This command only works in the command center group.", { parse_mode: "HTML" })] }

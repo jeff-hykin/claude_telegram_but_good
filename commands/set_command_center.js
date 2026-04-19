@@ -7,7 +7,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess, saveAccess, readAccessFile } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const descriptions = {
     set_command_center: "Designate this group as the command center",
@@ -15,7 +15,7 @@ export const descriptions = {
 
 export const commands = {
     set_command_center: async (event, core) => {
-        const replyTo = makeReplyTo(event, "cmd/set_command_center")
+        const replyTo = replyToFromEvent(event, "cmd/set_command_center")
         const chatType = event.chatType
         if (chatType !== "supergroup") {
             return { effects: [sendEffect(replyTo, "This command must be sent in a supergroup with Topics enabled.", { parse_mode: "HTML" })] }

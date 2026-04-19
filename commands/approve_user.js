@@ -8,7 +8,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess, saveAccess } = await versionedImport("../lib/access.js", import.meta)
-const { makeReplyTo, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = []
 
@@ -20,7 +20,7 @@ export const commands = {
     approve_user: (event, core) => {
         if (event.chatType !== "private") { return { effects: [] } }
 
-        const replyTo = makeReplyTo(event, "cmd/approve_user")
+        const replyTo = replyToFromEvent(event, "cmd/approve_user")
         const text = event.text ?? ""
         const match = text.match(/^\/approve_user\s+(\S+)/i)
         if (!match) {
