@@ -57,7 +57,7 @@ Handlers in `lib/event-handlers/*.js` are PURE. They receive `(event, core)` and
         specialData: { longTaskByChatId: { [chatId]: { [taskId]: { /* partial */ } } } },
     },
     effects: [
-        { type: "send_text_to_user", chatId, text, options },
+        { type: "send_text_to_user", replyTo: { chatId, threadId, setBy }, text, options },
         { type: "send_text_to_claude", sessionId, text },
         { type: "deliver_channel_event", sessionId, content, meta },
         { type: "ipc_respond", conn, message, closeAfter },
@@ -69,6 +69,27 @@ Handlers in `lib/event-handlers/*.js` are PURE. They receive `(event, core)` and
 ```
 
 **Handlers NEVER mutate `event`, `core.chatState`, `core.chatSessions`, or `core.specialData` directly.** They describe intent; `onEvent` applies state merges and runs effects in order.
+
+### replyTo routing
+
+Every `send_text_to_user` and `send_file_to_user` effect MUST carry a `replyTo` object:
+
+```js
+{ chatId: String, threadId: Number|null, setBy: String }
+```
+
+- `chatId` — target Telegram chat.
+- `threadId` — forum topic thread (null for DMs / General).
+- `setBy` — trace tag identifying who chose this destination (e.g. `"chat-user:inbound"`, `"cmd:help"`, `"claude-channel:reply-topic"`).
+
+Helpers in `lib/pure/reply-to.js`:
+- `makeReplyTo({ chatId, threadId, setBy })` — explicit construction.
+- `replyToFromEvent(event, setBy)` — from an inbound user message event.
+- `replyToForSession(sessionId, core, setBy)` — targets the session's command center topic (returns null if no binding).
+
+For `chat_user_message` events, the handler stashes `event._replyTo` so hot commands access it without extra plumbing. Commands use `event._replyTo ?? replyToFromEvent(event, "cmd:<name>")`.
+
+No defaults — bare `chatId` on an effect is a deprecated fallback that logs a warning.
 
 Bridging concession: the `run_hot_command` effect and `ctx.reply` calls from legacy `commands/*.js` files bypass this contract. Documented in `lib/effects/hot-command-runner.js`.
 
@@ -209,6 +230,7 @@ Side-effect implementations. Counterpart to `lib/event-handlers/`: handlers desc
 - `hook-compact.js` — selects/compacts hook event fields
 - `long-task-util.js` — `slugify`, `generateTaskId`
 - `pure/html.js` — `escapeHtml`
+- `pure/reply-to.js` — `makeReplyTo`, `replyToFromEvent`, `replyToForSession`. Every outbound Telegram effect uses these to declare its destination explicitly.
 - `ipc.js` — shared byte-level framing (`encodeIpcFrame`, `parseIpcMessages`, `UNKNOWN_CLAUDE_PID`); the single place the newline-JSON wire format is defined. No `sendIpc` helper — each caller inlines `conn.write(encodeIpcFrame(msg))` with the error-handling shape appropriate to its context.
 - `ipc-inbound.js`, `pure/telegram-translator.js` — raw IPC / Grammy → event conversion (dynamically imported per-message, hot-reloadable so new message types ship without a daemon restart)
 - CLI ↔ daemon one-shot round-trip (`sendCliCommand`) lives inside `event-generators/cli/helpers.js` alongside the onboard/authorize/reinstall logic that uses it.
