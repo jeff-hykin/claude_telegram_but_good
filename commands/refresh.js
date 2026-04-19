@@ -104,7 +104,8 @@ export const commands = {
         const titleFromCmd = event.text?.replace(/^\/refresh\s*/, "").trim()
         const existingSessionId = cc.threadMap?.[threadKey]
         const existingTitle = existingSessionId ? core.chatSessions?.[existingSessionId]?.title : null
-        const title = titleFromCmd || existingTitle || `Topic${threadKey}`
+        const topicName = cc.topicNames?.[threadKey] ?? null
+        const title = titleFromCmd || existingTitle || topicName || `Topic${threadKey}`
 
         const sessionId = generateName()
 
