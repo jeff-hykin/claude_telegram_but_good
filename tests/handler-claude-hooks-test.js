@@ -151,11 +151,12 @@ Deno.test("hook-stop: fires reply-nudge when pendingNudgeAction=askAgentToSendCh
         },
     })
     const action = stop(stopEvent({ ts: 100_000 }), core)
-    const nudges = effectsOfType(action, "send_text_to_claude")
-    assertEquals(nudges.length, 1)
-    assert(nudges[0].text.includes("automated reminder"))
-    // After firing, the action is cleared so it won't re-fire on the next Stop.
-    assertEquals(get(action, "stateChanges.chatSessions.sess-1.pendingNudgeAction"), "none")
+    // Now schedules a delayed timer instead of nudging immediately.
+    const timers = effectsOfType(action, "set_timer")
+    assert(timers.length >= 1)
+    const nudgeTimer = timers.find(t => t.event?.type === "stop_nudge_fire" && t.event?.nudgeType === "reply")
+    assert(nudgeTimer, "should schedule a reply nudge timer")
+    // pendingNudgeAction stays set — cleared when the timer fires or agent replies.
 })
 
 Deno.test("hook-stop: does NOT nudge when pendingNudgeAction=none", () => {
@@ -230,7 +231,7 @@ Deno.test("hook-stop: taskCheck with existing report.md spawns critic", () => {
     try { Deno.removeSync(dir) } catch { /* ignore */ }
 })
 
-Deno.test("hook-stop: taskCheck without report.md nudges on first idle stop (threshold=1)", () => {
+Deno.test("hook-stop: taskCheck without report.md schedules delayed nudge timer", () => {
     const taskId = "TaskDemo0002"
     const core = makeCore({
         chatSessions: {
@@ -254,13 +255,14 @@ Deno.test("hook-stop: taskCheck without report.md nudges on first idle stop (thr
         },
     })
     const action = stop(stopEvent({ ts: 100_000 }), core)
-    // With threshold=1, first idle stop triggers a nudge.
-    assertEquals(effectsOfType(action, "send_text_to_claude").length, 1)
-    // consecutiveIdleStops resets to 0 after nudge.
-    assertEquals(get(action, "stateChanges.chatSessions.sess-1.pendingNudgeAction"), undefined)
+    // Schedules a delayed timer, not an immediate nudge.
+    const timers = effectsOfType(action, "set_timer")
+    const taskTimer = timers.find(t => t.event?.type === "stop_nudge_fire" && t.event?.nudgeType === "taskReport")
+    assert(taskTimer, "should schedule a task report nudge timer")
+    assertEquals(taskTimer.event.taskId, taskId)
 })
 
-Deno.test("hook-stop: taskCheck without report.md on a SYNTHETIC Stop nudges immediately", () => {
+Deno.test("hook-stop: taskCheck without report.md on a SYNTHETIC Stop schedules nudge timer", () => {
     const taskId = "TaskDemo0003"
     const core = makeCore({
         chatSessions: {
@@ -284,15 +286,11 @@ Deno.test("hook-stop: taskCheck without report.md on a SYNTHETIC Stop nudges imm
             },
         },
     })
-    // synthetic flag short-circuits the "need 2 consecutive idle Stops" guard.
+    // Synthetic stops also schedule a timer (same as real stops now).
     const action = stop({ ...stopEvent({ ts: 100_000 }), synthetic: true }, core)
-    const nudges = effectsOfType(action, "send_text_to_claude")
-    assertEquals(nudges.length, 1)
-    assert(nudges[0].text.includes(`long task ${taskId}`))
-    assertEquals(
-        get(action, `stateChanges.specialData.longTaskByChatId.42.${taskId}.totalNudges`),
-        1,
-    )
+    const timers = effectsOfType(action, "set_timer")
+    const taskTimer = timers.find(t => t.event?.type === "stop_nudge_fire" && t.event?.nudgeType === "taskReport")
+    assert(taskTimer, "should schedule a task report nudge timer")
 })
 
 Deno.test("hook-stop: missing session -> no-op", () => {
