@@ -226,7 +226,7 @@ export const TOOLS = [
     },
     {
         name: "cancel_reminder",
-        description: "Cancel a pending reminder or repeat by ID.",
+        description: "Cancel a pending reminder, repeat, or file watch by its ID. Works with IDs from set_reminder, set_repeat, and watch_file.",
         inputSchema: {
             type: "object",
             properties: {
