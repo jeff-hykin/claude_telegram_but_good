@@ -99,13 +99,12 @@ export const commands = {
         const cc = core.chatState?.commandCenter ?? {}
         const threadKey = String(threadId)
 
-        // Determine title from the topic — use existing mapping or event context
-        // For now use the text after /refresh as title, or fall back
-        const titleFromCmd = event.text?.replace(/^\/refresh\s*/, "").trim()
+        // Title always comes from the topic name — the Telegram topic
+        // is the source of truth, not a command argument.
         const existingSessionId = cc.threadMap?.[threadKey]
-        const existingTitle = existingSessionId ? core.chatSessions?.[existingSessionId]?.title : null
         const topicName = cc.topicNames?.[threadKey] ?? null
-        const title = titleFromCmd || existingTitle || topicName || `Topic${threadKey}`
+        const existingTitle = existingSessionId ? core.chatSessions?.[existingSessionId]?.title : null
+        const title = topicName || existingTitle || `Topic${threadKey}`
 
         const sessionId = generateName()
 
