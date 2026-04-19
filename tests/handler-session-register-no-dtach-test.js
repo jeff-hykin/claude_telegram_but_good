@@ -46,8 +46,8 @@ Deno.test("no-dtach: emits one send_text_to_user effect per paired chat", () => 
     const action = handler(makeEvent(), core)
     const sends = effectsOfType(action, "send_text_to_user")
     assertEquals(sends.length, 2)
-    assertEquals(sends[0].chatId, "42")
-    assertEquals(sends[1].chatId, "99")
+    assertEquals(sends[0].replyTo.chatId, "42")
+    assertEquals(sends[1].replyTo.chatId, "99")
     // Each warning should mention the sessionId and cwd
     assert(sends[0].text.includes("SurprisingRooster"))
     assert(sends[0].text.includes("/repo/foo"))

@@ -32,7 +32,7 @@ Deno.test("claude-channel: reply emits send_text_to_user with recordAs metadata"
     assertEquals(sends.length, 1)
     // Every agent reply is prepended with a /chat_<id> routing header.
     assertEquals(sends[0].text, "/chat_sess-1\n\nhi")
-    assertEquals(sends[0].chatId, "42")
+    assertEquals(sends[0].replyTo.chatId, "42")
     assertEquals(sends[0].recordAs.from, "agent")
     assertEquals(sends[0].recordAs.kind, "regular")
     assertEquals(sends[0].recordAs.sessionId, "sess-1")

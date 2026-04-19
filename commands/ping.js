@@ -9,6 +9,9 @@
 // describe intent via the same `{ stateChanges, effects, followUpEvents }`
 // shape event-handlers use.
 
+import { versionedImport } from "../lib/version.js"
+const { replyToFromEvent } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+
 export const tips = []
 
 export const descriptions = {
@@ -20,7 +23,7 @@ export const commands = {
         effects: [
             {
                 type: "send_text_to_user",
-                chatId: event.chatId,
+                replyTo: event._replyTo ?? replyToFromEvent(event, "cmd:ping"),
                 text: "pong",
             },
         ],

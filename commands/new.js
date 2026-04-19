@@ -17,6 +17,7 @@ const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { generateName } = await versionedImport("../lib/pure/ids.js", import.meta)
+const { replyToFromEvent } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 /**
  * After dtach spawns Claude, poll the log file for the "trust this
@@ -64,8 +65,8 @@ export const descriptions = {
     new: "Launch a new Claude Code session",
 }
 
-function reply(chatId, text) {
-    return { effects: [{ type: "send_text_to_user", chatId, text }] }
+function reply(replyTo, text) {
+    return { effects: [{ type: "send_text_to_user", replyTo, text }] }
 }
 
 export const commands = {
@@ -76,8 +77,10 @@ export const commands = {
             return { effects: [] }
         }
 
+        const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:new")
+
         if (!(await $.commandExists("dtach"))) {
-            return reply(event.chatId, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach")
+            return reply(replyTo, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach")
         }
 
         const sessionId = generateName()
@@ -149,7 +152,7 @@ export const commands = {
                 effects: [
                     {
                         type: "send_text_to_user",
-                        chatId: event.chatId,
+                        replyTo,
                         text: `Created: /chat_${sessionId}${displayTitle}`,
                     },
                 ],
@@ -164,7 +167,7 @@ export const commands = {
                 detail = String(err)
             }
             dbg("NEW", "failed:", detail)
-            return reply(event.chatId, `Failed to create new session via dtach:\n${detail}`)
+            return reply(replyTo, `Failed to create new session via dtach:\n${detail}`)
         }
     },
 }

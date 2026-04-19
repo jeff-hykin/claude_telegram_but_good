@@ -7,6 +7,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { replyToFromEvent } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = []
 
@@ -21,11 +22,12 @@ export const commands = {
         }
         const access = loadAccess()
         if (access.dmPolicy === "disabled") {
+            const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:start")
             return {
                 effects: [
                     {
                         type: "send_text_to_user",
-                        chatId: event.chatId,
+                        replyTo,
                         text: "This bot isn't accepting new connections.",
                     },
                 ],
@@ -39,11 +41,12 @@ export const commands = {
             `1. DM me anything — you'll get a 6-char code\n` +
             `2. In Claude Code: /telegram:access pair <code>\n\n` +
             `After that, DMs here reach that session.`
+        const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:start")
         return {
             effects: [
                 {
                     type: "send_text_to_user",
-                    chatId: event.chatId,
+                    replyTo,
                     text,
                 },
             ],

@@ -25,6 +25,7 @@
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { replyToFromEvent } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = []
 
@@ -98,17 +99,14 @@ export const commands = {
             parts.push(`\nNo Claude Code processes detected.`)
         }
 
-        const options = { format: "plain" }
-        if (isCommandCenter && event.threadId) {
-            options.message_thread_id = Number(event.threadId)
-        }
+        const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:status")
         return {
             effects: [
                 {
                     type: "send_text_to_user",
-                    chatId: event.chatId,
+                    replyTo,
                     text: parts.join("\n"),
-                    options,
+                    options: { format: "plain" },
                 },
             ],
         }

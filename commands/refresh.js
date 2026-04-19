@@ -12,6 +12,7 @@ const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { generateName } = await versionedImport("../lib/pure/ids.js", import.meta)
 const { tailColdStream } = await versionedImport("../lib/cold-storage.js", import.meta)
+const { replyToFromEvent } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 const CONTEXT_MESSAGE_LIMIT = 50
 
@@ -39,10 +40,8 @@ export const descriptions = {
     refresh: "Spawn a new session in this topic",
 }
 
-function reply(chatId, text, threadId) {
-    const options = { parse_mode: "HTML" }
-    if (threadId != null) { options.message_thread_id = Number(threadId) }
-    return { effects: [{ type: "send_text_to_user", chatId, text, options }] }
+function reply(replyTo, text) {
+    return { effects: [{ type: "send_text_to_user", replyTo, text, options: { parse_mode: "HTML" } }] }
 }
 
 /**
@@ -86,17 +85,19 @@ export const commands = {
         const access = loadAccess()
         const ccChatId = access.commandCenterChatId
 
+        const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:refresh")
+
         if (!ccChatId || String(event.chatId) !== String(ccChatId)) {
-            return reply(event.chatId, "This command only works in the command center group.")
+            return reply(replyTo, "This command only works in the command center group.")
         }
 
         const threadId = event.threadId
         if (!threadId) {
-            return reply(event.chatId, "This command must be used inside a topic.", null)
+            return reply(replyTo, "This command must be used inside a topic.")
         }
 
         if (!(await $.commandExists("dtach"))) {
-            return reply(event.chatId, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach", threadId)
+            return reply(replyTo, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach")
         }
 
         const cc = core.chatState?.commandCenter ?? {}
@@ -206,9 +207,9 @@ export const commands = {
                     : "")
             const effects = [{
                 type: "send_text_to_user",
-                chatId: event.chatId,
+                replyTo,
                 text: `Spawned new session <code>${sessionId}</code> (${title})${contextNote}`,
-                options: { parse_mode: "HTML", message_thread_id: Number(threadId) },
+                options: { parse_mode: "HTML" },
             }]
 
             // Kill old session: send /exit gracefully, then schedule a
@@ -271,7 +272,7 @@ export const commands = {
                 detail = String(err)
             }
             dbg("REFRESH", "failed:", detail)
-            return reply(event.chatId, `Failed to spawn session:\n${detail}`, threadId)
+            return reply(replyTo, `Failed to spawn session:\n${detail}`)
         }
     },
 }

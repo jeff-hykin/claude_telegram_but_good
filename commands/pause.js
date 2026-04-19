@@ -7,6 +7,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
+const { replyToFromEvent } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/pause suspends the whole claude process — it won't use resources until you /resume.",
@@ -17,8 +18,8 @@ export const descriptions = {
     resume: "Resume a paused session (SIGCONT)",
 }
 
-function reply(chatId, text) {
-    return { effects: [{ type: "send_text_to_user", chatId, text }] }
+function reply(replyTo, text) {
+    return { effects: [{ type: "send_text_to_user", replyTo, text }] }
 }
 
 function findSessionForEvent(event, core, label = "CMD") {
@@ -48,17 +49,18 @@ function gate(event) {
 export const commands = {
     pause: (event, core) => {
         if (!gate(event)) { return { effects: [] } }
+        const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:pause")
         const focused = findSessionForEvent(event, core, "PAUSE")
-        if (!focused) { return reply(event.chatId, "No focused session.") }
+        if (!focused) { return reply(replyTo, "No focused session.") }
 
         if (focused.paused) {
-            return reply(event.chatId, "Session is already paused. Use /resume to continue.")
+            return reply(replyTo, "Session is already paused. Use /resume to continue.")
         }
 
         try {
             Deno.kill(focused.pid, "SIGTSTP")
         } catch (err) {
-            return reply(event.chatId, `Pause failed: ${err instanceof Error ? err.message : err}`)
+            return reply(replyTo, `Pause failed: ${err instanceof Error ? err.message : err}`)
         }
         return {
             stateChanges: {
@@ -67,7 +69,7 @@ export const commands = {
             effects: [
                 {
                     type: "send_text_to_user",
-                    chatId: event.chatId,
+                    replyTo,
                     text: `Paused session ${focused.id} (PID ${focused.pid})`,
                 },
             ],
@@ -76,17 +78,18 @@ export const commands = {
 
     resume: (event, core) => {
         if (!gate(event)) { return { effects: [] } }
+        const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:resume")
         const focused = findSessionForEvent(event, core, "RESUME")
-        if (!focused) { return reply(event.chatId, "No focused session.") }
+        if (!focused) { return reply(replyTo, "No focused session.") }
 
         if (!focused.paused) {
-            return reply(event.chatId, "Session is not paused.")
+            return reply(replyTo, "Session is not paused.")
         }
 
         try {
             Deno.kill(focused.pid, "SIGCONT")
         } catch (err) {
-            return reply(event.chatId, `Resume failed: ${err instanceof Error ? err.message : err}`)
+            return reply(replyTo, `Resume failed: ${err instanceof Error ? err.message : err}`)
         }
         return {
             stateChanges: {
@@ -95,7 +98,7 @@ export const commands = {
             effects: [
                 {
                     type: "send_text_to_user",
-                    chatId: event.chatId,
+                    replyTo,
                     text: `Resumed session ${focused.id} (PID ${focused.pid})`,
                 },
             ],

@@ -7,22 +7,22 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess, saveAccess, readAccessFile } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
+const { replyToFromEvent } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const descriptions = {
     set_command_center: "Designate this group as the command center",
 }
 
-function reply(chatId, text, threadId) {
-    const options = { parse_mode: "HTML" }
-    if (threadId != null) { options.message_thread_id = Number(threadId) }
-    return { effects: [{ type: "send_text_to_user", chatId, text, options }] }
+function reply(replyTo, text) {
+    return { effects: [{ type: "send_text_to_user", replyTo, text, options: { parse_mode: "HTML" } }] }
 }
 
 export const commands = {
     set_command_center: async (event, core) => {
+        const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:set_command_center")
         const chatType = event.chatType
         if (chatType !== "supergroup") {
-            return reply(event.chatId, "This command must be sent in a supergroup with Topics enabled.")
+            return reply(replyTo, "This command must be sent in a supergroup with Topics enabled.")
         }
 
         // Check if bot has admin rights by trying to get chat info
@@ -33,12 +33,12 @@ export const commands = {
             chatInfo = await ctx.api.getChat(event.chatId)
         } catch (e) {
             dbg("SET-CMD-CENTER", "getChat failed:", e)
-            return reply(event.chatId, "Could not verify group settings. Make sure I have admin rights.")
+            return reply(replyTo, "Could not verify group settings. Make sure I have admin rights.")
         }
 
         // Verify forum mode is enabled
         if (!chatInfo.is_forum) {
-            return reply(event.chatId, "This group needs Topics enabled. Go to group settings → Topics → toggle on, then try again.")
+            return reply(replyTo, "This group needs Topics enabled. Go to group settings → Topics → toggle on, then try again.")
         }
 
         // Check bot is admin
@@ -48,11 +48,11 @@ export const commands = {
             botMember = await ctx.api.getChatMember(event.chatId, botInfo.id)
         } catch (e) {
             dbg("SET-CMD-CENTER", "getChatMember failed:", e)
-            return reply(event.chatId, "Could not verify my admin status. Please promote me to admin and try again.")
+            return reply(replyTo, "Could not verify my admin status. Please promote me to admin and try again.")
         }
 
         if (botMember.status !== "administrator" && botMember.status !== "creator") {
-            return reply(event.chatId, "I need admin rights to manage topics. Please promote me to admin and try again.")
+            return reply(replyTo, "I need admin rights to manage topics. Please promote me to admin and try again.")
         }
 
         // Save to access.json
@@ -88,7 +88,7 @@ export const commands = {
         // Security warning
         effects.unshift({
             type: "send_text_to_user",
-            chatId: event.chatId,
+            replyTo,
             text: `⚠️ <b>Command Center activated.</b>\n\nAnyone in this group will have total control over the bot and the computer it runs on.\n\nUse /revoke_command_center to disable this at any time.`,
             options: { parse_mode: "HTML" },
         })

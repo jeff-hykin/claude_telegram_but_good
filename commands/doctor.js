@@ -10,6 +10,7 @@ const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { escapeHtml: escHtml } = await versionedImport("../lib/pure/html.js", import.meta)
+const { replyToFromEvent } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/doctor asks Claude to read the server logs + recent Telegram messages and diagnose issues.",
@@ -83,10 +84,11 @@ export const commands = {
             ? `${buildDefaultPrompt()}\n\nAdditional focus from the user: ${extra}`
             : buildDefaultPrompt()
 
+        const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:doctor")
         const effects = [
             {
                 type: "send_text_to_user",
-                chatId: event.chatId,
+                replyTo,
                 text: "Running <i>claude -p</i> to diagnose — this can take up to a minute.",
                 options: { parse_mode: "HTML" },
             },
@@ -108,7 +110,7 @@ export const commands = {
 
         effects.push({
             type: "send_text_to_user",
-            chatId: event.chatId,
+            replyTo,
             text: `${opener}${escHtml(trimmed)}${closer}`,
             options: { parse_mode: "HTML" },
         })
@@ -117,7 +119,7 @@ export const commands = {
             const errTail = result.stderr.trim().slice(-1500)
             effects.push({
                 type: "send_text_to_user",
-                chatId: event.chatId,
+                replyTo,
                 text: `<b>stderr:</b>\n<pre>${escHtml(errTail)}</pre>`,
                 options: { parse_mode: "HTML" },
             })

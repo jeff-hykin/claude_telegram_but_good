@@ -8,6 +8,7 @@ import { join } from "node:path"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
+const { replyToFromEvent } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/cron shows all scheduled tasks — set them up with the /schedule skill. JK! I haven't finished this feature yet",
@@ -107,11 +108,12 @@ export const commands = {
         parts.push("Session cron jobs are in-memory only and cannot be listed externally.")
         parts.push("Use /loop inside a Claude Code session to manage them.")
 
+        const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:cron")
         return {
             effects: [
                 {
                     type: "send_text_to_user",
-                    chatId: event.chatId,
+                    replyTo,
                     text: parts.join("\n"),
                     options: { parse_mode: "HTML" },
                 },

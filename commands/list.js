@@ -6,6 +6,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
+const { replyToFromEvent } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "Tap a session ID from /list to switch to it.",
@@ -90,9 +91,9 @@ export const descriptions = {
     list: "Show connected Claude Code sessions",
 }
 
-function reply(chatId, text, options = { parse_mode: "HTML" }) {
+function reply(replyTo, text, options = { parse_mode: "HTML" }) {
     return {
-        effects: [{ type: "send_text_to_user", chatId, text, options }],
+        effects: [{ type: "send_text_to_user", replyTo, text, options }],
     }
 }
 
@@ -107,6 +108,8 @@ export const commands = {
         if (!isCommandCenter && !access.allowFrom.includes(senderId)) {
             return { effects: [] }
         }
+
+        const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:list")
 
         const sessions = Object.values(core.chatSessions ?? {}).map(s => ({
             id: s.id,
@@ -125,12 +128,9 @@ export const commands = {
         }))
 
         const replyOpts = { parse_mode: "HTML" }
-        if (isCommandCenter && event.threadId) {
-            replyOpts.message_thread_id = Number(event.threadId)
-        }
 
         if (sessions.length === 0) {
-            return reply(event.chatId, "No sessions connected. Use /new to make one from here", replyOpts)
+            return reply(replyTo, "No sessions connected. Use /new to make one from here", replyOpts)
         }
 
         const home = Deno.env.get("HOME") ?? ""
@@ -151,6 +151,6 @@ export const commands = {
             parts.push(sessionBlock(s, { shortPath, isActive: false }))
         }
 
-        return reply(event.chatId, parts.join("\n\n"), replyOpts)
+        return reply(replyTo, parts.join("\n\n"), replyOpts)
     },
 }

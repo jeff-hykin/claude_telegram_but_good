@@ -38,7 +38,7 @@ Deno.test("server-dump: telegram source writes file + sends it back to the chat"
     assertEquals(writes.length, 1)
     const sends = effectsOfType(action, "send_file_to_user")
     assertEquals(sends.length, 1)
-    assertEquals(sends[0].chatId, "42")
+    assertEquals(sends[0].replyTo.chatId, "42")
     assertEquals(sends[0].filename, "cbg-dump.json")
     assertEquals(sends[0].filePath, writes[0].path)
 })

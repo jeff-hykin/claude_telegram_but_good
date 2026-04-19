@@ -2,6 +2,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { VERSION } = await versionedImport("../lib/version.js", import.meta)
+const { replyToFromEvent } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = []
 
@@ -14,11 +15,12 @@ export const commands = {
         if (event.chatType !== "private") {
             return { effects: [] }
         }
+        const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:version")
         return {
             effects: [
                 {
                     type: "send_text_to_user",
-                    chatId: event.chatId,
+                    replyTo,
                     text: `telegram plugin v${VERSION}`,
                 },
             ],

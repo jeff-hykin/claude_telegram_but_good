@@ -6,13 +6,14 @@
 import { versionedImport } from "../lib/version.js"
 const { readAccessFile, saveAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
+const { replyToFromEvent } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const descriptions = {
     revoke_command_center: "Disable command center mode",
 }
 
-function reply(chatId, text) {
-    return { effects: [{ type: "send_text_to_user", chatId, text, options: { parse_mode: "HTML" } }] }
+function reply(replyTo, text) {
+    return { effects: [{ type: "send_text_to_user", replyTo, text, options: { parse_mode: "HTML" } }] }
 }
 
 export const commands = {
@@ -20,8 +21,9 @@ export const commands = {
         const access = readAccessFile()
         const ccChatId = access.commandCenterChatId
 
+        const replyTo = event._replyTo ?? replyToFromEvent(event, "cmd:revoke_command_center")
         if (!ccChatId) {
-            return reply(event.chatId, "No command center is currently active.")
+            return reply(replyTo, "No command center is currently active.")
         }
 
         // Clear from access.json
@@ -39,7 +41,7 @@ export const commands = {
             },
             effects: [{
                 type: "send_text_to_user",
-                chatId: event.chatId,
+                replyTo,
                 text: "Command center disabled. Topics remain in the group but the bot will no longer route through them.",
                 options: { parse_mode: "HTML" },
             }],
