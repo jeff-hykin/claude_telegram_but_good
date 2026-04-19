@@ -230,7 +230,7 @@ Deno.test("hook-stop: taskCheck with existing report.md spawns critic", () => {
     try { Deno.removeSync(dir) } catch { /* ignore */ }
 })
 
-Deno.test("hook-stop: taskCheck without report.md increments consecutiveIdleStops but does NOT nudge on real Stop (below threshold)", () => {
+Deno.test("hook-stop: taskCheck without report.md nudges on first idle stop (threshold=1)", () => {
     const taskId = "TaskDemo0002"
     const core = makeCore({
         chatSessions: {
@@ -254,12 +254,9 @@ Deno.test("hook-stop: taskCheck without report.md increments consecutiveIdleStop
         },
     })
     const action = stop(stopEvent({ ts: 100_000 }), core)
-    assertEquals(effectsOfType(action, "send_text_to_claude").length, 0)
-    assertEquals(
-        get(action, `stateChanges.specialData.longTaskByChatId.42.${taskId}.consecutiveIdleStops`),
-        1,
-    )
-    // pendingNudgeAction unchanged — still watching.
+    // With threshold=1, first idle stop triggers a nudge.
+    assertEquals(effectsOfType(action, "send_text_to_claude").length, 1)
+    // consecutiveIdleStops resets to 0 after nudge.
     assertEquals(get(action, "stateChanges.chatSessions.sess-1.pendingNudgeAction"), undefined)
 })
 
