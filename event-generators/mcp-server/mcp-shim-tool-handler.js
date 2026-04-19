@@ -194,6 +194,76 @@ export const TOOLS = [
         },
     },
     {
+        name: "set_reminder",
+        description:
+            "Schedule a one-shot reminder that delivers a message to this session after a delay. " +
+            "Use for delayed follow-ups, waiting for builds, or checking back on something later. " +
+            "Returns a reminder ID that can be used with cancel_reminder.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                message: { type: "string", description: "Message to deliver when the reminder fires" },
+                delay_seconds: { type: "number", description: "Seconds to wait before firing (e.g. 300 for 5 minutes)" },
+            },
+            required: ["message", "delay_seconds"],
+        },
+    },
+    {
+        name: "set_repeat",
+        description:
+            "Start a repeating message delivered to this session at a fixed interval. " +
+            "Use for polling, periodic checks, or keeping yourself on track. " +
+            "Returns a repeat ID. Use cancel_repeat to stop it.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                message: { type: "string", description: "Message to deliver each interval" },
+                interval_seconds: { type: "number", description: "Seconds between each delivery (e.g. 600 for 10 minutes)" },
+                max_count: { type: "number", description: "Maximum number of times to fire (optional, defaults to unlimited)" },
+            },
+            required: ["message", "interval_seconds"],
+        },
+    },
+    {
+        name: "cancel_reminder",
+        description: "Cancel a pending reminder or repeat by ID.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                id: { type: "string", description: "The reminder/repeat ID to cancel" },
+            },
+            required: ["id"],
+        },
+    },
+    {
+        name: "snooze_reminder",
+        description: "Postpone a reminder that just fired by re-scheduling it with a new delay.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                id: { type: "string", description: "The reminder/repeat ID to snooze" },
+                delay_seconds: { type: "number", description: "Seconds to snooze for" },
+            },
+            required: ["id", "delay_seconds"],
+        },
+    },
+    {
+        name: "watch_file",
+        description:
+            "Watch a file or directory for changes. Delivers a message to this session when " +
+            "the file is modified, created, or deleted. Stops after the first change (one-shot). " +
+            "Use set_repeat + a check command for continuous polling instead.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                path: { type: "string", description: "Absolute path to watch" },
+                message: { type: "string", description: "Message to deliver when the file changes" },
+                timeout_seconds: { type: "number", description: "Stop watching after this many seconds (default: 3600)" },
+            },
+            required: ["path"],
+        },
+    },
+    {
         name: "list_sessions",
         description:
             "List all active Claude Code sessions connected to the CBG daemon. " +
@@ -316,6 +386,14 @@ export async function handleToolCall(req, ctx) {
             description: args.description ?? args.title,
             rule: args.rule,
             definitionOfDone: args.definitionOfDone,
+        }
+    } else if (name === "set_reminder" || name === "set_repeat" || name === "cancel_reminder" || name === "snooze_reminder" || name === "watch_file") {
+        ipcMessage = {
+            type: "tool_request",
+            requestId,
+            sessionId,
+            toolName: name,
+            args,
         }
     } else if (name === "list_sessions" || name === "tell_session" || name === "get_topic_memory") {
         // Routed via the generic tool_request path — the server handles
