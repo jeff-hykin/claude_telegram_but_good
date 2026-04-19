@@ -194,6 +194,27 @@ export const TOOLS = [
         },
     },
     {
+        name: "list_sessions",
+        description:
+            "List all active Claude Code sessions connected to the CBG daemon. " +
+            "Returns session IDs, titles, topics, status, and connection info.",
+        inputSchema: { type: "object", properties: {} },
+    },
+    {
+        name: "tell_session",
+        description:
+            "Send a message to another session by ID. The message is delivered as a " +
+            "channel event to the target session. Use list_sessions to find available sessions.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                target_session_id: { type: "string", description: "Session ID to send to (e.g. 'MassCapybara')" },
+                text: { type: "string", description: "Message text to deliver" },
+            },
+            required: ["target_session_id", "text"],
+        },
+    },
+    {
         name: "get_topic_memory",
         description:
             "Get the path and content of this session's topic memory file. " +
@@ -296,16 +317,15 @@ export async function handleToolCall(req, ctx) {
             rule: args.rule,
             definitionOfDone: args.definitionOfDone,
         }
-    } else if (name === "get_topic_memory") {
-        // Routed via the generic tool_request path — the server looks
-        // up the session's topic from topicMap and returns the memory
-        // file path and content.
+    } else if (name === "list_sessions" || name === "tell_session" || name === "get_topic_memory") {
+        // Routed via the generic tool_request path — the server handles
+        // these in claude-channel.js.
         ipcMessage = {
             type: "tool_request",
             requestId,
             sessionId,
-            toolName: "get_topic_memory",
-            args: {},
+            toolName: name,
+            args,
         }
     } else if (name === "cbg_debug") {
         // server_dump event (not cli_command!) — the dedicated MCP path.
