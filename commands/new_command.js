@@ -22,8 +22,9 @@ export const descriptions = {
 
 export const commands = {
     new_command: (event, _core) => {
-        if (event.chatType !== "private") { return { effects: [] } }
         const access = loadAccess()
+        const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
+        if (event.chatType !== "private" && !isCC) { return { effects: [] } }
         if (!access.allowFrom.includes(String(event.userId ?? ""))) {
             return { effects: [] }
         }

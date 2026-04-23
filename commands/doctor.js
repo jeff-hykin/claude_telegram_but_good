@@ -73,8 +73,9 @@ async function runClaude(prompt, cwd) {
 
 export const commands = {
     doctor: async (event, _core) => {
-        if (event.chatType !== "private") { return { effects: [] } }
         const access = loadAccess()
+        const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
+        if (event.chatType !== "private" && !isCC) { return { effects: [] } }
         if (!access.allowFrom.includes(String(event.userId ?? ""))) {
             return { effects: [] }
         }

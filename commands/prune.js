@@ -20,12 +20,13 @@ export const tips = [
 
 export const commands = {
     prune: (event, core) => {
-        if (event.chatType !== "private") {
+        const access = loadAccess()
+        const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
+        if (event.chatType !== "private" && !isCC) {
             return { effects: [] }
         }
-        const access = loadAccess()
         const senderId = String(event.userId ?? "")
-        if (!access.allowFrom.includes(senderId)) {
+        if (!isCC && !access.allowFrom.includes(senderId)) {
             return { effects: [] }
         }
 
