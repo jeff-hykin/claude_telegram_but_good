@@ -10,7 +10,7 @@ const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { escapeHtml: escHtml } = await versionedImport("../lib/pure/html.js", import.meta)
-const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/doctor asks Claude to read the server logs + recent Telegram messages and diagnose issues.",
@@ -73,20 +73,20 @@ async function runClaude(prompt, cwd) {
 
 export const commands = {
     doctor: async (event, _core) => {
+        if (event.chatType !== "private") { return { effects: [] } }
         const access = loadAccess()
-        const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
-        if (event.chatType !== "private" && !isCC) { return { effects: [] } }
         if (!access.allowFrom.includes(String(event.userId ?? ""))) {
             return { effects: [] }
         }
 
+        const replyTo = replyToFromEvent(event, "cmd/doctor")
         const extra = (event.text ?? "").replace(/^\/doctor\s*/, "").trim()
         const prompt = extra
             ? `${buildDefaultPrompt()}\n\nAdditional focus from the user: ${extra}`
             : buildDefaultPrompt()
 
         const effects = [
-            sendEffect(event.replyTo, "Running <i>claude -p</i> to diagnose — this can take up to a minute.", { parse_mode: "HTML" }),
+            sendEffect(replyTo, "Running <i>claude -p</i> to diagnose — this can take up to a minute.", { parse_mode: "HTML" }),
         ]
 
         const result = await runClaude(prompt, paths.STATE_DIR)
@@ -103,11 +103,11 @@ export const commands = {
             trimmed = "..." + body.slice(-(budget - 3))
         }
 
-        effects.push(sendEffect(event.replyTo, `${opener}${escHtml(trimmed)}${closer}`, { parse_mode: "HTML" }))
+        effects.push(sendEffect(replyTo, `${opener}${escHtml(trimmed)}${closer}`, { parse_mode: "HTML" }))
 
         if (!result.ok && result.stderr?.trim()) {
             const errTail = result.stderr.trim().slice(-1500)
-            effects.push(sendEffect(event.replyTo, `<b>stderr:</b>\n<pre>${escHtml(errTail)}</pre>`, { parse_mode: "HTML" }))
+            effects.push(sendEffect(replyTo, `<b>stderr:</b>\n<pre>${escHtml(errTail)}</pre>`, { parse_mode: "HTML" }))
         }
 
         return { effects }

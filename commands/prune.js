@@ -8,7 +8,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
-const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const descriptions = {
     prune: "Remove all disconnected sessions from the session list",
@@ -20,16 +20,16 @@ export const tips = [
 
 export const commands = {
     prune: (event, core) => {
-        const access = loadAccess()
-        const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
-        if (event.chatType !== "private" && !isCC) {
+        if (event.chatType !== "private") {
             return { effects: [] }
         }
+        const access = loadAccess()
         const senderId = String(event.userId ?? "")
-        if (!isCC && !access.allowFrom.includes(senderId)) {
+        if (!access.allowFrom.includes(senderId)) {
             return { effects: [] }
         }
 
+        const replyTo = replyToFromEvent(event, "cmd/prune")
         const sessions = core.chatSessions ?? {}
         const removal = {}
         const removed = []
@@ -43,7 +43,7 @@ export const commands = {
         if (removed.length === 0) {
             return {
                 stateChanges: {},
-                effects: [sendEffect(event.replyTo, "No disconnected sessions to prune.", { parse_mode: "HTML" })],
+                effects: [sendEffect(replyTo, "No disconnected sessions to prune.", { parse_mode: "HTML" })],
             }
         }
 
@@ -59,7 +59,7 @@ export const commands = {
         return {
             stateChanges,
             effects: [
-                sendEffect(event.replyTo, `Pruned ${removed.length} disconnected session${removed.length === 1 ? "" : "s"}: ${listed}`, { parse_mode: "HTML" }),
+                sendEffect(replyTo, `Pruned ${removed.length} disconnected session${removed.length === 1 ? "" : "s"}: ${listed}`, { parse_mode: "HTML" }),
             ],
         }
     },

@@ -9,7 +9,7 @@ import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
-const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/que lets you stack messages — they're delivered one at a time after the agent finishes each turn.",
@@ -31,6 +31,7 @@ export const commands = {
             return { effects: [] }
         }
 
+        const replyTo = replyToFromEvent(event, "cmd/que")
         const body = (event.text ?? "").replace(/^\/que(?:ue)?\s*/i, "").trim()
         if (!body) {
             // No message — show current queue
@@ -42,9 +43,10 @@ export const commands = {
             if (!targetId) { targetId = core.chatState?.focusedSessionId }
             const session = targetId ? core.chatSessions?.[targetId] : null
             const pending = session?.pendingQueue ?? []
+
             if (pending.length === 0) {
                 return {
-                    effects: [sendEffect(event.replyTo, "Queue is empty. Use <code>/que &lt;message&gt;</code> to add one.", { parse_mode: "HTML" })],
+                    effects: [sendEffect(replyTo, "Queue is empty. Use <code>/que &lt;message&gt;</code> to add one.", { parse_mode: "HTML" })],
                 }
             }
             const lines = [`<b>Queued messages (${pending.length}):</b>`]
@@ -52,7 +54,7 @@ export const commands = {
                 lines.push(`${i + 1}. ${esc(pending[i].text.slice(0, 100))}`)
             }
             return {
-                effects: [sendEffect(event.replyTo, lines.join("\n"), { parse_mode: "HTML" })],
+                effects: [sendEffect(replyTo, lines.join("\n"), { parse_mode: "HTML" })],
             }
         }
 
@@ -69,7 +71,7 @@ export const commands = {
 
         if (!targetId) {
             return {
-                effects: [sendEffect(event.replyTo, "No session to queue for.")],
+                effects: [sendEffect(replyTo, "No session to queue for.")],
             }
         }
 
@@ -92,7 +94,7 @@ export const commands = {
                     [targetId]: { pendingQueue: newQueue },
                 },
             },
-            effects: [sendEffect(event.replyTo, `Queued (${newQueue.length} pending). Will deliver after the agent finishes.`)],
+            effects: [sendEffect(replyTo, `Queued (${newQueue.length} pending). Will deliver after the agent finishes.`)],
         }
     },
 }
@@ -108,6 +110,7 @@ commands.clear_que = (event, core) => {
         return { effects: [] }
     }
 
+    const replyTo = replyToFromEvent(event, "cmd/clear_que")
     let targetId = null
     if (isCC && event.threadId) {
         const cc = core.chatState?.commandCenter ?? {}
@@ -116,7 +119,7 @@ commands.clear_que = (event, core) => {
     if (!targetId) { targetId = core.chatState?.focusedSessionId }
 
     if (!targetId) {
-        return { effects: [sendEffect(event.replyTo, "No session.")] }
+        return { effects: [sendEffect(replyTo, "No session.")] }
     }
 
     const session = core.chatSessions?.[targetId]
@@ -130,7 +133,7 @@ commands.clear_que = (event, core) => {
                 [targetId]: { pendingQueue: [] },
             },
         },
-        effects: [sendEffect(event.replyTo, cleared > 0 ? `Cleared ${cleared} queued message(s).` : "Queue was already empty.")],
+        effects: [sendEffect(replyTo, cleared > 0 ? `Cleared ${cleared} queued message(s).` : "Queue was already empty.")],
     }
 }
 commands.clear_queue = commands.clear_que

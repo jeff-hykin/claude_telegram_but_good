@@ -8,7 +8,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess, saveAccess } = await versionedImport("../lib/access.js", import.meta)
-const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = []
 
@@ -20,22 +20,23 @@ export const commands = {
     approve_user: (event, core) => {
         if (event.chatType !== "private") { return { effects: [] } }
 
+        const replyTo = replyToFromEvent(event, "cmd/approve_user")
         const text = event.text ?? ""
         const match = text.match(/^\/approve_user\s+(\S+)/i)
         if (!match) {
-            return { effects: [sendEffect(event.replyTo, "Usage: /approve_user one_time_password:<token>")] }
+            return { effects: [sendEffect(replyTo, "Usage: /approve_user one_time_password:<token>")] }
         }
 
         const submitted = match[1]
         const otpMatch = submitted.match(/^one_time_password:(.+)$/)
         if (!otpMatch) {
-            return { effects: [sendEffect(event.replyTo, "Invalid format. Expected: one_time_password:<token>")] }
+            return { effects: [sendEffect(replyTo, "Invalid format. Expected: one_time_password:<token>")] }
         }
         const token = otpMatch[1]
 
         const pending = core.chatState?.pendingOtps?.[token]
         if (!pending) {
-            return { effects: [sendEffect(event.replyTo, "No approval is pending for that token. Run `cbg onboard` or `cbg authorize` first.")] }
+            return { effects: [sendEffect(replyTo, "No approval is pending for that token. Run `cbg onboard` or `cbg authorize` first.")] }
         }
 
         const senderId = String(event.userId ?? "")
@@ -54,9 +55,10 @@ export const commands = {
                 },
             },
             effects: [
-                sendEffect(event.replyTo,
+                sendEffect(replyTo,
                     `Approved! (Your user ID is ${senderId})\n\n` +
-                    "All your (new) claude cli sessions will be accessable to you here.\nUse /list to see them\nUse /new if you want to create one from here"),
+                    "All your (new) claude cli sessions will be accessable to you here.\nUse /list to see them\nUse /new if you want to create one from here",
+                ),
             ],
         }
     },

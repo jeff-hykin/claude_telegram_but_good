@@ -196,9 +196,13 @@ const pendingToolCalls = new Map()  // requestId → { resolve, reject }
 // main-server via IPC, which sends a Telegram message with Allow/Deny
 // buttons. The server replies with `permission_reply` over IPC, and
 // we forward it back to Claude Code as a `notifications/claude/channel/permission`.
-// setNotificationHandler expects a Zod schema; use the internal map directly
-// for custom notification methods that have no pre-built schema.
-mcp._notificationHandlers.set(
+// The MCP SDK's setNotificationHandler expects a Zod schema and doesn't
+// support custom notification methods out of the box. Use the internal
+// _notificationHandlers map directly for Claude Code's custom channel
+// notifications. This is the same approach the official telegram plugin
+// uses (server.ts uses Zod schemas but the underlying mechanism is the
+// same dispatch map).
+mcp._notificationHandlers?.set(
     "notifications/claude/channel/permission_request",
     async (notification) => {
         const params = notification.params ?? {}
@@ -211,10 +215,10 @@ mcp._notificationHandlers.set(
             sendIpc(serverConn, {
                 type: "permission_request",
                 sessionId: SESSION_ID,
-                request_id: params.request_id,
-                tool_name: params.tool_name,
+                requestId: params.request_id,
+                toolName: params.tool_name,
                 description: params.description ?? "",
-                input_preview: params.input_preview ?? "",
+                inputPreview: params.input_preview ?? "",
             })
         } catch (e) {
             dbg("SHIM", "permission_request forward failed:", e)

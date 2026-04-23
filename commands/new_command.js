@@ -8,7 +8,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
-const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "custom commands don't need to involve an agent, they're just JavaScript ( /new_command )",
@@ -22,20 +22,18 @@ export const descriptions = {
 
 export const commands = {
     new_command: (event, _core) => {
+        if (event.chatType !== "private") { return { effects: [] } }
         const access = loadAccess()
-        const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
-        if (event.chatType !== "private" && !isCC) { return { effects: [] } }
         if (!access.allowFrom.includes(String(event.userId ?? ""))) {
             return { effects: [] }
         }
 
+        const replyTo = replyToFromEvent(event, "cmd/new_command")
         const text = event.text ?? ""
         const arg = text.replace(/^\/new_command\s*/, "").trim()
         if (!arg) {
             return {
-                effects: [
-                    sendEffect(event.replyTo, "Usage: /new_command <description of what the command should do>"),
-                ],
+                effects: [sendEffect(replyTo, "Usage: /new_command <description of what the command should do>")],
             }
         }
 

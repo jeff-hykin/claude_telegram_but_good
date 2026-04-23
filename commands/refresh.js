@@ -12,6 +12,7 @@ const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { generateName } = await versionedImport("../lib/pure/ids.js", import.meta)
 const { tailColdStream } = await versionedImport("../lib/cold-storage.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 const CONTEXT_MESSAGE_LIMIT = 50
 
@@ -39,11 +40,6 @@ export const descriptions = {
     refresh: "Spawn a new session in this topic",
 }
 
-function reply(chatId, text, threadId) {
-    const options = { parse_mode: "HTML" }
-    if (threadId != null) { options.message_thread_id = Number(threadId) }
-    return { effects: [{ type: "send_text_to_user", chatId, text, options }] }
-}
 
 /**
  * After dtach spawns Claude, poll the log file for the "trust this
@@ -85,29 +81,30 @@ export const commands = {
     refresh: async (event, core) => {
         const access = loadAccess()
         const ccChatId = access.commandCenterChatId
+        const replyTo = replyToFromEvent(event, "cmd/refresh")
 
         if (!ccChatId || String(event.chatId) !== String(ccChatId)) {
-            return reply(event.chatId, "This command only works in the command center group.")
+            return { effects: [sendEffect(replyTo, "This command only works in the command center group.", { parse_mode: "HTML" })] }
         }
 
         const threadId = event.threadId
         if (!threadId) {
-            return reply(event.chatId, "This command must be used inside a topic.", null)
+            return { effects: [sendEffect(replyTo, "This command must be used inside a topic.", { parse_mode: "HTML" })] }
         }
 
         if (!(await $.commandExists("dtach"))) {
-            return reply(event.chatId, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach", threadId)
+            return { effects: [sendEffect(replyTo, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach", { parse_mode: "HTML" })] }
         }
 
         const cc = core.chatState?.commandCenter ?? {}
         const threadKey = String(threadId)
 
-        // Determine title from the topic — use existing mapping or event context
-        // For now use the text after /refresh as title, or fall back
-        const titleFromCmd = event.text?.replace(/^\/refresh\s*/, "").trim()
+        // Title always comes from the topic name — the Telegram topic
+        // is the source of truth, not a command argument.
         const existingSessionId = cc.threadMap?.[threadKey]
+        const topicName = cc.topicNames?.[threadKey] ?? null
         const existingTitle = existingSessionId ? core.chatSessions?.[existingSessionId]?.title : null
-        const title = titleFromCmd || existingTitle || `Topic${threadKey}`
+        const title = topicName || existingTitle || `Topic${threadKey}`
 
         const sessionId = generateName()
 
@@ -252,12 +249,9 @@ export const commands = {
                 : (existingSessionId
                     ? `\nNo message history found for previous session — starting fresh.`
                     : "")
-            const effects = [{
-                type: "send_text_to_user",
-                chatId: event.chatId,
-                text: `Spawned new session <code>${sessionId}</code> (${title})${contextNote}`,
-                options: { parse_mode: "HTML", message_thread_id: Number(threadId) },
-            }]
+            const effects = [
+                sendEffect(replyTo, `Spawned new session <code>${sessionId}</code> (${title})${contextNote}`, { parse_mode: "HTML" }),
+            ]
 
             // Kill old session: send /exit gracefully, then schedule a
             // force-close as fallback in case it doesn't exit cleanly.
@@ -328,7 +322,7 @@ export const commands = {
                 detail = String(err)
             }
             dbg("REFRESH", "failed:", detail)
-            return reply(event.chatId, `Failed to spawn session:\n${detail}`, threadId)
+            return { effects: [sendEffect(replyTo, `Failed to spawn session:\n${detail}`, { parse_mode: "HTML" })] }
         }
     },
 }

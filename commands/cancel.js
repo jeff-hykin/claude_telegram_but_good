@@ -28,7 +28,7 @@ import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { buildCancelAction } = await versionedImport("../lib/long-task-actions.js", import.meta)
-const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/cancel will stop the current request",
@@ -43,10 +43,6 @@ export const descriptions = {
 // is gone or wedged. Three seconds is plenty of headroom without
 // leaving the cancel command hanging indefinitely on a dead socket.
 const DTACH_WRITE_TIMEOUT_MS = 3000
-
-function reply(replyTo, text) {
-    return { effects: [sendEffect(replyTo, text)] }
-}
 
 function findSessionForEvent(event, core, label = "CMD") {
     const access = loadAccess()
@@ -73,8 +69,9 @@ export const commands = {
             return { effects: [] }
         }
 
+        const replyTo = replyToFromEvent(event, "cmd/cancel")
         const focused = findSessionForEvent(event, core, "CANCEL")
-        if (!focused) { return reply(event.replyTo, "No focused session.") }
+        if (!focused) { return { effects: [sendEffect(replyTo, "No focused session.")] } }
 
         // Mode 1: long-task cancel. Takes priority over ESC-to-dtach so
         // a running task gets its full cleanup path (cold-storage entry,
@@ -101,12 +98,13 @@ export const commands = {
             // Fail loud instead of SIGINT-ing the process. A session
             // without a dtach socket is an invariant violation — the
             // user should know something's wrong upstream.
-            return reply(
-                event.replyTo,
-                `Session ${focused.id} has no dtach socket; can't cancel. ` +
-                `This usually means the session was spawned outside the cbg ` +
-                `shim wrapper. Restart it via /new or the cbg CLI.`,
-            )
+            return {
+                effects: [sendEffect(replyTo,
+                    `Session ${focused.id} has no dtach socket; can't cancel. ` +
+                    `This usually means the session was spawned outside the cbg ` +
+                    `shim wrapper. Restart it via /new or the cbg CLI.`,
+                )],
+            }
         }
 
         // Clear any queued messages — cancelling means "stop everything".
@@ -125,12 +123,12 @@ export const commands = {
                         [focused.id]: { pendingQueue: [] },
                     },
                 },
-                effects: [sendEffect(event.replyTo, `Sent Escape to session ${focused.id} via dtach${queueNote}`)],
+                effects: [sendEffect(replyTo, `Sent Escape to session ${focused.id} via dtach${queueNote}`)],
             }
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err)
             dbg("CANCEL", "failed:", msg)
-            return reply(event.replyTo, `Cancel failed: ${msg}`)
+            return { effects: [sendEffect(replyTo, `Cancel failed: ${msg}`)] }
         }
     },
 }

@@ -25,7 +25,7 @@
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
-const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = []
 
@@ -89,6 +89,7 @@ export const commands = {
             }
         }
 
+        const replyTo = replyToFromEvent(event, "cmd/status")
         const procs = await listClaudeSessions()
         if (procs.length > 0) {
             parts.push(`\nRunning Claude Code processes (${procs.length}):`)
@@ -100,9 +101,7 @@ export const commands = {
         }
 
         return {
-            effects: [
-                sendEffect(event.replyTo, parts.join("\n"), { format: "plain" }),
-            ],
+            effects: [sendEffect(replyTo, parts.join("\n"), { format: "plain" })],
         }
     },
 }

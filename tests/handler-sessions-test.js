@@ -231,7 +231,7 @@ Deno.test("session-force-close: SIGTERMs live session and drops it from state", 
     assertEquals(get(action, "stateChanges.chatState.focusedSessionId"), null)
     const notices = effectsOfType(action, "send_text_to_user")
     assertEquals(notices.length, 1)
-    assertEquals(notices[0].chatId, "42")
+    assertEquals(notices[0].replyTo?.chatId ?? notices[0].chatId, "42")
 })
 
 Deno.test("session-force-close: leaves focus alone when a different session is focused", () => {

@@ -17,7 +17,7 @@ const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { generateName } = await versionedImport("../lib/pure/ids.js", import.meta)
-const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 /**
  * After dtach spawns Claude, poll the log file for the "trust this
@@ -67,34 +67,19 @@ export const descriptions = {
 
 export const commands = {
     new: async (event, core) => {
+        if (event.chatType !== "private") { return { effects: [] } }
         const access = loadAccess()
-        const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
-        if (event.chatType !== "private" && !isCC) { return { effects: [] } }
-        if (!isCC && !access.allowFrom.includes(String(event.userId ?? ""))) {
+        if (!access.allowFrom.includes(String(event.userId ?? ""))) {
             return { effects: [] }
         }
 
+        const replyTo = replyToFromEvent(event, "cmd/new")
         if (!(await $.commandExists("dtach"))) {
-            return { effects: [sendEffect(event.replyTo, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach")] }
-        }
-
-        const cc = core.chatState?.commandCenter ?? {}
-        const threadKey = event.threadId ? String(event.threadId) : null
-
-        // In command center: derive title from topic name, stop old session
-        const titleFromCmd = event.text?.replace(/^\/new\s*/, "").trim()
-        let title
-        let existingSessionId = null
-        if (isCC && threadKey) {
-            existingSessionId = cc.threadMap?.[threadKey] ?? null
-            const topicName = cc.topicNames?.[threadKey]
-            const existingTitle = existingSessionId ? core.chatSessions?.[existingSessionId]?.title : null
-            title = titleFromCmd || topicName || existingTitle || `Topic${threadKey}`
-        } else {
-            title = titleFromCmd || undefined
+            return { effects: [sendEffect(replyTo, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach")] }
         }
 
         const sessionId = generateName()
+        const title = event.text?.replace(/^\/new\s*/, "").trim() || undefined
 
         let permArgs = ""
         try {
@@ -150,57 +135,16 @@ export const commands = {
 
             watchForTrustPrompt(dtachSock, logFile)
 
-            const effects = []
             const displayTitle = title ? ` (${title})` : ""
-            effects.push(sendEffect(event.replyTo, `Created: /chat_${sessionId}${displayTitle}`))
-
-            // In command center topic: stop old session and rebind topic
-            if (isCC && threadKey) {
-                if (existingSessionId) {
-                    const oldSession = core.chatSessions?.[existingSessionId]
-                    if (oldSession) {
-                        effects.push({
-                            type: "send_text_to_claude",
-                            sessionId: existingSessionId,
-                            text: "/exit",
-                        })
-                        effects.push({
-                            type: "set_timer",
-                            delayMs: 15000,
-                            event: {
-                                type: "session_force_close",
-                                sessionId: existingSessionId,
-                            },
-                        })
-                        dbg("NEW", `killing old session ${existingSessionId} in topic ${threadKey}`)
-                    }
-                }
-
-                const topicMap = { ...(cc.topicMap ?? {}) }
-                const threadMap = { ...(cc.threadMap ?? {}) }
-                const topicNames = { ...(cc.topicNames ?? {}) }
-                if (existingSessionId) { delete topicMap[existingSessionId] }
-                topicMap[sessionId] = threadKey
-                threadMap[threadKey] = sessionId
-                if (title) { topicNames[threadKey] = title }
-
-                return {
-                    stateChanges: {
-                        chatState: {
-                            pendingFocusId: sessionId,
-                            commandCenter: { ...cc, topicMap, threadMap, topicNames },
-                        },
-                    },
-                    effects,
-                }
-            }
-
-            // DM mode: just set pending focus
+            // The new shim will register in ~1 s. Stash the session id
+            // as `pendingFocusId` so `session_register` promotes it to
+            // focused when the registration lands. This replaces the
+            // legacy setTimeout → state.setFocusedSession dance.
             return {
                 stateChanges: {
                     chatState: { pendingFocusId: sessionId },
                 },
-                effects,
+                effects: [sendEffect(replyTo, `Created: /chat_${sessionId}${displayTitle}`)],
             }
         } catch (err) {
             let detail = ""
@@ -212,7 +156,7 @@ export const commands = {
                 detail = String(err)
             }
             dbg("NEW", "failed:", detail)
-            return { effects: [sendEffect(event.replyTo, `Failed to create new session via dtach:\n${detail}`)] }
+            return { effects: [sendEffect(replyTo, `Failed to create new session via dtach:\n${detail}`)] }
         }
     },
 }

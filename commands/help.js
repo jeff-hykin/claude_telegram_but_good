@@ -1,7 +1,7 @@
 // commands/help.js — Action-returning hot command.
 
 import { versionedImport } from "../lib/version.js"
-const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "Claude can send you whole files, even large ones",
@@ -43,17 +43,18 @@ const HELP_BODY =
 export const commands = {
     help: (event, _core) => {
         // help is safe in any context — no gating needed
-        // The help body contains literal `/title <name>`.
-        // send_text_to_user defaults to format:"html", and
-        // Telegram's HTML parser rejects the message with
-        // "can't parse entities: Unsupported start tag
-        // 'name' at byte offset 259" — the `<name>`
-        // placeholder looks like an unopened tag. Same
-        // failure class /status hit. Help doesn't need any
-        // HTML, so plain is the right fix.
+        const replyTo = replyToFromEvent(event, "cmd/help")
         return {
             effects: [
-                sendEffect(event.replyTo, HELP_BODY, { format: "plain" }),
+                // The help body contains literal `/title <name>`.
+                // send_text_to_user defaults to format:"html", and
+                // Telegram's HTML parser rejects the message with
+                // "can't parse entities: Unsupported start tag
+                // 'name' at byte offset 259" — the `<name>`
+                // placeholder looks like an unopened tag. Same
+                // failure class /status hit. Help doesn't need any
+                // HTML, so plain is the right fix.
+                sendEffect(replyTo, HELP_BODY, { format: "plain" }),
             ],
         }
     },

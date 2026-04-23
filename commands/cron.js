@@ -8,10 +8,10 @@ import { join } from "node:path"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
-const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
-    "/cron shows all scheduled tasks — set them up with the /schedule skill. JK! I haven't finished this feature yet",
+    "/cron shows all scheduled tasks — set them up with /schedule.",
 ]
 
 function readScheduledTasks(homeDir) {
@@ -58,12 +58,16 @@ export const descriptions = {
 
 export const commands = {
     cron: (event, _core) => {
+        if (event.chatType !== "private") {
+            return { effects: [] }
+        }
         const access = loadAccess()
         const senderId = String(event.userId ?? "")
         if (!access.allowFrom.includes(senderId)) {
             return { effects: [] }
         }
 
+        const replyTo = replyToFromEvent(event, "cmd/cron")
         const home = Deno.env.get("HOME") ?? ""
         const parts = []
 
@@ -107,9 +111,7 @@ export const commands = {
         parts.push("Use /loop inside a Claude Code session to manage them.")
 
         return {
-            effects: [
-                sendEffect(event.replyTo, parts.join("\n"), { parse_mode: "HTML" }),
-            ],
+            effects: [sendEffect(replyTo, parts.join("\n"), { parse_mode: "HTML" })],
         }
     },
 }

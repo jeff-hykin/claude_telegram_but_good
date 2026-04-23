@@ -9,7 +9,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
-const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/kill asks claude to stop, /fkill doesn't ask",
@@ -21,10 +21,6 @@ export const descriptions = {
     fkill: "Force kill the focused session (SIGTERM)",
     fkill_all: "Force kill all Claude sessions",
     relay_shutdown: "Shut down the Telegram relay (sessions keep running)",
-}
-
-function reply(replyTo, text) {
-    return { effects: [sendEffect(replyTo, text)] }
 }
 
 function findSessionForEvent(event, core, label = "CMD") {
@@ -54,43 +50,47 @@ function gate(event) {
 export const commands = {
     kill: (event, core) => {
         if (!gate(event)) { return { effects: [] } }
+        const replyTo = replyToFromEvent(event, "cmd/kill")
         const focused = findSessionForEvent(event, core, "KILL")
-        if (!focused) { return reply(event.replyTo, "No focused session.") }
+        if (!focused) { return { effects: [sendEffect(replyTo, "No focused session.")] } }
         try {
             Deno.kill(focused.pid, "SIGINT")
-            return reply(event.replyTo, `Sent SIGINT to Claude Code (PID ${focused.pid})`)
+            return { effects: [sendEffect(replyTo, `Sent SIGINT to Claude Code (PID ${focused.pid})`)] }
         } catch (err) {
-            return reply(event.replyTo, `kill failed: ${err instanceof Error ? err.message : err}`)
+            return { effects: [sendEffect(replyTo, `kill failed: ${err instanceof Error ? err.message : err}`)] }
         }
     },
 
     fkill: (event, core) => {
         if (!gate(event)) { return { effects: [] } }
+        const replyTo = replyToFromEvent(event, "cmd/fkill")
         const focused = findSessionForEvent(event, core, "FKILL")
-        if (!focused) { return reply(event.replyTo, "No focused session.") }
+        if (!focused) { return { effects: [sendEffect(replyTo, "No focused session.")] } }
         try {
             Deno.kill(focused.pid, "SIGTERM")
-            return reply(event.replyTo, `Sent SIGTERM to Claude Code (PID ${focused.pid})`)
+            return { effects: [sendEffect(replyTo, `Sent SIGTERM to Claude Code (PID ${focused.pid})`)] }
         } catch (err) {
-            return reply(event.replyTo, `fkill failed: ${err instanceof Error ? err.message : err}`)
+            return { effects: [sendEffect(replyTo, `fkill failed: ${err instanceof Error ? err.message : err}`)] }
         }
     },
 
     relay_shutdown: (event, _core) => {
         if (!gate(event)) { return { effects: [] } }
+        const replyTo = replyToFromEvent(event, "cmd/relay_shutdown")
         // Fire the confirmation reply and schedule the exit: we need
         // the event loop to drain the outbound effect before we kill
         // the process, so the user actually sees the message.
         setTimeout(() => Deno.exit(0), 200)
-        return reply(event.replyTo, "Telegram relay shut down. Claude sessions are still running.")
+        return { effects: [sendEffect(replyTo, "Telegram relay shut down. Claude sessions are still running.")] }
     },
 
     fkill_all: (event, core) => {
         if (!gate(event)) { return { effects: [] } }
+        const replyTo = replyToFromEvent(event, "cmd/fkill_all")
         const sessions = Object.values(core.chatSessions ?? {})
         for (const s of sessions) {
             try { Deno.kill(s.pid, "SIGKILL") } catch (e) { /* best-effort */ }
         }
-        return reply(event.replyTo, "Killing all Claude sessions.")
+        return { effects: [sendEffect(replyTo, "Killing all Claude sessions.")] }
     },
 }

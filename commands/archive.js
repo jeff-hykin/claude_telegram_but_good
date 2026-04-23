@@ -6,28 +6,25 @@
 import { versionedImport } from "../lib/version.js"
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
-const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const descriptions = {
     archive: "Archive and close a topic",
-}
-
-function reply(replyTo, text) {
-    return { effects: [sendEffect(replyTo, text, { parse_mode: "HTML" })] }
 }
 
 export const commands = {
     archive: async (event, core) => {
         const access = loadAccess()
         const ccChatId = access.commandCenterChatId
+        const replyTo = replyToFromEvent(event, "cmd/archive")
 
         if (!ccChatId || String(event.chatId) !== String(ccChatId)) {
-            return reply(event.replyTo, "This command only works in the command center group.")
+            return { effects: [sendEffect(replyTo, "This command only works in the command center group.", { parse_mode: "HTML" })] }
         }
 
         const threadId = event.threadId
         if (!threadId) {
-            return reply(event.replyTo, "This command must be used inside a topic.")
+            return { effects: [sendEffect(replyTo, "This command must be used inside a topic.", { parse_mode: "HTML" })] }
         }
 
         const cc = core.chatState?.commandCenter ?? {}
@@ -48,7 +45,7 @@ export const commands = {
         }]
 
         // Notify before deleting the topic
-        effects.push(sendEffect(event.replyTo, `Archiving topic${sessionId ? ` (session ${sessionId})` : ""}...`, { parse_mode: "HTML" }))
+        effects.push(sendEffect(replyTo, `Archiving topic${sessionId ? ` (session ${sessionId})` : ""}...`, { parse_mode: "HTML" }))
 
         // Delete the topic from Telegram
         effects.push({
