@@ -8,6 +8,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
+const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "custom commands don't need to involve an agent, they're just JavaScript ( /new_command )",
@@ -32,11 +33,7 @@ export const commands = {
         if (!arg) {
             return {
                 effects: [
-                    {
-                        type: "send_text_to_user",
-                        chatId: event.chatId,
-                        text: "Usage: /new_command <description of what the command should do>",
-                    },
+                    sendEffect(event.replyTo, "Usage: /new_command <description of what the command should do>"),
                 ],
             }
         }

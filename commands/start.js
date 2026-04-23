@@ -7,6 +7,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = []
 
@@ -23,11 +24,7 @@ export const commands = {
         if (access.dmPolicy === "disabled") {
             return {
                 effects: [
-                    {
-                        type: "send_text_to_user",
-                        chatId: event.chatId,
-                        text: "This bot isn't accepting new connections.",
-                    },
+                    sendEffect(event.replyTo, "This bot isn't accepting new connections."),
                 ],
             }
         }
@@ -41,11 +38,7 @@ export const commands = {
             `After that, DMs here reach that session.`
         return {
             effects: [
-                {
-                    type: "send_text_to_user",
-                    chatId: event.chatId,
-                    text,
-                },
+                sendEffect(event.replyTo, text),
             ],
         }
     },

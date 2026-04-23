@@ -8,6 +8,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
+const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const descriptions = {
     prune: "Remove all disconnected sessions from the session list",
@@ -16,13 +17,6 @@ export const descriptions = {
 export const tips = [
     "/prune clears out old [disconnected] entries from /list.",
 ]
-
-function reply(chatId, text) {
-    return {
-        stateChanges: {},
-        effects: [{ type: "send_text_to_user", chatId, text, options: { parse_mode: "HTML" } }],
-    }
-}
 
 export const commands = {
     prune: (event, core) => {
@@ -46,7 +40,10 @@ export const commands = {
         }
 
         if (removed.length === 0) {
-            return reply(event.chatId, "No disconnected sessions to prune.")
+            return {
+                stateChanges: {},
+                effects: [sendEffect(event.replyTo, "No disconnected sessions to prune.", { parse_mode: "HTML" })],
+            }
         }
 
         // If the focused session was one of the pruned ones, clear focus
@@ -61,12 +58,7 @@ export const commands = {
         return {
             stateChanges,
             effects: [
-                {
-                    type: "send_text_to_user",
-                    chatId: event.chatId,
-                    text: `Pruned ${removed.length} disconnected session${removed.length === 1 ? "" : "s"}: ${listed}`,
-                    options: { parse_mode: "HTML" },
-                },
+                sendEffect(event.replyTo, `Pruned ${removed.length} disconnected session${removed.length === 1 ? "" : "s"}: ${listed}`, { parse_mode: "HTML" }),
             ],
         }
     },

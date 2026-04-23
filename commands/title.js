@@ -6,6 +6,7 @@
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/title without any argument will auto-generate a title",
@@ -64,13 +65,10 @@ export const commands = {
             const focusedId = core.chatState?.focusedSessionId
             focused = focusedId ? core.chatSessions?.[focusedId] : null
         }
-        const replyOpts = {}
-        if (event.threadId != null) { replyOpts.message_thread_id = Number(event.threadId) }
-
         if (!focused) {
             return {
                 effects: [
-                    { type: "send_text_to_user", chatId: event.chatId, text: "No focused session.", options: replyOpts },
+                    sendEffect(event.replyTo, "No focused session."),
                 ],
             }
         }
@@ -86,7 +84,7 @@ export const commands = {
                 },
             },
             effects: [
-                { type: "send_text_to_user", chatId: event.chatId, text: `Title: ${title}`, options: replyOpts },
+                sendEffect(event.replyTo, `Title: ${title}`),
             ],
         }
     },

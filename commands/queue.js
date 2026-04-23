@@ -9,6 +9,7 @@ import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
+const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/que lets you stack messages — they're delivered one at a time after the agent finishes each turn.",
@@ -41,17 +42,9 @@ export const commands = {
             if (!targetId) { targetId = core.chatState?.focusedSessionId }
             const session = targetId ? core.chatSessions?.[targetId] : null
             const pending = session?.pendingQueue ?? []
-            const options = {}
-            if (event.threadId != null) { options.message_thread_id = Number(event.threadId) }
-
             if (pending.length === 0) {
                 return {
-                    effects: [{
-                        type: "send_text_to_user",
-                        chatId: event.chatId,
-                        text: "Queue is empty. Use <code>/que &lt;message&gt;</code> to add one.",
-                        options: { parse_mode: "HTML", ...options },
-                    }],
+                    effects: [sendEffect(event.replyTo, "Queue is empty. Use <code>/que &lt;message&gt;</code> to add one.", { parse_mode: "HTML" })],
                 }
             }
             const lines = [`<b>Queued messages (${pending.length}):</b>`]
@@ -59,12 +52,7 @@ export const commands = {
                 lines.push(`${i + 1}. ${esc(pending[i].text.slice(0, 100))}`)
             }
             return {
-                effects: [{
-                    type: "send_text_to_user",
-                    chatId: event.chatId,
-                    text: lines.join("\n"),
-                    options: { parse_mode: "HTML", ...options },
-                }],
+                effects: [sendEffect(event.replyTo, lines.join("\n"), { parse_mode: "HTML" })],
             }
         }
 
@@ -80,15 +68,8 @@ export const commands = {
         if (!targetId) { targetId = core.chatState?.focusedSessionId }
 
         if (!targetId) {
-            const options = {}
-            if (event.threadId != null) { options.message_thread_id = Number(event.threadId) }
             return {
-                effects: [{
-                    type: "send_text_to_user",
-                    chatId: event.chatId,
-                    text: "No session to queue for.",
-                    options,
-                }],
+                effects: [sendEffect(event.replyTo, "No session to queue for.")],
             }
         }
 
@@ -105,20 +86,13 @@ export const commands = {
 
         dbg("QUE", `queued message for ${targetId} (${newQueue.length} pending)`)
 
-        const options = {}
-        if (event.threadId != null) { options.message_thread_id = Number(event.threadId) }
         return {
             stateChanges: {
                 chatSessions: {
                     [targetId]: { pendingQueue: newQueue },
                 },
             },
-            effects: [{
-                type: "send_text_to_user",
-                chatId: event.chatId,
-                text: `Queued (${newQueue.length} pending). Will deliver after the agent finishes.`,
-                options,
-            }],
+            effects: [sendEffect(event.replyTo, `Queued (${newQueue.length} pending). Will deliver after the agent finishes.`)],
         }
     },
 }
@@ -142,15 +116,11 @@ commands.clear_que = (event, core) => {
     if (!targetId) { targetId = core.chatState?.focusedSessionId }
 
     if (!targetId) {
-        const options = {}
-        if (event.threadId != null) { options.message_thread_id = Number(event.threadId) }
-        return { effects: [{ type: "send_text_to_user", chatId: event.chatId, text: "No session.", options }] }
+        return { effects: [sendEffect(event.replyTo, "No session.")] }
     }
 
     const session = core.chatSessions?.[targetId]
     const cleared = (session?.pendingQueue ?? []).length
-    const options = {}
-    if (event.threadId != null) { options.message_thread_id = Number(event.threadId) }
 
     dbg("QUE", `cleared ${cleared} queued messages for ${targetId}`)
 
@@ -160,12 +130,7 @@ commands.clear_que = (event, core) => {
                 [targetId]: { pendingQueue: [] },
             },
         },
-        effects: [{
-            type: "send_text_to_user",
-            chatId: event.chatId,
-            text: cleared > 0 ? `Cleared ${cleared} queued message(s).` : "Queue was already empty.",
-            options,
-        }],
+        effects: [sendEffect(event.replyTo, cleared > 0 ? `Cleared ${cleared} queued message(s).` : "Queue was already empty.")],
     }
 }
 commands.clear_queue = commands.clear_que

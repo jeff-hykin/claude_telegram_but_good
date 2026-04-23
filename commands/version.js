@@ -3,6 +3,7 @@
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
 const { VERSION } = await versionedImport("../lib/version.js", import.meta)
+const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 
 let gitTag = null
@@ -22,16 +23,9 @@ export const descriptions = {
 export const commands = {
     version: (event, _core) => {
         const displayVersion = gitTag || `build ${VERSION}`
-        const options = {}
-        if (event.threadId != null) { options.message_thread_id = Number(event.threadId) }
         return {
             effects: [
-                {
-                    type: "send_text_to_user",
-                    chatId: event.chatId,
-                    text: `cbg ${displayVersion}`,
-                    options,
-                },
+                sendEffect(event.replyTo, `cbg ${displayVersion}`),
             ],
         }
     },
