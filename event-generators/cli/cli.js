@@ -27,6 +27,8 @@ function printUsage() {
         ["config",           "Print all config as YAML"],
         ["config <key>",     "Print a single config value"],
         ["config <key> <v>", "Set a config value (value is YAML-parsed)"],
+        ["sessions",         "List active sessions (IDs, topics, titles)"],
+        ["tell <target> msg","Send a message to a session (by ID, topic, or title)"],
         ["authorize",        "Generate a one-time pairing code for a new user"],
         ["update [ref]",     "Check out latest tag (or given tag/branch) + hot-reload daemon"],
         ["reinstall",        "Refresh plugin/hooks/CLI shim on disk + hot-reload daemon in place"],
@@ -83,6 +85,16 @@ switch (cmd) {
     case "config": {
         const { runConfig } = await versionedImport("./commands/config.js", import.meta)
         runConfig(args)
+        break
+    }
+    case "sessions": {
+        const { runSessions } = await versionedImport("./commands/sessions.js", import.meta)
+        await runSessions(args)
+        break
+    }
+    case "tell": {
+        const { runTell } = await versionedImport("./commands/tell.js", import.meta)
+        await runTell(args)
         break
     }
     case "authorize": {

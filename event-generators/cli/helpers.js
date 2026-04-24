@@ -68,7 +68,7 @@ const _cliReplyDecoder = new TextDecoder()
  *   - The timeout elapses before a reply arrives.
  *   - The reply isn't valid JSON.
  */
-async function sendCliCommand(kind, payload = {}, { timeoutMs = 5000 } = {}) {
+export async function sendCliCommand(kind, payload = {}, { timeoutMs = 5000 } = {}) {
     let conn
     try {
         conn = await Deno.connect({ transport: "unix", path: paths.IPC_SOCK })

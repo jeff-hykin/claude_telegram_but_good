@@ -273,15 +273,16 @@ export const TOOLS = [
     {
         name: "tell_session",
         description:
-            "Send a message to another session by ID. The message is delivered as a " +
-            "channel event to the target session. Use list_sessions to find available sessions.",
+            "Send a message to another session. Address by session ID (e.g. 'MassCapybara'), " +
+            "topic name (e.g. 'cbg'), or title substring. The message is delivered as a " +
+            "channel event and logged to disk. Use list_sessions to find available sessions.",
         inputSchema: {
             type: "object",
             properties: {
-                target_session_id: { type: "string", description: "Session ID to send to (e.g. 'MassCapybara')" },
+                target: { type: "string", description: "Who to send to: session ID, topic name, or title substring" },
                 text: { type: "string", description: "Message text to deliver" },
             },
-            required: ["target_session_id", "text"],
+            required: ["target", "text"],
         },
     },
     {
