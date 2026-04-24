@@ -13,6 +13,14 @@ const [
 ])
 const c = colors
 
+function formatAgo(ts) {
+    const ms = Date.now() - ts
+    if (ms < 60_000) { return `${Math.floor(ms / 1000)}s ago` }
+    if (ms < 3_600_000) { return `${Math.floor(ms / 60_000)}m ago` }
+    if (ms < 86_400_000) { return `${Math.floor(ms / 3_600_000)}h ago` }
+    return `${Math.floor(ms / 86_400_000)}d ago`
+}
+
 export async function runSessions(_args) {
     const { sendCliCommand } = await versionedImport("../helpers.js", import.meta)
     let reply
@@ -41,9 +49,12 @@ export async function runSessions(_args) {
         const connected = s.connected ? c.green("connected") : c.dim("disconnected")
         const topic = s.topicName ? c.cyan(s.topicName) : c.dim("(no topic)")
         const title = s.title ? c.white(s.title) : c.dim("(untitled)")
-        console.log(`  ${c.bold.cyan(s.id)}  ${topic}  ${title}  ${connected}`)
-        if (s.cwd) {
-            console.log(`    ${c.dim(s.cwd)}${s.gitBranch ? c.dim(` @ ${s.gitBranch}`) : ""}`)
+        const ago = s.lastActive ? formatAgo(s.lastActive) : null
+        const lastActiveStr = ago ? c.dim(`  ${ago}`) : ""
+        console.log(`  ${c.bold.cyan(s.id)}  ${topic}  ${title}  ${connected}${lastActiveStr}`)
+        const details = [s.cwd, s.gitBranch ? `@ ${s.gitBranch}` : "", s.pid ? `pid ${s.pid}` : ""].filter(Boolean).join("  ")
+        if (details) {
+            console.log(`    ${c.dim(details)}`)
         }
     }
     console.log()
