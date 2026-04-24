@@ -21,7 +21,7 @@ function printUsage() {
         ["start",            "Start the daemon (creates systemd/launchd service)"],
         ["stop",             "Stop the daemon"],
         ["restart",          "Stop + start"],
-        ["new [opts] [...]", "New dtach session (" + c.dim("--title T") + ", rest passed to claude)"],
+        ["new [name] [...]", "New dtach session (" + c.dim("-d/--detach") + " for background, prints ID)"],
         ["resume [id]",      "Attach to a dtach session (interactive picker if no id)"],
         ["status",           "Show daemon status + active sessions"],
         ["config",           "Print all config as YAML"],
@@ -29,6 +29,8 @@ function printUsage() {
         ["config <key> <v>", "Set a config value (value is YAML-parsed)"],
         ["sessions",         "List active sessions (IDs, topics, titles)"],
         ["tell <target> msg","Send a message to a session (by ID, topic, or title)"],
+        ["inbox latest <id>","Read latest message from an inbox (JSON output)"],
+        ["ask --sync ...",   "Send question and block for reply (" + c.dim("--from --to --question") + ")"],
         ["authorize",        "Generate a one-time pairing code for a new user"],
         ["update [ref]",     "Check out latest tag (or given tag/branch) + hot-reload daemon"],
         ["reinstall",        "Refresh plugin/hooks/CLI shim on disk + hot-reload daemon in place"],
@@ -95,6 +97,16 @@ switch (cmd) {
     case "tell": {
         const { runTell } = await versionedImport("./commands/tell.js", import.meta)
         await runTell(args)
+        break
+    }
+    case "inbox": {
+        const { runInbox } = await versionedImport("./commands/inbox.js", import.meta)
+        await runInbox(args)
+        break
+    }
+    case "ask": {
+        const { runAsk } = await versionedImport("./commands/ask.js", import.meta)
+        await runAsk(args)
         break
     }
     case "authorize": {
