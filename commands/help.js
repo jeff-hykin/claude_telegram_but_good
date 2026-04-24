@@ -14,6 +14,7 @@ export const tips = [
     "cbg resume lets you attach to a running session from the terminal.",
     "if there's a bug in this tool, tell claude to run <code>cbg reinstall</code> after fixing it",
     "Water is wet",
+    "Birds aren't real",
     "If you catch a man on fire, he'll be warm for the rest of his life",
 ]
 
