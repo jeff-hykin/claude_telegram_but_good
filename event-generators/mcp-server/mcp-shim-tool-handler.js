@@ -273,13 +273,16 @@ export const TOOLS = [
     {
         name: "tell_session",
         description:
-            "Send a message to another session. Address by session ID (e.g. 'MassCapybara'), " +
-            "topic name (e.g. 'cbg'), or title substring. The message is delivered as a " +
-            "channel event and logged to disk. Use list_sessions to find available sessions.",
+            "Send a message to another session or inbox. Prefer explicit prefixes to avoid ambiguity: " +
+            "`session:MassCapybara` (exact session ID), `topic:cbg` (exact topic), `title:dimos` (title substring), " +
+            "`inbox:my_cli_tool` (write to an inbox without any session), or `cbg:<x>` (same fuzzy lookup as a " +
+            "bare string, but self-labels the namespace when you're speaking in natural language — " +
+            "'tell cbg:arduino' vs 'tell the actual arduino'). A bare string still works and falls back to " +
+            "session ID → topic → title → inbox. Use list_sessions to discover targets.",
         inputSchema: {
             type: "object",
             properties: {
-                target: { type: "string", description: "Who to send to: session ID, topic name, or title substring" },
+                target: { type: "string", description: "Prefixed: session:<id> | topic:<name> | title:<sub> | inbox:<addr> | cbg:<x>. Bare strings fall back to fuzzy resolution." },
                 text: { type: "string", description: "Message text to deliver" },
             },
             required: ["target", "text"],

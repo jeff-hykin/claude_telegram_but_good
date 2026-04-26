@@ -231,6 +231,7 @@ const core = {
     bot: null,          // set after bot is created
     ipcListener: null,  // set after listener is created
     ipcConns: new Map(),
+    inboxWaiters: new Map(),  // address -> { conn, askedAt } for event-driven cbg ask --sync
     enqueueEvent,
     enqueueEventFront,
     get version() { return globalThis.cbgVersion },

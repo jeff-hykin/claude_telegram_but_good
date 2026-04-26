@@ -173,11 +173,16 @@ Deno.test("ipc-closed: no _conn returns null", () => {
     assertEquals(ipcClosed({}, core), null)
 })
 
-Deno.test("ipc-closed: conn not tied to any session returns null (was a CLI conn)", () => {
+Deno.test("ipc-closed: conn not tied to any session emits only clear_inbox_waiter", () => {
     const core = makeCore({
         chatSessions: { "s1": { id: "s1", _conn: fakeConn("other") } },
     })
-    assertEquals(ipcClosed({ _conn: fakeConn("different") }, core), null)
+    const closed = fakeConn("different")
+    const action = ipcClosed({ _conn: closed }, core)
+    assertEquals(action.stateChanges, {})
+    assertEquals(action.effects.length, 1)
+    assertEquals(action.effects[0].type, "clear_inbox_waiter")
+    assertEquals(action.effects[0].conn, closed)
 })
 
 Deno.test("ipc-closed: matching conn removes the session", () => {

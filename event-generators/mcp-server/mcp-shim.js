@@ -46,6 +46,9 @@ import {
 // reloadable via versionedImport + cbgVersion.
 globalThis.cbgVersion = VERSION
 
+const _STARTUP_T0 = Date.now()
+function _t() { return `+${Date.now() - _STARTUP_T0}ms since boot` }
+
 // ── Paths and utilities (imported via versionedImport) ────────────────
 const [
     { paths },
@@ -169,7 +172,12 @@ const PLUGIN_VERSION = (() => {
 })()
 
 const mcp = new McpServer(
-    { name: "cbg-telegram", version: PLUGIN_VERSION },
+    // Name matches the official telegram plugin ("telegram") not "cbg-telegram":
+    // `claude --channels plugin:telegram@claude-plugins-official` matches the
+    // channel server by the .mcp.json key AND the protocol-level serverInfo.name.
+    // A mismatch may be why Claude Code SIGTERMs the shim ~2s after sending
+    // the first channel notification — see SHIM-MCP-OUT logs.
+    { name: "telegram", version: PLUGIN_VERSION },
     {
         capabilities: {
             tools: {},
@@ -184,6 +192,11 @@ const mcp = new McpServer(
                 "claude/channel/permission": {},
             },
         },
+        // Instructions field is included in the initialize response.
+        // Official plugin sends a long string here; we send a minimal
+        // version. Possibly load-bearing for Claude Code's --channels
+        // recognition.
+        instructions: "Telegram channel via cbg. Inbound user messages arrive as channel notifications; reply via the `reply` tool.",
     },
 )
 
@@ -409,25 +422,34 @@ async function handleServerMessage(msg) {
 // ── Shutdown ──────────────────────────────────────────────────────────
 // `shuttingDown` is declared earlier in the file (near the reconnect
 // tunables) so scheduleReconnect can safely read it.
-function shutdown() {
+function shutdown(signal) {
     if (shuttingDown) { return }
     shuttingDown = true
-    dbg("SHIM", "shutting down")
+    dbg("SHIM", `shutting down via ${signal} (${_t()})`)
     if (serverConn) {
         try {
-            sendIpc(serverConn, { type: "unregister", sessionId: SESSION_ID })
+            sendIpc(serverConn, { type: "unregister", sessionId: SESSION_ID, reason: `signal:${signal}` })
             serverConn.close()
         } catch (e) {
             dbg("SHIM", "unregister/close failed:", e)
         }
     }
 }
-Deno.addSignalListener("SIGTERM", shutdown)
-Deno.addSignalListener("SIGINT", shutdown)
+Deno.addSignalListener("SIGTERM", () => shutdown("SIGTERM"))
+Deno.addSignalListener("SIGINT",  () => shutdown("SIGINT"))
 
 // ── Go ────────────────────────────────────────────────────────────────
-await connectAndRegister()
-
+//
+// Bring up the MCP transport FIRST so Claude Code gets a responsive
+// stdio peer the moment it starts sending requests. Then connect to
+// main-server in the background — daemon IPC delays must NOT delay MCP
+// responsiveness.
 const transport = new StdioServerTransport()
 await mcp.connect(transport)
 dbg("SHIM", `MCP shim ready for session ${SESSION_ID} (plugin ${PLUGIN_VERSION}, cbg v${VERSION})`)
+
+// Now connect to main-server.js — async, doesn't block MCP serving.
+connectAndRegister().catch(e => {
+    dbg("SHIM", "initial connectAndRegister threw:", e)
+    scheduleReconnect()
+})

@@ -293,6 +293,81 @@ Deno.test("hook-stop: taskCheck without report.md on a SYNTHETIC Stop schedules 
     assert(taskTimer, "should schedule a task report nudge timer")
 })
 
+// ── pendingQueue drain on Stop ──────────────────────────────────────
+
+Deno.test("hook-stop: drains pendingQueue and delivers exactly one entry, leaving the rest", () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "sess-1" },
+        chatSessions: {
+            "sess-1": session("sess-1", {
+                pendingQueue: [
+                    { text: "first",  chatId: "100", messageId: "m1", queuedAt: 1, _source: "telegram" },
+                    { text: "second", chatId: "100", messageId: "m2", queuedAt: 2, _source: "telegram" },
+                ],
+            }),
+        },
+    })
+    const action = stop(stopEvent(), core)
+    const deliver = effectsOfType(action, "deliver_channel_event")
+    assertEquals(deliver.length, 1)
+    assertEquals(deliver[0].content, "first")
+    assertEquals(deliver[0]._queueDrain, true)
+    const newQueue = get(action, "stateChanges.chatSessions.sess-1.pendingQueue")
+    assertEquals(newQueue.length, 1)
+    assertEquals(newQueue[0].text, "second")
+})
+
+Deno.test("hook-stop: telegram-sourced queue drain emits Telegram drain notification", () => {
+    const core = makeCore({
+        chatState: {
+            focusedSessionId: "sess-1",
+            commandCenter: { chatId: "1000" },
+        },
+        chatSessions: {
+            "sess-1": session("sess-1", {
+                pendingQueue: [
+                    { text: "from-telegram", chatId: "1000", messageId: "m1", queuedAt: 1, _source: "telegram" },
+                ],
+                lastInbound: { chatId: "1000" },
+            }),
+        },
+    })
+    const action = stop(stopEvent(), core)
+    const sends = effectsOfType(action, "send_text_to_user")
+    // At least one send_text_to_user describing the queued delivery
+    assert(sends.some(s => /Queued message delivered/.test(s.text ?? "")),
+        `expected a "Queued message delivered" Telegram message, got: ${sends.map(s => s.text).join(" | ")}`)
+})
+
+Deno.test("hook-stop: cli-sourced queue drain skips Telegram drain notification (cbg tell --que regression)", () => {
+    const core = makeCore({
+        chatState: {
+            focusedSessionId: "sess-1",
+            commandCenter: { chatId: "1000" },
+        },
+        chatSessions: {
+            "sess-1": session("sess-1", {
+                pendingQueue: [
+                    { text: "[from CLI]\nfrom-cli", chatId: "cbg-internal", messageId: "cli-1", queuedAt: 1, _source: "cli" },
+                ],
+                // Even with a stale lastInbound from earlier Telegram traffic,
+                // the cli-sourced drain must NOT route to that chat.
+                lastInbound: { chatId: "1000" },
+            }),
+        },
+    })
+    const action = stop(stopEvent(), core)
+    // The deliver_channel_event must still fire so the agent gets the message
+    const deliver = effectsOfType(action, "deliver_channel_event")
+    assertEquals(deliver.length, 1)
+    assertEquals(deliver[0].content, "[from CLI]\nfrom-cli")
+    // No "Queued message delivered" Telegram message
+    const sends = effectsOfType(action, "send_text_to_user")
+    const drainNotifications = sends.filter(s => /Queued message delivered/.test(s.text ?? ""))
+    assertEquals(drainNotifications.length, 0,
+        `expected NO drain notification for cli-sourced queue, got: ${drainNotifications.map(s => s.text).join(" | ")}`)
+})
+
 Deno.test("hook-stop: missing session -> no-op", () => {
     const core = makeCore({ chatSessions: {} })
     const action = stop(stopEvent(), core)

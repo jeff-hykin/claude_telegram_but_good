@@ -22,6 +22,7 @@ function printUsage() {
         ["stop",             "Stop the daemon"],
         ["restart",          "Stop + start"],
         ["new [name] [...]", "New dtach session (" + c.dim("-d/--detach") + " for background, prints ID)"],
+        ["new --touch <p>",  "Ensure session at " + c.dim("session:|topic:|title:") + " prefix; prints JSON info"],
         ["resume [id]",      "Attach to a dtach session (interactive picker if no id)"],
         ["status",           "Show daemon status + active sessions"],
         ["config",           "Print all config as YAML"],
