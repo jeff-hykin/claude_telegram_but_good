@@ -5,7 +5,7 @@
 // new_command / download_attachment).
 
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts"
-import { setupTempPaths, makeCore, fakeConn, effectsOfType, get } from "./_helpers.js"
+import { setupTempPaths, makeCore, fakeConn, effectsOfType, get, paths } from "./_helpers.js"
 
 setupTempPaths("cbg-chan-test-")
 
@@ -73,6 +73,114 @@ Deno.test("claude-channel: reply html format leaves /chat_ bare so it stays tapp
         "/chat_sess-1 (<i>cbg / master</i>)\n\n<b>hi</b>",
     )
     assertEquals(sends[0].options.parse_mode, "HTML")
+})
+
+// Regression: when a reply lands in the CC group's General topic (chat_id
+// is the CC group AND the session has no topic-thread bound), the user has
+// no thread context to identify which agent is talking. The header switches
+// to a verbose form including topic, cwd, branch, pid.
+Deno.test("claude-channel: reply landing in General gets verbose header (topic/cwd/branch/pid)", () => {
+    Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
+        dmPolicy: "pairing",
+        allowFrom: ["999"],
+        groups: {},
+        pending: {},
+        commandCenterChatId: "-100CC",
+    }))
+    const core = makeCore({
+        chatSessions: {
+            "sess-1": {
+                id: "sess-1",
+                title: "dimos / master",
+                cwd: "/home/jeff/repos/dimos",
+                gitBranch: "main",
+                pid: 4321,
+            },
+        },
+    })
+    // Reply chat_id IS the CC group, AND session has no topicMap entry.
+    const action = handle(makeEvent("reply", { chat_id: "-100CC", text: "build done" }), core)
+    const sends = effectsOfType(action, "send_text_to_user")
+    assertEquals(sends.length, 1)
+    const headerPart = sends[0].text.split("\n\n")[0]
+    assert(headerPart.includes("/chat_sess-1"), `header missing /chat_: ${headerPart}`)
+    assert(headerPart.includes("dimos / master"), `header missing title: ${headerPart}`)
+    assert(headerPart.includes("/home/jeff/repos/dimos"), `header missing cwd: ${headerPart}`)
+    assert(headerPart.includes("main"), `header missing branch: ${headerPart}`)
+    assert(headerPart.includes("4321"), `header missing pid: ${headerPart}`)
+    assert(/landed in General/.test(headerPart), `header missing General notice: ${headerPart}`)
+})
+
+Deno.test("claude-channel: reply landing in General with HTML format escapes verbose header fields", () => {
+    Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
+        dmPolicy: "pairing",
+        allowFrom: ["999"],
+        groups: {},
+        pending: {},
+        commandCenterChatId: "-100CC",
+    }))
+    const core = makeCore({
+        chatSessions: {
+            "sess-1": {
+                id: "sess-1",
+                title: "<dangerous>",
+                cwd: "/path/with<brackets>",
+                gitBranch: "br&anch",
+                pid: 99,
+            },
+        },
+    })
+    const action = handle(makeEvent("reply", { chat_id: "-100CC", text: "x", format: "html" }), core)
+    const sends = effectsOfType(action, "send_text_to_user")
+    const headerPart = sends[0].text.split("\n\n")[0]
+    assert(!headerPart.includes("<dangerous>"), `unescaped title: ${headerPart}`)
+    assert(headerPart.includes("&lt;dangerous&gt;"), `escaped title missing: ${headerPart}`)
+    assert(headerPart.includes("&lt;brackets&gt;"))
+    assert(headerPart.includes("br&amp;anch"))
+})
+
+Deno.test("claude-channel: reply landing in DM (not CC group) keeps terse header", () => {
+    Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
+        dmPolicy: "pairing",
+        allowFrom: ["999"],
+        groups: {},
+        pending: {},
+        commandCenterChatId: "-100CC",
+    }))
+    const core = makeCore({
+        chatSessions: {
+            "sess-1": { id: "sess-1", title: "x", cwd: "/x", gitBranch: "b", pid: 1 },
+        },
+    })
+    // chat_id is a DM, not the CC group → terse header.
+    const action = handle(makeEvent("reply", { chat_id: "999", text: "hi" }), core)
+    const sends = effectsOfType(action, "send_text_to_user")
+    assertEquals(sends[0].text, "/chat_sess-1 (x)\n\nhi")
+})
+
+Deno.test("claude-channel: reply landing in CC group with topic-thread bound keeps terse header (mirrored to topic)", () => {
+    Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
+        dmPolicy: "pairing",
+        allowFrom: ["999"],
+        groups: {},
+        pending: {},
+        commandCenterChatId: "-100CC",
+    }))
+    const core = makeCore({
+        chatState: { commandCenter: { topicMap: { "sess-1": "42" }, topicNames: { "42": "mytopic" } } },
+        chatSessions: {
+            "sess-1": { id: "sess-1", title: "x", cwd: "/x", gitBranch: "b", pid: 1 },
+        },
+    })
+    // Session bound to topic 42, so the un-threaded copy is suppressed
+    // and the topic-mirror copy doesn't get the header anyway.
+    const action = handle(makeEvent("reply", { chat_id: "-100CC", text: "hi" }), core)
+    const sends = effectsOfType(action, "send_text_to_user")
+    // Should ONLY emit the topic-mirror send, no DM/General copy.
+    assertEquals(sends.length, 1)
+    assertEquals(sends[0].options.message_thread_id, 42)
+    // The topic-mirror copy is the raw text, no verbose header.
+    assertEquals(sends[0].text, "hi")
 })
 
 Deno.test("claude-channel: reply without sessionId emits no header", () => {
