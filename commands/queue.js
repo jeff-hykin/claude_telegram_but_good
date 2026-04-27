@@ -83,9 +83,21 @@ export const commands = {
         // In that case, deliver immediately — same semantic as `cbg tell
         // --que` (and what users actually expect from /que: "send this
         // when you're free", which for an already-free agent means now).
+        //
+        // CRITICAL: when delivering immediately, ALSO mark the session
+        // busy (status:working + lastActive=now). Without this, a rapid
+        // sequence of /que's would all see "idle" and deliver immediately
+        // (the agent IS busy processing #1 by the time #2 arrives, but
+        // no hook event has fired yet to update the status field). The
+        // user types /que to stack messages — /que #2+ MUST queue.
         if (!isSessionBusy(session)) {
             dbg("QUE", `${targetId} idle → delivering /que message immediately`)
             return {
+                stateChanges: {
+                    chatSessions: {
+                        [targetId]: { status: "working", lastActive: Date.now() },
+                    },
+                },
                 effects: [
                     sendEffect(replyTo, "Agent is idle — delivering immediately."),
                     {
