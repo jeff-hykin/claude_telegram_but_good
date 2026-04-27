@@ -78,41 +78,13 @@ export const commands = {
         const session = core.chatSessions?.[targetId]
         const existing = session?.pendingQueue ?? []
 
-        // If the agent is already idle there's no upcoming Stop hook to
-        // drain the queue on, so a queued message would sit forever.
-        // In that case, deliver immediately — same semantic as `cbg tell
-        // --que` (and what users actually expect from /que: "send this
-        // when you're free", which for an already-free agent means now).
-        //
-        // CRITICAL: when delivering immediately, ALSO mark the session
-        // busy (status:working + lastActive=now). Without this, a rapid
-        // sequence of /que's would all see "idle" and deliver immediately
-        // (the agent IS busy processing #1 by the time #2 arrives, but
-        // no hook event has fired yet to update the status field). The
-        // user types /que to stack messages — /que #2+ MUST queue.
-        if (!isSessionBusy(session)) {
-            dbg("QUE", `${targetId} idle → delivering /que message immediately`)
-            return {
-                stateChanges: {
-                    chatSessions: {
-                        [targetId]: { status: "working", lastActive: Date.now() },
-                    },
-                },
-                effects: [
-                    sendEffect(replyTo, "Agent is idle — delivering immediately."),
-                    {
-                        type: "deliver_channel_event",
-                        sessionId: targetId,
-                        content: body,
-                        meta: {
-                            message_id: String(event.messageId ?? ""),
-                            chat_id: event.chatId,
-                        },
-                    },
-                ],
-            }
-        }
-
+        // /que ALWAYS queues. The earlier "deliver immediately when idle"
+        // behavior fought the user's mental model: even when the agent
+        // had just Stop'd seconds ago, the user types /que because they're
+        // continuing a conversation and expect the message to wait. If
+        // the queue ever strands on a permanently-idle session, the user
+        // can drain it with /clear_que or just send a regular (non-/que)
+        // message to wake the agent.
         const entry = {
             text: body,
             chatId: event.chatId,
@@ -135,16 +107,6 @@ export const commands = {
     },
 }
 
-// Same heuristic as lib/event-handlers/cli-command.js: status field alone
-// is unreliable for CLI-driven turns, so combine it with the lastActive
-// vs lastStopAt comparison. Tool activity newer than the last Stop ⇒ mid-turn.
-function isSessionBusy(session) {
-    if (!session) { return false }
-    if ((session.status ?? "idle") !== "idle") { return true }
-    const lastActive = session.lastActive ?? 0
-    const lastStopAt = session.lastStopAt ?? 0
-    return lastActive > lastStopAt
-}
 
 // Alias /queue → /que
 commands.queue = commands.que
