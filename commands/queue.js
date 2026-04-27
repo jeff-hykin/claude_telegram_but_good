@@ -77,6 +77,30 @@ export const commands = {
 
         const session = core.chatSessions?.[targetId]
         const existing = session?.pendingQueue ?? []
+
+        // If the agent is already idle there's no upcoming Stop hook to
+        // drain the queue on, so a queued message would sit forever.
+        // In that case, deliver immediately — same semantic as `cbg tell
+        // --que` (and what users actually expect from /que: "send this
+        // when you're free", which for an already-free agent means now).
+        if (!isSessionBusy(session)) {
+            dbg("QUE", `${targetId} idle → delivering /que message immediately`)
+            return {
+                effects: [
+                    sendEffect(replyTo, "Agent is idle — delivering immediately."),
+                    {
+                        type: "deliver_channel_event",
+                        sessionId: targetId,
+                        content: body,
+                        meta: {
+                            message_id: String(event.messageId ?? ""),
+                            chat_id: event.chatId,
+                        },
+                    },
+                ],
+            }
+        }
+
         const entry = {
             text: body,
             chatId: event.chatId,
@@ -97,6 +121,17 @@ export const commands = {
             effects: [sendEffect(replyTo, `Queued (${newQueue.length} pending). Will deliver after the agent finishes.`)],
         }
     },
+}
+
+// Same heuristic as lib/event-handlers/cli-command.js: status field alone
+// is unreliable for CLI-driven turns, so combine it with the lastActive
+// vs lastStopAt comparison. Tool activity newer than the last Stop ⇒ mid-turn.
+function isSessionBusy(session) {
+    if (!session) { return false }
+    if ((session.status ?? "idle") !== "idle") { return true }
+    const lastActive = session.lastActive ?? 0
+    const lastStopAt = session.lastStopAt ?? 0
+    return lastActive > lastStopAt
 }
 
 // Alias /queue → /que

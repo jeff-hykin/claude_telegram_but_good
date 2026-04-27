@@ -146,6 +146,46 @@ Deno.test("cli-command: ask_sync registers waiter + delivers + no immediate ipc_
     assertEquals(effectsOfType(action, "ipc_respond").length, 0)
 })
 
+// Regression: when --from inbox name overlaps a topic name (gre uses
+// `--from gre-jeff-fix-rosnav8` and the touch creates a topic of the
+// same name), a bare reply hint of `target="<name>"` routes to the
+// topic via auto-resolution (session→topic→title→inbox), so the parked
+// ask_sync waiter on the inbox never wakes. The reply hint MUST use
+// the explicit `inbox:` prefix.
+Deno.test("cli-command: ask_sync reply hint uses inbox: prefix (gre-routing regression)", () => {
+    const targetConn = fakeConn("shim")
+    const core = makeCore({
+        chatSessions: { Target: { id: "Target", _conn: targetConn } },
+    })
+    const action = handle({
+        kind: "ask_sync",
+        payload: { target: "Target", text: "q?", replyToInbox: "gre-jeff-fix-rosnav8" },
+        _conn: fakeConn("ask-cli"),
+    }, core)
+    const deliver = effectsOfType(action, "deliver_channel_event")
+    assertEquals(deliver.length, 1)
+    assert(deliver[0].content.includes('tell_session target="inbox:gre-jeff-fix-rosnav8"'),
+        `expected inbox: prefix in hint, got: ${deliver[0].content}`)
+    assert(!deliver[0].content.includes('tell_session target="gre-jeff-fix-rosnav8"'),
+        `bare-target hint must NOT appear: ${deliver[0].content}`)
+})
+
+Deno.test("cli-command: tell_session with replyToInbox uses inbox: prefix in hint (gre-routing regression)", () => {
+    const targetConn = fakeConn("shim")
+    const core = makeCore({
+        chatSessions: { Target: { id: "Target", _conn: targetConn } },
+    })
+    const action = handle({
+        kind: "tell_session",
+        payload: { target: "Target", text: "msg", replyToInbox: "my-cli" },
+        _conn: fakeConn("cli"),
+    }, core)
+    const deliver = effectsOfType(action, "deliver_channel_event")
+    assertEquals(deliver.length, 1)
+    assert(deliver[0].content.includes('tell_session target="inbox:my-cli"'))
+    assert(!deliver[0].content.includes('tell_session target="my-cli"'))
+})
+
 Deno.test("cli-command: ask_sync rejects missing fields", () => {
     const core = makeCore()
     for (const bad of [
