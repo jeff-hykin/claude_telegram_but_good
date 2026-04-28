@@ -231,6 +231,148 @@ Deno.test("sendFileToUser: rejects files larger than 50MB", async () => {
     assertEquals(calls.length, 0, `expected 0 bot calls, got ${calls.length}`)
 })
 
+// ── General-bound message guard ──────────────────────────────────────
+
+function makeFakeBot(calls) {
+    return {
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        async sendText(chatId, text, options) { calls.push({ chatId, text, options }); return { messageId: String(calls.length) } },
+        async sendFile() { return { messageId: "1" } },
+        async editText() {},
+        async react() { return true },
+        async answerCallback() { return true },
+        async downloadFile() { return true },
+    }
+}
+
+Deno.test("sendTextMessageToUser: prepends verbose header when message would land in CC General topic", async () => {
+    const paths = (await import("../lib/paths.js")).paths
+    Deno.mkdirSync(paths.STATE_DIR, { recursive: true })
+    Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
+        dmPolicy: "pairing",
+        allowFrom: ["999"],
+        groups: {},
+        pending: {},
+        commandCenterChatId: "-100CC",
+    }))
+    const calls = []
+    const fakeCore = {
+        bot: makeFakeBot(calls),
+        chatSessions: {
+            "sess-1": { id: "sess-1", title: "dimos / master", cwd: "/home/jeff/repos/dimos", gitBranch: "main", pid: 4321 },
+        },
+        chatState: { commandCenter: {} },
+    }
+    // chat_id IS the CC group, no replyTo with threadId → General-bound
+    await tgOut.sendTextMessageToUser({
+        chatId: "-100CC",
+        text: "build done",
+        recordAs: { sessionId: "sess-1" },
+        options: { parse_mode: "HTML" },
+    }, fakeCore)
+    assertEquals(calls.length, 1)
+    const sentText = calls[0].text
+    assert(sentText.includes("/chat_sess-1"), `missing /chat_: ${sentText}`)
+    assert(sentText.includes("dimos / master"), `missing title: ${sentText}`)
+    assert(sentText.includes("/home/jeff/repos/dimos"), `missing cwd: ${sentText}`)
+    assert(sentText.includes("main"), `missing branch: ${sentText}`)
+    assert(sentText.includes("4321"), `missing pid: ${sentText}`)
+    assert(sentText.includes("landed in General"), `missing notice: ${sentText}`)
+    assert(sentText.endsWith("build done"), `body should be appended: ${sentText}`)
+})
+
+Deno.test("sendTextMessageToUser: skips General header when threadId is set (going to a topic, not General)", async () => {
+    const paths = (await import("../lib/paths.js")).paths
+    Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
+        dmPolicy: "pairing", allowFrom: ["999"], groups: {}, pending: {},
+        commandCenterChatId: "-100CC",
+    }))
+    const calls = []
+    const fakeCore = {
+        bot: makeFakeBot(calls),
+        chatSessions: { "sess-1": { id: "sess-1", title: "x" } },
+        chatState: { commandCenter: {} },
+    }
+    await tgOut.sendTextMessageToUser({
+        replyTo: { chatId: "-100CC", threadId: 42 },  // CC group BUT threaded
+        text: "in topic",
+        recordAs: { sessionId: "sess-1" },
+        options: { parse_mode: "HTML" },
+    }, fakeCore)
+    assertEquals(calls[0].text, "in topic")  // unchanged
+})
+
+Deno.test("sendTextMessageToUser: skips General header when chatId is a DM (not CC group)", async () => {
+    const paths = (await import("../lib/paths.js")).paths
+    Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
+        dmPolicy: "pairing", allowFrom: ["999"], groups: {}, pending: {},
+        commandCenterChatId: "-100CC",
+    }))
+    const calls = []
+    const fakeCore = {
+        bot: makeFakeBot(calls),
+        chatSessions: { "sess-1": { id: "sess-1", title: "x" } },
+        chatState: { commandCenter: {} },
+    }
+    await tgOut.sendTextMessageToUser({
+        chatId: "999",   // DM, not CC
+        text: "to dm",
+        recordAs: { sessionId: "sess-1" },
+        options: { parse_mode: "HTML" },
+    }, fakeCore)
+    assertEquals(calls[0].text, "to dm")
+})
+
+Deno.test("sendTextMessageToUser: General header is idempotent — handleReply-prepended text is not double-headered", async () => {
+    const paths = (await import("../lib/paths.js")).paths
+    Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
+        dmPolicy: "pairing", allowFrom: ["999"], groups: {}, pending: {},
+        commandCenterChatId: "-100CC",
+    }))
+    const calls = []
+    const fakeCore = {
+        bot: makeFakeBot(calls),
+        chatSessions: { "sess-1": { id: "sess-1", title: "x" } },
+        chatState: { commandCenter: {} },
+    }
+    // Simulate text that already has the verbose header (from handleReply)
+    const preHeadered = "/chat_sess-1\nlanded in General — no topic thread bound\n\nthe body"
+    await tgOut.sendTextMessageToUser({
+        chatId: "-100CC",
+        text: preHeadered,
+        recordAs: { sessionId: "sess-1" },
+        options: { parse_mode: "HTML" },
+    }, fakeCore)
+    // Sentinel detection should leave the text unchanged
+    assertEquals(calls[0].text, preHeadered)
+    // No double "landed in General"
+    const matches = (calls[0].text.match(/landed in General/g) ?? []).length
+    assertEquals(matches, 1, `expected 1 'landed in General', got ${matches}`)
+})
+
+Deno.test("sendTextMessageToUser: General header used even with no recordAs (system message)", async () => {
+    const paths = (await import("../lib/paths.js")).paths
+    Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
+        dmPolicy: "pairing", allowFrom: ["999"], groups: {}, pending: {},
+        commandCenterChatId: "-100CC",
+    }))
+    const calls = []
+    const fakeCore = {
+        bot: makeFakeBot(calls),
+        chatSessions: {},
+        chatState: { commandCenter: {} },
+    }
+    await tgOut.sendTextMessageToUser({
+        chatId: "-100CC",
+        text: "system note",
+        // no recordAs
+        options: { parse_mode: "HTML" },
+    }, fakeCore)
+    assert(calls[0].text.includes("no session source recorded"), `missing fallback: ${calls[0].text}`)
+    assert(calls[0].text.includes("landed in General"))
+    assert(calls[0].text.endsWith("system note"))
+})
+
 Deno.test("sendTextMessageToUser: chunks over the 4096 limit into multiple messages", async () => {
     const long = "x".repeat(10000)
     const calls = []
