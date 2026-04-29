@@ -424,7 +424,7 @@ Deno.test("sendTextMessageToUser: non-parse error → sends a plain-text failure
     }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
     // Two calls: original (threw) + failure-notice (plain text)
     assertEquals(calls.length, 2)
-    assert(calls[1].text.startsWith("[message delivery failed:"), `expected notice prefix: ${calls[1].text}`)
+    assert(calls[1].text.startsWith("[sendText delivery failed:"), `expected notice prefix: ${calls[1].text}`)
     assert(calls[1].text.includes("Forbidden"), `should include error desc: ${calls[1].text}`)
     assert(calls[1].text.includes("regular content"), `should include preview: ${calls[1].text}`)
     assertEquals(calls[1].options.parse_mode, undefined)
@@ -457,7 +457,115 @@ Deno.test("sendTextMessageToUser: parse-error retry that ALSO fails falls throug
     }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
     // 1: HTML throws parse → 2: plain retry throws 500 → 3: failure notice succeeds
     assertEquals(calls.length, 3)
-    assert(calls[2].text.startsWith("[message delivery failed:"), `expected notice: ${calls[2].text}`)
+    assert(calls[2].text.startsWith("[sendText delivery failed:"), `expected notice: ${calls[2].text}`)
+})
+
+Deno.test("sendFileToUser: parse-error in caption → retries with plain caption", async () => {
+    const outsideFile = `${TEST_HOME}/recover.txt`
+    Deno.writeTextFileSync(outsideFile, "x")
+    const calls = []
+    let firstFile = true
+    const fakeBot = {
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        async sendText(chatId, text, options) { calls.push({ kind: "text", chatId, text, options }); return { messageId: String(calls.length) } },
+        async sendFile(chatId, filePath, opts) {
+            calls.push({ kind: "file", chatId, filePath, opts })
+            if (firstFile) {
+                firstFile = false
+                throw Object.assign(new Error("parse"), { error_code: 400, description: "can't parse entities" })
+            }
+            return { messageId: String(calls.length) }
+        },
+        async editText() {}, async react() { return true }, async answerCallback() { return true }, async downloadFile() { return true },
+    }
+    await tgOut.sendFileToUser({
+        chatId: "1",
+        filePath: outsideFile,
+        caption: "<id>x</id>",
+    }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
+    // 2 file calls: HTML caption (threw) + plain caption (succeeded)
+    const fileCalls = calls.filter(c => c.kind === "file")
+    assertEquals(fileCalls.length, 2)
+    assertEquals(fileCalls[0].opts.format, "html")
+    assertEquals(fileCalls[1].opts.format, undefined)
+    // No failure-notice text call needed (recovery succeeded)
+    const textCalls = calls.filter(c => c.kind === "text")
+    assertEquals(textCalls.length, 0)
+})
+
+Deno.test("sendFileToUser: non-parse error → sends a plain-text failure notice", async () => {
+    const outsideFile = `${TEST_HOME}/fail.txt`
+    Deno.writeTextFileSync(outsideFile, "x")
+    const calls = []
+    const fakeBot = {
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        async sendText(chatId, text, options) { calls.push({ kind: "text", chatId, text, options }); return { messageId: String(calls.length) } },
+        async sendFile() {
+            throw Object.assign(new Error("forbidden"), { error_code: 403, description: "Forbidden: bot was blocked" })
+        },
+        async editText() {}, async react() { return true }, async answerCallback() { return true }, async downloadFile() { return true },
+    }
+    await tgOut.sendFileToUser({
+        chatId: "1",
+        filePath: outsideFile,
+        filename: "fail.txt",
+    }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
+    const textCalls = calls.filter(c => c.kind === "text")
+    assertEquals(textCalls.length, 1)
+    assert(textCalls[0].text.startsWith("[sendFile delivery failed:"))
+    assert(textCalls[0].text.includes("Forbidden"))
+    assert(textCalls[0].text.includes("fail.txt"))
+})
+
+Deno.test("editTelegramMessage: parse error → retries plain text", async () => {
+    const calls = []
+    let firstEdit = true
+    const fakeBot = {
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        async sendText(chatId, text, options) { calls.push({ kind: "text", chatId, text, options }); return { messageId: "1" } },
+        async sendFile() { return { messageId: "1" } },
+        async editText(chatId, messageId, text, options) {
+            calls.push({ kind: "edit", chatId, messageId, text, options })
+            if (firstEdit) {
+                firstEdit = false
+                throw Object.assign(new Error("parse"), { error_code: 400, description: "can't parse entities" })
+            }
+        },
+        async react() { return true }, async answerCallback() { return true }, async downloadFile() { return true },
+    }
+    await tgOut.editTelegramMessage({
+        chatId: "1",
+        messageId: "42",
+        text: "<id>x</id>",
+        options: { parse_mode: "HTML" },
+    }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
+    const editCalls = calls.filter(c => c.kind === "edit")
+    assertEquals(editCalls.length, 2)
+    assertEquals(editCalls[0].options.format, "html")
+    assertEquals(editCalls[1].options.format, undefined)
+    // No failure-notice (recovery succeeded)
+    assertEquals(calls.filter(c => c.kind === "text").length, 0)
+})
+
+Deno.test("editTelegramMessage: 'message to edit not found' is NOT escalated to a notice", async () => {
+    const calls = []
+    const fakeBot = {
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        async sendText(chatId, text, options) { calls.push({ kind: "text", chatId, text, options }); return { messageId: "1" } },
+        async sendFile() { return { messageId: "1" } },
+        async editText() {
+            throw Object.assign(new Error("notfound"), { error_code: 400, description: "Bad Request: message to edit not found" })
+        },
+        async react() { return true }, async answerCallback() { return true }, async downloadFile() { return true },
+    }
+    await tgOut.editTelegramMessage({
+        chatId: "1",
+        messageId: "42",
+        text: "hi",
+        options: {},
+    }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
+    // No notice — expected outcome (message gone, agent moved on)
+    assertEquals(calls.filter(c => c.kind === "text").length, 0)
 })
 
 Deno.test("sendTextMessageToUser: chunks over the 4096 limit into multiple messages", async () => {
