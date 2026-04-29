@@ -8,7 +8,7 @@ export const tips = [
     "Attach files, claude will see them no problem",
     "9-11 was an inside job",
     "Send a photo and Claude will see it — great for screenshots of errors.",
-    "You can run multiple sessions at once and switch between them with /list.",
+    "You can run multiple sessions at once and switch between them with /list_sessions.",
     "Use <code>claude --no-tele</code> to start a session that's hidden from Telegram.",
     "Epstein didn't commit suicide",
     "cbg resume lets you attach to a running session from the terminal.",
@@ -27,10 +27,10 @@ const HELP_BODY =
     `Text and photos are forwarded; replies and reactions come back.\n\n` +
     `/start — pairing instructions\n` +
     `/status — check your pairing state\n` +
-    `/list — show connected sessions (tap an ID to switch)\n` +
+    `/list_sessions — show connected sessions (tap an ID to switch)\n` +
     `/title <name> — label the focused session\n` +
     `/new — launch a new Claude Code session\n` +
-    `/cron — list scheduled tasks\n` +
+    `/list_schedule — list scheduled tasks\n` +
     `/schedule <desc> — create a scheduled task\n` +
     `/cancel — send Ctrl+C to the focused session\n` +
     `/pause — suspend the focused session (Ctrl+Z)\n` +

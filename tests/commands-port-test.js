@@ -70,7 +70,7 @@ Deno.test("commands/help: replies with the help body", async () => {
     const sends = effectsOfType(action, "send_text_to_user")
     assertEquals(sends.length, 1)
     assert(sends[0].text.includes("/start"))
-    assert(sends[0].text.includes("/list"))
+    assert(sends[0].text.includes("/list_sessions"))
 })
 
 Deno.test("commands/start: public — unpaired user gets pairing instructions", async () => {
@@ -85,18 +85,18 @@ Deno.test("commands/start: public — unpaired user gets pairing instructions", 
     assert(sends[0].text.includes("999"))
 })
 
-Deno.test("commands/list: empty registry → 'No sessions connected'", async () => {
+Deno.test("commands/list_sessions: empty registry → 'No sessions connected'", async () => {
     const core = makeCore({ chatSessions: {} })
-    const action = await commands.get("list")(baseEvent({ text: "/list" }), core)
+    const action = await commands.get("list_sessions")(baseEvent({ text: "/list_sessions" }), core)
     const sends = effectsOfType(action, "send_text_to_user")
     assertEquals(sends.length, 1)
     assert(sends[0].text.includes("No sessions connected"))
 })
 
-Deno.test("commands/list: allowlist gate — non-allowlisted user gets empty action", async () => {
+Deno.test("commands/list_sessions: allowlist gate — non-allowlisted user gets empty action", async () => {
     const core = makeCore({ chatSessions: { "s1": { id: "s1" } } })
-    const action = await commands.get("list")(
-        baseEvent({ userId: "999", text: "/list" }),
+    const action = await commands.get("list_sessions")(
+        baseEvent({ userId: "999", text: "/list_sessions" }),
         core,
     )
     assertEquals(action.effects ?? [], [])
@@ -188,10 +188,10 @@ Deno.test("commands/new_command: empty arg gets a usage reply", async () => {
     assert(sends[0].text.includes("Usage:"))
 })
 
-Deno.test("commands/cron: returns 'No desktop scheduled tasks found' when dir is missing", async () => {
+Deno.test("commands/list_schedule: returns 'No desktop scheduled tasks found' when dir is missing", async () => {
     const core = makeCore({ chatState: {} })
-    const action = await commands.get("cron")(
-        baseEvent({ text: "/cron" }),
+    const action = await commands.get("list_schedule")(
+        baseEvent({ text: "/list_schedule" }),
         core,
     )
     const sends = effectsOfType(action, "send_text_to_user")

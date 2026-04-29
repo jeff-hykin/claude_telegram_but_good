@@ -161,10 +161,10 @@ Deno.test("tg-cbq: cmderr:fix forwards the error to the focused session", () => 
             focusedSessionId: "sess-1",
             commandErrors: {
                 "err-1": {
-                    cmdName: "list",
+                    cmdName: "list_sessions",
                     error: "oops",
                     stack: "Error: oops\n  at ...",
-                    originalText: "/list",
+                    originalText: "/list_sessions",
                 },
             },
         },

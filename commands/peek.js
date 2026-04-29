@@ -158,7 +158,7 @@ export const commands = {
         if (targetId) {
             session = sessions.find(s => s.id === targetId)
             if (!session) {
-                return { effects: [sendEffect(replyTo, `Session "${targetId}" not found. Use /list to see available sessions.`)] }
+                return { effects: [sendEffect(replyTo, `Session "${targetId}" not found. Use /list_sessions to see available sessions.`)] }
             }
         } else {
             const focusedId = core.chatState?.focusedSessionId

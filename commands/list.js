@@ -9,7 +9,7 @@ const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
-    "Tap a session ID from /list to switch to it.",
+    "Tap a session ID from /list_sessions to switch to it.",
     "Replying to a message that has /chat_&lt;id&gt; at the top will always send the response to that chat (even if its not your currently-active session)",
 ]
 
@@ -88,11 +88,11 @@ function sessionBlock(s, { shortPath, isActive }) {
 }
 
 export const descriptions = {
-    list: "Show connected Claude Code sessions",
+    list_sessions: "Show connected Claude Code sessions",
 }
 
 export const commands = {
-    list: (event, core) => {
+    list_sessions: (event, core) => {
         const access = loadAccess()
         const isCommandCenter = String(event.chatId) === String(access.commandCenterChatId ?? "")
         if (event.chatType !== "private" && !isCommandCenter) {

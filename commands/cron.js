@@ -11,7 +11,7 @@ const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
-    "/cron shows all scheduled tasks — set them up with /schedule.",
+    "/list_schedule shows all scheduled tasks — set them up with /schedule.",
 ]
 
 function readScheduledTasks(homeDir) {
@@ -52,18 +52,22 @@ function readScheduledTasks(homeDir) {
 }
 
 export const descriptions = {
-    cron: "List scheduled tasks",
+    list_schedule: "List scheduled tasks",
     schedule: "Create or manage a scheduled task",
 }
 
 export const commands = {
-    cron: (event, _core) => {
-        if (event.chatType !== "private") {
+    list_schedule: (event, _core) => {
+        // Allow from: (a) the CC group (anyone in there is trusted),
+        // or (b) a DM from an allowlisted user. Same gate pattern as
+        // commands/queue.js so /cron is usable from CC topics too —
+        // not just private DMs.
+        const access = loadAccess()
+        const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
+        if (event.chatType !== "private" && !isCC) {
             return { effects: [] }
         }
-        const access = loadAccess()
-        const senderId = String(event.userId ?? "")
-        if (!access.allowFrom.includes(senderId)) {
+        if (!isCC && !access.allowFrom.includes(String(event.userId ?? ""))) {
             return { effects: [] }
         }
 

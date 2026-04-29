@@ -2,7 +2,7 @@
 //
 // A session entry is "zombie metadata" when it survives in chatSessions
 // without a live `_conn` — usually because the daemon persisted state
-// across a restart and the shim never came back. /list labels them
+// across a restart and the shim never came back. /list_sessions labels them
 // `[disconnected]`. This command removes every such entry in one shot.
 
 import { versionedImport } from "../lib/version.js"
@@ -15,7 +15,7 @@ export const descriptions = {
 }
 
 export const tips = [
-    "/prune clears out old [disconnected] entries from /list.",
+    "/prune clears out old [disconnected] entries from /list_sessions.",
 ]
 
 export const commands = {
