@@ -373,6 +373,93 @@ Deno.test("sendTextMessageToUser: General header used even with no recordAs (sys
     assert(calls[0].text.endsWith("system note"))
 })
 
+// ── Failure recovery ─────────────────────────────────────────────────
+
+function makeBotThatFailsTwiceThenSucceeds(calls, error) {
+    let callCount = 0
+    return {
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        async sendText(chatId, text, options) {
+            calls.push({ chatId, text, options, attempt: ++callCount })
+            if (callCount === 1) { throw error }
+            return { messageId: String(callCount) }
+        },
+        async sendFile() { return { messageId: "1" } },
+        async editText() {}, async react() { return true }, async answerCallback() { return true }, async downloadFile() { return true },
+    }
+}
+
+Deno.test("sendTextMessageToUser: HTML parse error → retries as plain text and succeeds", async () => {
+    const calls = []
+    const grammyError = Object.assign(new Error("Bad Request: can't parse entities: Unsupported start tag \"id\""), {
+        error_code: 400,
+        description: "Bad Request: can't parse entities: Unsupported start tag \"id\" at byte offset 1053",
+    })
+    const fakeBot = makeBotThatFailsTwiceThenSucceeds(calls, grammyError)
+    await tgOut.sendTextMessageToUser({
+        chatId: "1",
+        text: "<id>123</id> some agent body",
+        options: { parse_mode: "HTML" },
+    }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
+    // Two calls: original (HTML format, threw) + retry (no format/parse_mode)
+    // toAbstractOptions converts parse_mode:"HTML" → format:"html" at the bot interface
+    assertEquals(calls.length, 2)
+    assertEquals(calls[0].options.format, "html")
+    assertEquals(calls[1].options.format, undefined)
+    assertEquals(calls[1].options.parse_mode, undefined)
+    assertEquals(calls[1].text, calls[0].text)  // same body, just unformatted
+})
+
+Deno.test("sendTextMessageToUser: non-parse error → sends a plain-text failure notice", async () => {
+    const calls = []
+    const grammyError = Object.assign(new Error("Forbidden: bot was blocked"), {
+        error_code: 403,
+        description: "Forbidden: bot was blocked by the user",
+    })
+    const fakeBot = makeBotThatFailsTwiceThenSucceeds(calls, grammyError)
+    await tgOut.sendTextMessageToUser({
+        chatId: "1",
+        text: "regular content",
+        options: { parse_mode: "HTML" },
+    }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
+    // Two calls: original (threw) + failure-notice (plain text)
+    assertEquals(calls.length, 2)
+    assert(calls[1].text.startsWith("[message delivery failed:"), `expected notice prefix: ${calls[1].text}`)
+    assert(calls[1].text.includes("Forbidden"), `should include error desc: ${calls[1].text}`)
+    assert(calls[1].text.includes("regular content"), `should include preview: ${calls[1].text}`)
+    assertEquals(calls[1].options.parse_mode, undefined)
+})
+
+Deno.test("sendTextMessageToUser: parse-error retry that ALSO fails falls through to failure notice", async () => {
+    const calls = []
+    let firstCall = true
+    const fakeBot = {
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        async sendText(chatId, text, options) {
+            calls.push({ chatId, text, options })
+            if (firstCall) {
+                firstCall = false
+                throw Object.assign(new Error("parse"), { error_code: 400, description: "can't parse entities" })
+            }
+            // second + third calls: plain-retry first throws too, then notice succeeds
+            if (calls.length === 2) {
+                throw Object.assign(new Error("network"), { error_code: 500, description: "Internal" })
+            }
+            return { messageId: String(calls.length) }
+        },
+        async sendFile() { return { messageId: "1" } },
+        async editText() {}, async react() { return true }, async answerCallback() { return true }, async downloadFile() { return true },
+    }
+    await tgOut.sendTextMessageToUser({
+        chatId: "1",
+        text: "<id>x</id>",
+        options: { parse_mode: "HTML" },
+    }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
+    // 1: HTML throws parse → 2: plain retry throws 500 → 3: failure notice succeeds
+    assertEquals(calls.length, 3)
+    assert(calls[2].text.startsWith("[message delivery failed:"), `expected notice: ${calls[2].text}`)
+})
+
 Deno.test("sendTextMessageToUser: chunks over the 4096 limit into multiple messages", async () => {
     const long = "x".repeat(10000)
     const calls = []
