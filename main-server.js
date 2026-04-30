@@ -346,6 +346,15 @@ function spawnIpcReadLoop(conn) {
             try {
                 n = await conn.read(buf)
             } catch (e) {
+                // EINTR ("operation canceled") happens when the read
+                // syscall is interrupted by a signal — observed ~250
+                // times per day on this daemon, every time killing a
+                // legitimate CLI request before it could be parsed.
+                // Retry on EINTR; only bail on real errors / EOF.
+                if (e instanceof Deno.errors.Interrupted || e?.code === "EINTR") {
+                    dbg("IPC", "read EINTR, retrying")
+                    continue
+                }
                 dbg("IPC", "read error:", e)
                 break
             }

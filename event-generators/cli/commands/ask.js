@@ -101,6 +101,10 @@ export async function runAsk(args) {
         try {
             n = await conn.read(buf)
         } catch (e) {
+            // EINTR = benign signal interruption; retry the read.
+            if (e instanceof Deno.errors.Interrupted || e?.code === "EINTR") {
+                continue
+            }
             console.error(c.red(`  IPC read error: ${e.message}`))
             Deno.exit(1)
         }
