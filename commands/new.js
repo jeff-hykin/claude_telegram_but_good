@@ -67,8 +67,9 @@ export const descriptions = {
 
 export const commands = {
     new: async (event, core) => {
-        if (event.chatType !== "private") { return { effects: [] } }
         const access = loadAccess()
+        const isCommandCenter = String(event.chatId) === String(access.commandCenterChatId ?? "")
+        if (event.chatType !== "private" && !isCommandCenter) { return { effects: [] } }
         if (!access.allowFrom.includes(String(event.userId ?? ""))) {
             return { effects: [] }
         }

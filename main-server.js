@@ -507,6 +507,12 @@ Deno.writeTextFileSync(paths.PID_FILE, String(Deno.pid))
 // and lib/event-handlers/stall-check.js for the detector pair.
 enqueueEvent({ type: "screen_snapshot_tick" })
 
+// ── Bot health watchdog ──────────────────────────────────────────────
+// Seed the periodic Grammy polling health check. The handler
+// re-schedules itself every 60s. Detects silent polling death and
+// auto-restarts the bot. See lib/event-handlers/bot-health-check.js.
+enqueueEvent({ type: "bot_health_check" })
+
 // ── Scheduled-task rehydration ─────────────────────────────────────────
 // For each non-terminal scheduled task in specialData, enqueue a
 // scheduled_task_rehydrate event so the schedule_timer_set effect
