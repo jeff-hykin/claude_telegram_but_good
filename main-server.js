@@ -346,16 +346,6 @@ function spawnIpcReadLoop(conn) {
             try {
                 n = await conn.read(buf)
             } catch (e) {
-                // Don't retry on Deno.errors.Interrupted: in Deno's IPC
-                // semantics, that error means "this conn's read was
-                // canceled by a concurrent close()", not POSIX-style
-                // "syscall interrupted by signal — try again". The
-                // resource is already invalidated; a retry just gets
-                // BadResource. Tried it (commit 56cde89), saw 100%
-                // CLI failures post-restart on a fresh daemon process.
-                // Reverting to a clean break — same effective behavior
-                // for the CLI (EOF either way), without the misleading
-                // "EINTR retrying" log spam.
                 dbg("IPC", "read error:", e)
                 break
             }
