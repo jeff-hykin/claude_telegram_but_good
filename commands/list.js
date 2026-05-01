@@ -10,7 +10,6 @@ const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/repl
 
 export const tips = [
     "Tap a session ID from /list_sessions to switch to it.",
-    "Replying to a message that has /chat_&lt;id&gt; at the top will always send the response to that chat (even if its not your currently-active session)",
 ]
 
 function timeAgo(ts) {
