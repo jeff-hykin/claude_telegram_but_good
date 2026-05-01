@@ -322,13 +322,8 @@ async function connectAndRegister() {
             try {
                 n = await serverConn.read(buf)
             } catch (e) {
-                // Retry on EINTR — the syscall was interrupted by a
-                // signal, not a real failure. (Same fix as the daemon's
-                // spawnIpcReadLoop.) Only bail on real errors / EOF.
-                if (e instanceof Deno.errors.Interrupted || e?.code === "EINTR") {
-                    dbg("SHIM", "read EINTR, retrying")
-                    continue
-                }
+                // Don't retry on Interrupted — see the matching
+                // comment in main-server.js's spawnIpcReadLoop.
                 dbg("SHIM", "read error:", e)
                 break
             }

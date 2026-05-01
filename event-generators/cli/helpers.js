@@ -98,19 +98,7 @@ export async function sendCliCommand(kind, payload = {}, { timeoutMs = 5000 } = 
             const buf = new Uint8Array(8 * 1024)
             let pending = ""
             while (true) {
-                let n
-                try {
-                    n = await conn.read(buf)
-                } catch (e) {
-                    // Retry on EINTR (signal-interrupted syscall) so a
-                    // benign signal during the read doesn't surface as
-                    // "daemon closed connection".
-                    if (e instanceof Deno.errors.Interrupted || e?.code === "EINTR") {
-                        dbg("IPC-CLIENT", `read EINTR for kind=${kind}, retrying`)
-                        continue
-                    }
-                    throw e
-                }
+                const n = await conn.read(buf)
                 if (n === null) {
                     throw new Error(`cbg daemon closed connection before replying to cli_command kind=${kind}`)
                 }
