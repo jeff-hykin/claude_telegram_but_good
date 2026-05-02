@@ -231,6 +231,51 @@ Deno.test("hook-stop: taskCheck with existing report.md spawns critic", () => {
     try { Deno.removeSync(dir) } catch { /* ignore */ }
 })
 
+Deno.test("hook-stop: taskCheck skips spawn when critic already in flight (dedup)", () => {
+    const taskId = "TaskDemoDedup1"
+    const dir = paths.longTaskDir(taskId)
+    Deno.mkdirSync(dir, { recursive: true })
+    Deno.writeTextFileSync(`${dir}/report.md`, "# done\n")
+
+    const core = makeCore({
+        chatSessions: {
+            "sess-1": session("sess-1", {
+                longTaskId: taskId,
+                pendingNudgeAction: "taskCheck",
+            }),
+        },
+        specialData: {
+            longTaskByChatId: {
+                "42": {
+                    [taskId]: {
+                        id: taskId,
+                        state: "in_progress",
+                        workerSessionId: "sess-1",
+                        definition: "stub",
+                        criticCallCount: 1,
+                    },
+                },
+            },
+        },
+    })
+    // Pretend a critic for this task is already running.
+    core.activeCritics = new Set([taskId])
+
+    const action = stop(stopEvent({ ts: 100_000 }), core)
+    const spawns = effectsOfType(action, "spawn_critic")
+    assertEquals(spawns.length, 0)
+    // Also no "Critic running…" toast.
+    const sends = effectsOfType(action, "send_text_to_user")
+    const toast = sends.find((s) => s.text?.includes("Critic running"))
+    assertEquals(toast, undefined)
+    // pendingNudgeAction is still cleared so the worker doesn't loop on this Stop.
+    assertEquals(get(action, "stateChanges.chatSessions.sess-1.pendingNudgeAction"), "none")
+
+    // Cleanup.
+    try { Deno.removeSync(`${dir}/report.md`) } catch { /* ignore */ }
+    try { Deno.removeSync(dir) } catch { /* ignore */ }
+})
+
 Deno.test("hook-stop: taskCheck without report.md schedules delayed nudge timer", () => {
     const taskId = "TaskDemo0002"
     const core = makeCore({
