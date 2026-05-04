@@ -73,7 +73,7 @@ export const commands = {
 
         const replyTo = replyToFromEvent(event, "cmd/cancel")
 
-        // Shell-command cancel: if a `#`-prefix shell command is running
+        // Shell-command cancel: if a `#`/`!`-prefix shell command is running
         // in this topic, SIGTERM it before falling through to the
         // session-cancel paths. The shell effect's completion handler
         // posts the "[cancelled]" reply itself.
