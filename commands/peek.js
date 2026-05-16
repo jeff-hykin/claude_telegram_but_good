@@ -212,7 +212,7 @@ export const commands = {
         }
 
         return {
-            effects: [sendEffect(replyTo, `${escMd(header)}\n\`\`\`\n${escMd(body)}\n\`\`\``, { parse_mode: "Markdown" })],
+            effects: [sendEffect(replyTo, `${escMd(header)}\n\`\`\`\n${body}\n\`\`\``, { parse_mode: "Markdown" })],
         }
     },
 }
