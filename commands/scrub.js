@@ -6,7 +6,7 @@
 import { versionedImport } from "../lib/version.js"
 
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
-const { escapeHtml } = await versionedImport("../lib/pure/html.js", import.meta)
+const { escapeMarkdown } = await versionedImport("../lib/pure/markdown.js", import.meta)
 const { loadRules, saveRules } = await versionedImport("../lib/scrub.js", import.meta)
 
 export const tips = [
@@ -92,12 +92,12 @@ export const commands = {
         }
 
         const lines = rules.map((r, i) =>
-            `${i + 1}. <code>${escapeHtml(r.find)}</code> → <code>${escapeHtml(r.replace)}</code>`
+            `${i + 1}. \`${escapeMarkdown(r.find)}\` → \`${escapeMarkdown(r.replace)}\``
         )
-        const text = `<b>Scrub rules (${rules.length})</b>\n\n${lines.join("\n")}`
+        const text = `*Scrub rules (${rules.length})*\n\n${lines.join("\n")}`
 
         return {
-            effects: [sendEffect(replyTo, text, { format: "html" })],
+            effects: [sendEffect(replyTo, text, { format: "markdown" })],
         }
     },
 }

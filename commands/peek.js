@@ -2,19 +2,19 @@
 //
 // Reads the dtach log file of a session, replays the tail of the raw
 // terminal bytes through a VT100 emulator onto a virtual screen, and
-// sends the rendered screen as an HTML <pre> block.
+// sends the rendered screen as an HTML \`\`\`\n block.
 
 import { readFileSync } from "node:fs"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
-const { escapeHtml: escHtml } = await versionedImport("../lib/pure/html.js", import.meta)
+const { escapeMarkdown: escMd } = await versionedImport("../lib/pure/markdown.js", import.meta)
 const { renderTui, trimTrailingMarker } = await versionedImport("../lib/pure/tui-render.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
     "/peek shows what a session is doing right now — no need to attach.",
-    "/peek w=60 h=40 resizes the virtual screen; /peek &lt;session_id&gt; peeks at a specific session.",
+    "/peek w=60 h=40 resizes the virtual screen; /peek <session_id> peeks at a specific session.",
     "/peek lines=1000 ingests more raw log history before replaying.",
 ]
 
@@ -35,11 +35,11 @@ const DEFAULT_HISTORY_START = 3000
 const SMART_WRAP_WIDTH = 40
 
 // Telegram caps a single message at 4096 characters. Our reply wraps
-// the rendered screen in `<header>\n<pre>...</pre>`, so we reserve a
-// small overhead budget for the HTML tags, the separating newline, and
-// any expansion from escapeHtml (e.g. `<` → `&lt;`).
+// the rendered screen in `<header>\n\`\`\`...\`\`\``, so we reserve a
+// small overhead budget for the markdown fence, the separating newline,
+// and any expansion from escapeMarkdown (e.g. `*` → `\*`).
 const TELEGRAM_MAX_MESSAGE_CHARS = 4096
-const HTML_WRAPPER_OVERHEAD_CHARS = 20
+const MD_WRAPPER_OVERHEAD_CHARS = 20
 const TRUNCATION_PREFIX = "...\n"
 
 /**
@@ -206,13 +206,13 @@ export const commands = {
 
         const header = `${session.id}${session.title ? ` (${session.title})` : ""} [${width}x${height}, ${historyUsed}L]:`
         let body = rendered
-        const bodyBudget = TELEGRAM_MAX_MESSAGE_CHARS - header.length - HTML_WRAPPER_OVERHEAD_CHARS
+        const bodyBudget = TELEGRAM_MAX_MESSAGE_CHARS - header.length - MD_WRAPPER_OVERHEAD_CHARS
         if (body.length > bodyBudget) {
             body = TRUNCATION_PREFIX + body.slice(-(bodyBudget - TRUNCATION_PREFIX.length))
         }
 
         return {
-            effects: [sendEffect(replyTo, `${escHtml(header)}\n<pre>${escHtml(body)}</pre>`, { parse_mode: "HTML" })],
+            effects: [sendEffect(replyTo, `${escMd(header)}\n\`\`\`\n${escMd(body)}\n\`\`\``, { parse_mode: "Markdown" })],
         }
     },
 }

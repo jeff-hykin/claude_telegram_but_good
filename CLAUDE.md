@@ -13,7 +13,7 @@ This is a Telegram channel plugin for Claude Code, implemented as a Deno project
 - All `if`/`for` bodies use braces
 - Prefer `for...of` and `for...in` over C-style `for`
 - Never silently swallow errors. `catch { /* ignore */ }` and `.catch(() => {})` are unacceptable — always log via `dbg()` so failures are diagnosable. Use `catch (e) { dbg("LABEL", "what failed:", e) }` instead.
-- All Telegram messages use `parse_mode: "HTML"`, never Markdown or MarkdownV2. Use `<i>`, `<b>`, `<code>`, `<pre>` for formatting. Escape user content with `&amp;`, `&lt;`, `&gt;`. Telegram's Markdown parser is unreliable with mixed formatting.
+- All Telegram messages use `parse_mode: "Markdown"` (legacy, NOT MarkdownV2). Formatting: `*bold*`, `_italic_`, `` `inline code` ``, ` ```pre block``` `, `[text](url)`. Escape user-supplied text via `escapeMarkdown` from `lib/pure/markdown.js` — that backslashes `*`, `_`, `` ` ``, `[`, `\`. Other characters (`.`, `-`, `!`, `(`, `)`, `+`, `=`, `#`) do NOT need escaping in legacy Markdown — that's why we use it over MarkdownV2. Inside `` `inline code` `` you cannot embed a literal backtick. Legacy Markdown has no underline, strikethrough, spoiler, or blockquote — drop those in favor of plain text or italics.
 
 ## Entry Points
 
@@ -208,10 +208,10 @@ Side-effect implementations. Counterpart to `lib/event-handlers/`: handlers desc
 ### Pure helpers
 - `cold-storage.js` — append/tail helpers for JSONL streams
 - `hot-commands.js` — walks `commands/*.js` + `$CUSTOM_COMMANDS_DIR/*.js`, builds the in-memory command registry. Uses random salt (not cbgVersion) for custom commands.
-- `hooks.js` — `formatPreToolUse`, `formatPostToolUse` formatters producing HTML for Telegram status messages
+- `hooks.js` — `formatPreToolUse`, `formatPostToolUse` formatters producing Markdown for Telegram status messages
 - `hook-compact.js` — selects/compacts hook event fields
 - `long-task-util.js` — `slugify`, `generateTaskId`
-- `pure/html.js` — `escapeHtml`
+- `pure/markdown.js` — `escapeMarkdown` (legacy Markdown char escape). The old `pure/html.js` `escapeHtml` helper is kept around for any straggling HTML callers but should not be used by new code.
 - `ipc.js` — shared byte-level framing (`encodeIpcFrame`, `parseIpcMessages`, `UNKNOWN_CLAUDE_PID`); the single place the newline-JSON wire format is defined. No `sendIpc` helper — each caller inlines `conn.write(encodeIpcFrame(msg))` with the error-handling shape appropriate to its context.
 - `ipc-inbound.js`, `pure/telegram-translator.js` — raw IPC / Grammy → event conversion (dynamically imported per-message, hot-reloadable so new message types ship without a daemon restart)
 - CLI ↔ daemon one-shot round-trip (`sendCliCommand`) lives inside `event-generators/cli/helpers.js` alongside the onboard/authorize/reinstall logic that uses it.
@@ -291,7 +291,7 @@ Claude Code slash commands: `/telegram:access`, `/telegram:configure`, `/telegra
 
 Claude Code queries the shim's tool list ONCE at MCP server startup. Tool NAMES cannot change mid-session; tool HANDLERS can hot-reload via `versionedImport`. Current tools:
 
-- **`reply`** — send to a Telegram chat. Auto-chunks at 4096 chars. Auto-detects photo vs document by extension. Refuses files under `STATE_DIR` (except `inbox/`). Max 50MB per file. Supports `format: "html"` (default plain text). Prepends `/chat_<sessionId>\n` header so reply-to routing works.
+- **`reply`** — send to a Telegram chat. Auto-chunks at 4096 chars. Auto-detects photo vs document by extension. Refuses files under `STATE_DIR` (except `inbox/`). Max 50MB per file. Supports `format: "markdown"` (legacy, default plain text). Prepends `/chat_<sessionId>\n` header so reply-to routing works.
 - **`react`** — emoji reaction
 - **`edit_message`** — edit a previously-sent bot message
 - **`download_attachment`** — download a file_id to INBOX_DIR

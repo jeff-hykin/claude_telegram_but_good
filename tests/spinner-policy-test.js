@@ -89,7 +89,7 @@ spinnerTest("spinner:start — routed chat_user_message sends a spinner + writes
         const sends = bot.calls.filter(c => c.method === "sendText")
         assertEquals(sends.length, 1)
         assertEquals(sends[0].chatId, "42")
-        assert(sends[0].text.includes("...</i>"))
+        assert(sends[0].text.includes("..._"))
 
         const spinner = core.chatSessions["sess-1"].activeSpinner
         assertEquals(spinner.chatId, "42")
@@ -152,7 +152,7 @@ spinnerTest("spinner:append — focused hook edits the active spinner in place",
                 activeSpinner: {
                     chatId: "42",
                     messageId: "9001",
-                    headerHtml: "<i>processing...</i>",
+                    headerHtml: "_processing..._",
                     items: [],
                     createdAt: 0,
                 },
@@ -167,7 +167,7 @@ spinnerTest("spinner:append — focused hook edits the active spinner in place",
                         from: "agent",
                         kind: "spinner",
                         sessionId: "sess-1",
-                        text: "<i>processing...</i>",
+                        text: "_processing..._",
                         items: [],
                     },
                 },
@@ -291,7 +291,7 @@ spinnerTest("spinner:append — PostTool with unknown tool_use_id appends as a n
                     chatId: "42",
                     messageId: "9001",
                     headerHtml: "",
-                    items: [{ rendered: "<i>existing</i>", ts: 1, toolUseId: "tu-other" }],
+                    items: [{ rendered: "_existing_", ts: 1, toolUseId: "tu-other" }],
                     createdAt: 0,
                 },
             },

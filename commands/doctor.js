@@ -9,7 +9,7 @@ import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
-const { escapeHtml: escHtml } = await versionedImport("../lib/pure/html.js", import.meta)
+const { escapeMarkdown: escHtml } = await versionedImport("../lib/pure/markdown.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
@@ -86,7 +86,7 @@ export const commands = {
             : buildDefaultPrompt()
 
         const effects = [
-            sendEffect(replyTo, "Running <i>claude -p</i> to diagnose — this can take up to a minute.", { parse_mode: "HTML" }),
+            sendEffect(replyTo, "Running _claude -p_ to diagnose — this can take up to a minute.", { parse_mode: "Markdown" }),
         ]
 
         const result = await runClaude(prompt, paths.STATE_DIR)
@@ -95,19 +95,19 @@ export const commands = {
         const header = result.ok ? "Doctor report:" : `Doctor report (claude -p exited ${result.code}):`
 
         const MAX = 4096
-        const opener = `<b>${escHtml(header)}</b>\n<pre>`
-        const closer = "</pre>"
+        const opener = `*${escHtml(header)}*\n\`\`\`\n`
+        const closer = "\n```"
         const budget = MAX - opener.length - closer.length - 10
         let trimmed = body
         if (body.length > budget) {
             trimmed = "..." + body.slice(-(budget - 3))
         }
 
-        effects.push(sendEffect(replyTo, `${opener}${escHtml(trimmed)}${closer}`, { parse_mode: "HTML" }))
+        effects.push(sendEffect(replyTo, `${opener}${escHtml(trimmed)}${closer}`, { parse_mode: "Markdown" }))
 
         if (!result.ok && result.stderr?.trim()) {
             const errTail = result.stderr.trim().slice(-1500)
-            effects.push(sendEffect(replyTo, `<b>stderr:</b>\n<pre>${escHtml(errTail)}</pre>`, { parse_mode: "HTML" }))
+            effects.push(sendEffect(replyTo, `*stderr:*\n\`\`\`\n${escHtml(errTail)}\n\`\`\``, { parse_mode: "Markdown" }))
         }
 
         return { effects }

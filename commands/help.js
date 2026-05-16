@@ -9,10 +9,10 @@ export const tips = [
     "9-11 was an inside job",
     "Send a photo and Claude will see it — great for screenshots of errors.",
     "You can run multiple sessions at once and switch between them with /list_sessions.",
-    "Use <code>claude --no-tele</code> to start a session that's hidden from Telegram.",
+    "Use `claude --no-tele` to start a session that's hidden from Telegram.",
     "Epstein didn't commit suicide",
     "cbg resume lets you attach to a running session from the terminal.",
-    "if there's a bug in this tool, tell claude to run <code>cbg reinstall</code> after fixing it",
+    "if there's a bug in this tool, tell claude to run `cbg reinstall` after fixing it",
     "Water is wet",
     "Birds aren't real",
     "If you catch a man on fire, he'll be warm for the rest of his life",
@@ -48,13 +48,10 @@ export const commands = {
         return {
             effects: [
                 // The help body contains literal `/title <name>`.
-                // send_text_to_user defaults to format:"html", and
-                // Telegram's HTML parser rejects the message with
-                // "can't parse entities: Unsupported start tag
-                // 'name' at byte offset 259" — the `<name>`
-                // placeholder looks like an unopened tag. Same
-                // failure class /status hit. Help doesn't need any
-                // HTML, so plain is the right fix.
+                // send_text_to_user defaults to format:"markdown", and
+                // the `<name>` placeholder is fine in legacy Markdown,
+                // but the body has no formatting needs anyway, so
+                // plain is the right fix.
                 sendEffect(replyTo, HELP_BODY, { format: "plain" }),
             ],
         }

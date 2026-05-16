@@ -6,7 +6,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
-const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
+const { escapeMarkdown: esc } = await versionedImport("../lib/pure/markdown.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = []
@@ -64,7 +64,7 @@ export const commands = {
             return {
                 effects: [sendEffect(replyTo,
                     "No available sessions to connect. Start a claude session in a terminal first.",
-                    { parse_mode: "HTML" },
+                    { parse_mode: "Markdown" },
                 )],
             }
         }
@@ -75,14 +75,14 @@ export const commands = {
             return p.startsWith(home) ? "~" + p.slice(home.length) : p
         }
 
-        const lines = ["<b>Available sessions:</b>\n"]
+        const lines = ["*Available sessions:*\n"]
         for (const s of candidates) {
             const title = s.title || s.id
             const active = timeAgo(s.lastActive)
             const bound = s.topicName ? ` [${esc(s.topicName)}]` : ""
-            lines.push(`<b>${esc(title)}</b>${bound}`)
+            lines.push(`*${esc(title)}*${bound}`)
             if (s.cwd) {
-                lines.push(`  <code>${esc(shortPath(s.cwd))}</code>${s.gitBranch ? ` @ <code>${esc(s.gitBranch)}</code>` : ""}`)
+                lines.push(`  \`${esc(shortPath(s.cwd))}\`${s.gitBranch ? ` @ \`${esc(s.gitBranch)}\`` : ""}`)
             }
             if (active) {
                 lines.push(`  active: ${active}`)
@@ -92,7 +92,7 @@ export const commands = {
         }
 
         return {
-            effects: [sendEffect(replyTo, lines.join("\n"), { parse_mode: "HTML" })],
+            effects: [sendEffect(replyTo, lines.join("\n"), { parse_mode: "Markdown" })],
         }
     },
 }

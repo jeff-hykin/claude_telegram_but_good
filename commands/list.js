@@ -5,7 +5,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
-const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
+const { escapeMarkdown: esc } = await versionedImport("../lib/pure/markdown.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
@@ -43,7 +43,7 @@ function sessionBlock(s, { shortPath, isActive }) {
     } else if (isActive) {
         marker = " [active]"
     }
-    lines.push(`<b>${esc(title)}</b>${marker}`)
+    lines.push(`*${esc(title)}*${marker}`)
 
     // /chat_<id> sits directly under the title so it's the first thing
     // you can tap for a reachable session. A disconnected session can't
@@ -51,7 +51,7 @@ function sessionBlock(s, { shortPath, isActive }) {
     if (s.hasConn) {
         lines.push(`  • /chat_${esc(s.id)}`)
     } else {
-        lines.push(`  • <i>(gone — start a new one with /new)</i>`)
+        lines.push(`  • _(gone — start a new one with /new)_`)
     }
 
     const active = timeAgo(s.lastActive)
@@ -62,18 +62,18 @@ function sessionBlock(s, { shortPath, isActive }) {
         lines.push(`  • 🕒 started: ${esc(timeAgo(s.connectedAt))}`)
     }
     if (s.gitBranch) {
-        lines.push(`  • 🌿 branch: <code>${esc(s.gitBranch)}</code>`)
+        lines.push(`  • 🌿 branch: \`${esc(s.gitBranch)}\``)
     }
     const sp = shortPath(s.cwd)
     if (sp === "~") {
-        lines.push(`  • 📂 dir: <code>(home dir)</code>`)
+        lines.push(`  • 📂 dir: \`(home dir)\``)
     } else {
-        lines.push(`  • 📂 dir: <code>${esc(sp)}</code>`)
+        lines.push(`  • 📂 dir: \`${esc(sp)}\``)
     }
     if (s.recentMessages && s.recentMessages.length > 0) {
         for (const msg of s.recentMessages) {
             const icon = msg.role === "bot" ? "🤖" : "🗣"
-            lines.push(`  ${icon} <i>${esc(msg.text.replace(/\n+/g, " "))}</i>`)
+            lines.push(`  ${icon} _${esc(msg.text.replace(/\n+/g, " "))}_`)
         }
     }
 
@@ -120,7 +120,7 @@ export const commands = {
         }))
 
         if (sessions.length === 0) {
-            return { effects: [sendEffect(replyTo, "No sessions connected. Use /new to make one from here", { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, "No sessions connected. Use /new to make one from here", { parse_mode: "Markdown" })] }
         }
 
         const home = Deno.env.get("HOME") ?? ""
@@ -141,6 +141,6 @@ export const commands = {
             parts.push(sessionBlock(s, { shortPath, isActive: false }))
         }
 
-        return { effects: [sendEffect(replyTo, parts.join("\n\n"), { parse_mode: "HTML" })] }
+        return { effects: [sendEffect(replyTo, parts.join("\n\n"), { parse_mode: "Markdown" })] }
     },
 }

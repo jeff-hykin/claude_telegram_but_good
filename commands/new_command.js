@@ -13,7 +13,7 @@ const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/repl
 export const tips = [
     "custom commands don't need to involve an agent, they're just JavaScript ( /new_command )",
     "the /new_command command lets you make your own",
-    `custom telegram commands are saved in <code>${paths.CUSTOM_COMMANDS_DIR}/</code> if you want to edit them`,
+    `custom telegram commands are saved in \`${paths.CUSTOM_COMMANDS_DIR}/\` if you want to edit them`,
 ]
 
 export const descriptions = {
@@ -59,8 +59,8 @@ export const commands = {
             `    }\n\n` +
             `Available fields on \`event\`: chatId, userId, username, messageId, text, chatType, replyToMessageId.\n` +
             `\`core\` exposes: chatState, chatSessions, specialData, bot (read-only).\n\n` +
-            `All Telegram messages must use parse_mode "HTML" (not Markdown). ` +
-            `Use <i>, <b>, <code>, <pre> for formatting and escape user content with &amp; &lt; &gt;.\n\n` +
+            `All Telegram messages use parse_mode "Markdown" (legacy, not MarkdownV2). ` +
+            `Use _italic_, *bold*, \`inline code\`, \`\`\`pre block\`\`\` for formatting and escape user content with escapeMarkdown from lib/pure/markdown.js.\n\n` +
             `Here is the user's description of what the new command should do:\n\n${arg}`
 
         return {

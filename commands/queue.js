@@ -8,7 +8,7 @@
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
-const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
+const { escapeMarkdown: esc } = await versionedImport("../lib/pure/markdown.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
@@ -46,15 +46,15 @@ export const commands = {
 
             if (pending.length === 0) {
                 return {
-                    effects: [sendEffect(replyTo, "Queue is empty. Use <code>/que &lt;message&gt;</code> to add one.", { parse_mode: "HTML" })],
+                    effects: [sendEffect(replyTo, "Queue is empty. Use `/que <message>` to add one.", { parse_mode: "Markdown" })],
                 }
             }
-            const lines = [`<b>Queued messages (${pending.length}):</b>`]
+            const lines = [`*Queued messages (${pending.length}):*`]
             for (let i = 0; i < pending.length; i++) {
                 lines.push(`${i + 1}. ${esc(pending[i].text.slice(0, 100))}`)
             }
             return {
-                effects: [sendEffect(replyTo, lines.join("\n"), { parse_mode: "HTML" })],
+                effects: [sendEffect(replyTo, lines.join("\n"), { parse_mode: "Markdown" })],
             }
         }
 

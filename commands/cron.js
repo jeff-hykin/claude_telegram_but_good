@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
-const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
+const { escapeMarkdown: esc } = await versionedImport("../lib/pure/markdown.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
@@ -77,16 +77,16 @@ export const commands = {
 
         const tasks = readScheduledTasks(home)
         if (tasks.length > 0) {
-            parts.push(`<b>Scheduled Tasks</b> (${tasks.length})`)
+            parts.push(`*Scheduled Tasks* (${tasks.length})`)
             parts.push("")
             for (const t of tasks) {
-                let line = `📋 <b>${esc(t.name)}</b>`
+                let line = `📋 *${esc(t.name)}*`
                 if (t.description) { line += `\n   ${esc(t.description)}` }
-                if (t.prompt) { line += `\n   <i>${esc(t.prompt)}${t.prompt.length >= 100 ? "..." : ""}</i>` }
+                if (t.prompt) { line += `\n   _${esc(t.prompt)}${t.prompt.length >= 100 ? "..." : ""}_` }
                 parts.push(line)
             }
         } else {
-            parts.push("<b>Scheduled Tasks</b>")
+            parts.push("*Scheduled Tasks*")
             parts.push("No desktop scheduled tasks found.")
         }
 
@@ -100,22 +100,22 @@ export const commands = {
         }
         if (cbgTasks.length > 0) {
             parts.push("")
-            parts.push(`<b>CBG Scheduled Tasks</b> (${cbgTasks.length})`)
+            parts.push(`*CBG Scheduled Tasks* (${cbgTasks.length})`)
             parts.push("")
             for (const { id, task } of cbgTasks) {
-                parts.push(`⏰ <code>${esc(id)}</code> — ${esc(task.title ?? "")}`)
+                parts.push(`⏰ \`${esc(id)}\` — ${esc(task.title ?? "")}`)
                 parts.push(`   state=${esc(task.state ?? "?")} next=${esc(task.tracking?.nextFireAt ?? "?")}`)
                 parts.push(`   /schedule_status_${esc(id)}   /schedule_cancel_${esc(id)}`)
             }
         }
 
         parts.push("")
-        parts.push("<b>Session Cron Jobs (/loop)</b>")
+        parts.push("*Session Cron Jobs (/loop)*")
         parts.push("Session cron jobs are in-memory only and cannot be listed externally.")
         parts.push("Use /loop inside a Claude Code session to manage them.")
 
         return {
-            effects: [sendEffect(replyTo, parts.join("\n"), { parse_mode: "HTML" })],
+            effects: [sendEffect(replyTo, parts.join("\n"), { parse_mode: "Markdown" })],
         }
     },
 }

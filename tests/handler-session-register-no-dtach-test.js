@@ -52,7 +52,7 @@ Deno.test("no-dtach: emits one send_text_to_user effect per paired chat", () => 
     assert(sends[0].text.includes("SurprisingRooster"))
     assert(sends[0].text.includes("/repo/foo"))
     assert(sends[0].text.includes("cbg reinstall"))
-    assertEquals(sends[0].options.parse_mode, "HTML")
+    assertEquals(sends[0].options.parse_mode, "Markdown")
 })
 
 Deno.test("no-dtach: records warning timestamp in chatState.noDtachWarnings", () => {

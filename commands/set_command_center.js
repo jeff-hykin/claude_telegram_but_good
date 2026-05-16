@@ -18,7 +18,7 @@ export const commands = {
         const replyTo = replyToFromEvent(event, "cmd/set_command_center")
         const chatType = event.chatType
         if (chatType !== "supergroup") {
-            return { effects: [sendEffect(replyTo, "This command must be sent in a supergroup with Topics enabled.", { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, "This command must be sent in a supergroup with Topics enabled.", { parse_mode: "Markdown" })] }
         }
 
         // Check if bot has admin rights by trying to get chat info
@@ -29,12 +29,12 @@ export const commands = {
             chatInfo = await ctx.api.getChat(event.chatId)
         } catch (e) {
             dbg("SET-CMD-CENTER", "getChat failed:", e)
-            return { effects: [sendEffect(replyTo, "Could not verify group settings. Make sure I have admin rights.", { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, "Could not verify group settings. Make sure I have admin rights.", { parse_mode: "Markdown" })] }
         }
 
         // Verify forum mode is enabled
         if (!chatInfo.is_forum) {
-            return { effects: [sendEffect(replyTo, "This group needs Topics enabled. Go to group settings → Topics → toggle on, then try again.", { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, "This group needs Topics enabled. Go to group settings → Topics → toggle on, then try again.", { parse_mode: "Markdown" })] }
         }
 
         // Check bot is admin
@@ -44,11 +44,11 @@ export const commands = {
             botMember = await ctx.api.getChatMember(event.chatId, botInfo.id)
         } catch (e) {
             dbg("SET-CMD-CENTER", "getChatMember failed:", e)
-            return { effects: [sendEffect(replyTo, "Could not verify my admin status. Please promote me to admin and try again.", { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, "Could not verify my admin status. Please promote me to admin and try again.", { parse_mode: "Markdown" })] }
         }
 
         if (botMember.status !== "administrator" && botMember.status !== "creator") {
-            return { effects: [sendEffect(replyTo, "I need admin rights to manage topics. Please promote me to admin and try again.", { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, "I need admin rights to manage topics. Please promote me to admin and try again.", { parse_mode: "Markdown" })] }
         }
 
         // Save to access.json
@@ -82,7 +82,7 @@ export const commands = {
         }
 
         // Security warning
-        effects.unshift(sendEffect(replyTo, `⚠️ <b>Command Center activated.</b>\n\nAnyone in this group will have total control over the bot and the computer it runs on.\n\nUse /revoke_command_center to disable this at any time.`, { parse_mode: "HTML" }))
+        effects.unshift(sendEffect(replyTo, `⚠️ *Command Center activated.*\n\nAnyone in this group will have total control over the bot and the computer it runs on.\n\nUse /revoke_command_center to disable this at any time.`, { parse_mode: "Markdown" }))
 
         return {
             stateChanges: {

@@ -52,8 +52,8 @@ Deno.test("claude-channel: reply header includes session title when set", () => 
     assertEquals(sends[0].text, "/chat_sess-1 (cbg / master)\n\nhi")
 })
 
-Deno.test("claude-channel: reply html format leaves /chat_ bare so it stays tappable", () => {
-    // The /chat_<id> must NOT be wrapped in <code> or <pre> — Telegram
+Deno.test("claude-channel: reply markdown format leaves /chat_ bare so it stays tappable", () => {
+    // The /chat_<id> must NOT be wrapped in `code` or ```pre``` — Telegram
     // auto-detects bare /command text as a bot command and makes it
     // tap-to-send. Wrapping would turn it into tap-to-copy, which is
     // not what we want.
@@ -64,15 +64,15 @@ Deno.test("claude-channel: reply html format leaves /chat_ bare so it stays tapp
     })
     const action = handle(makeEvent("reply", {
         chat_id: "42",
-        text: "<b>hi</b>",
-        format: "html",
+        text: "*hi*",
+        format: "markdown",
     }), core)
     const sends = effectsOfType(action, "send_text_to_user")
     assertEquals(
         sends[0].text,
-        "/chat_sess-1 (<i>cbg / master</i>)\n\n<b>hi</b>",
+        "/chat_sess-1 (_cbg / master_)\n\n*hi*",
     )
-    assertEquals(sends[0].options.parse_mode, "HTML")
+    assertEquals(sends[0].options.parse_mode, "Markdown")
 })
 
 // Regression: when a reply lands in the CC group's General topic (chat_id
@@ -111,7 +111,11 @@ Deno.test("claude-channel: reply landing in General gets verbose header (topic/c
     assert(/landed in General/.test(headerPart), `header missing General notice: ${headerPart}`)
 })
 
-Deno.test("claude-channel: reply landing in General with HTML format escapes verbose header fields", () => {
+Deno.test("claude-channel: reply landing in General with markdown format preserves header field characters", () => {
+    // Legacy Markdown doesn't need to escape <, >, & — they pass through
+    // as-is. Only *, _, `, [, \ get backslash-escaped (none of which
+    // appear in this fixture's title/cwd/branch). So the values flow
+    // through verbatim.
     Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
         dmPolicy: "pairing",
         allowFrom: ["999"],
@@ -130,13 +134,12 @@ Deno.test("claude-channel: reply landing in General with HTML format escapes ver
             },
         },
     })
-    const action = handle(makeEvent("reply", { chat_id: "-100CC", text: "x", format: "html" }), core)
+    const action = handle(makeEvent("reply", { chat_id: "-100CC", text: "x", format: "markdown" }), core)
     const sends = effectsOfType(action, "send_text_to_user")
     const headerPart = sends[0].text.split("\n\n")[0]
-    assert(!headerPart.includes("<dangerous>"), `unescaped title: ${headerPart}`)
-    assert(headerPart.includes("&lt;dangerous&gt;"), `escaped title missing: ${headerPart}`)
-    assert(headerPart.includes("&lt;brackets&gt;"))
-    assert(headerPart.includes("br&amp;anch"))
+    assert(headerPart.includes("<dangerous>"), `title missing: ${headerPart}`)
+    assert(headerPart.includes("<brackets>"))
+    assert(headerPart.includes("br&anch"))
 })
 
 Deno.test("claude-channel: reply landing in DM (not CC group) keeps terse header", () => {

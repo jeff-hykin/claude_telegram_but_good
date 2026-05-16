@@ -135,7 +135,7 @@ Deno.test("sendFileToUser: silently skips a file inside STATE_DIR (not inbox)", 
     // To actually exercise assertSendable, we need a fake bot that records calls.
     const calls = []
     const fakeBot = {
-        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
         async sendText(...args) { calls.push(["sendText", args]); return { messageId: "1" } },
         async sendFile(...args) { calls.push(["sendFile", args]); return { messageId: "1" } },
         async editText(...args) { calls.push(["editText", args]) },
@@ -161,7 +161,7 @@ Deno.test("sendFileToUser: allows a file inside STATE_DIR/inbox", async () => {
 
     const calls = []
     const fakeBot = {
-        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
         async sendText(...args) { calls.push(["sendText", args]); return { messageId: "1" } },
         async sendFile(...args) { calls.push(["sendFile", args]); return { messageId: "1" } },
         async editText(...args) { calls.push(["editText", args]) },
@@ -184,7 +184,7 @@ Deno.test("sendFileToUser: allows a file outside STATE_DIR", async () => {
 
     const calls = []
     const fakeBot = {
-        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
         async sendText(...args) { calls.push(["sendText", args]); return { messageId: "1" } },
         async sendFile(...args) { calls.push(["sendFile", args]); return { messageId: "1" } },
         async editText(...args) { calls.push(["editText", args]) },
@@ -215,7 +215,7 @@ Deno.test("sendFileToUser: rejects files larger than 50MB", async () => {
 
     const calls = []
     const fakeBot = {
-        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
         async sendText(...args) { calls.push(["sendText", args]); return { messageId: "1" } },
         async sendFile(...args) { calls.push(["sendFile", args]); return { messageId: "1" } },
         async editText(...args) { calls.push(["editText", args]) },
@@ -235,7 +235,7 @@ Deno.test("sendFileToUser: rejects files larger than 50MB", async () => {
 
 function makeFakeBot(calls) {
     return {
-        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
         async sendText(chatId, text, options) { calls.push({ chatId, text, options }); return { messageId: String(calls.length) } },
         async sendFile() { return { messageId: "1" } },
         async editText() {},
@@ -268,7 +268,7 @@ Deno.test("sendTextMessageToUser: prepends verbose header when message would lan
         chatId: "-100CC",
         text: "build done",
         recordAs: { sessionId: "sess-1" },
-        options: { parse_mode: "HTML" },
+        options: { parse_mode: "Markdown" },
     }, fakeCore)
     assertEquals(calls.length, 1)
     const sentText = calls[0].text
@@ -297,7 +297,7 @@ Deno.test("sendTextMessageToUser: skips General header when threadId is set (goi
         replyTo: { chatId: "-100CC", threadId: 42 },  // CC group BUT threaded
         text: "in topic",
         recordAs: { sessionId: "sess-1" },
-        options: { parse_mode: "HTML" },
+        options: { parse_mode: "Markdown" },
     }, fakeCore)
     assertEquals(calls[0].text, "in topic")  // unchanged
 })
@@ -318,7 +318,7 @@ Deno.test("sendTextMessageToUser: skips General header when chatId is a DM (not 
         chatId: "999",   // DM, not CC
         text: "to dm",
         recordAs: { sessionId: "sess-1" },
-        options: { parse_mode: "HTML" },
+        options: { parse_mode: "Markdown" },
     }, fakeCore)
     assertEquals(calls[0].text, "to dm")
 })
@@ -341,7 +341,7 @@ Deno.test("sendTextMessageToUser: General header is idempotent — handleReply-p
         chatId: "-100CC",
         text: preHeadered,
         recordAs: { sessionId: "sess-1" },
-        options: { parse_mode: "HTML" },
+        options: { parse_mode: "Markdown" },
     }, fakeCore)
     // Sentinel detection should leave the text unchanged
     assertEquals(calls[0].text, preHeadered)
@@ -366,7 +366,7 @@ Deno.test("sendTextMessageToUser: General header used even with no recordAs (sys
         chatId: "-100CC",
         text: "system note",
         // no recordAs
-        options: { parse_mode: "HTML" },
+        options: { parse_mode: "Markdown" },
     }, fakeCore)
     assert(calls[0].text.includes("no session source recorded"), `missing fallback: ${calls[0].text}`)
     assert(calls[0].text.includes("landed in General"))
@@ -378,7 +378,7 @@ Deno.test("sendTextMessageToUser: General header used even with no recordAs (sys
 function makeBotThatFailsTwiceThenSucceeds(calls, error) {
     let callCount = 0
     return {
-        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
         async sendText(chatId, text, options) {
             calls.push({ chatId, text, options, attempt: ++callCount })
             if (callCount === 1) { throw error }
@@ -389,22 +389,22 @@ function makeBotThatFailsTwiceThenSucceeds(calls, error) {
     }
 }
 
-Deno.test("sendTextMessageToUser: HTML parse error → retries as plain text and succeeds", async () => {
+Deno.test("sendTextMessageToUser: Markdown parse error → retries as plain text and succeeds", async () => {
     const calls = []
-    const grammyError = Object.assign(new Error("Bad Request: can't parse entities: Unsupported start tag \"id\""), {
+    const grammyError = Object.assign(new Error("Bad Request: can't parse entities: Can't find end of the entity starting at byte offset 5"), {
         error_code: 400,
-        description: "Bad Request: can't parse entities: Unsupported start tag \"id\" at byte offset 1053",
+        description: "Bad Request: can't parse entities: Can't find end of the entity starting at byte offset 5",
     })
     const fakeBot = makeBotThatFailsTwiceThenSucceeds(calls, grammyError)
     await tgOut.sendTextMessageToUser({
         chatId: "1",
-        text: "<id>123</id> some agent body",
-        options: { parse_mode: "HTML" },
+        text: "*unclosed bold some agent body",
+        options: { parse_mode: "Markdown" },
     }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
-    // Two calls: original (HTML format, threw) + retry (no format/parse_mode)
-    // toAbstractOptions converts parse_mode:"HTML" → format:"html" at the bot interface
+    // Two calls: original (Markdown format, threw) + retry (no format/parse_mode)
+    // toAbstractOptions converts parse_mode:"Markdown" → format:"markdown" at the bot interface
     assertEquals(calls.length, 2)
-    assertEquals(calls[0].options.format, "html")
+    assertEquals(calls[0].options.format, "markdown")
     assertEquals(calls[1].options.format, undefined)
     assertEquals(calls[1].options.parse_mode, undefined)
     assertEquals(calls[1].text, calls[0].text)  // same body, just unformatted
@@ -420,7 +420,7 @@ Deno.test("sendTextMessageToUser: non-parse error → sends a plain-text failure
     await tgOut.sendTextMessageToUser({
         chatId: "1",
         text: "regular content",
-        options: { parse_mode: "HTML" },
+        options: { parse_mode: "Markdown" },
     }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
     // Two calls: original (threw) + failure-notice (plain text)
     assertEquals(calls.length, 2)
@@ -434,7 +434,7 @@ Deno.test("sendTextMessageToUser: parse-error retry that ALSO fails falls throug
     const calls = []
     let firstCall = true
     const fakeBot = {
-        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
         async sendText(chatId, text, options) {
             calls.push({ chatId, text, options })
             if (firstCall) {
@@ -452,10 +452,10 @@ Deno.test("sendTextMessageToUser: parse-error retry that ALSO fails falls throug
     }
     await tgOut.sendTextMessageToUser({
         chatId: "1",
-        text: "<id>x</id>",
-        options: { parse_mode: "HTML" },
+        text: "*unclosed",
+        options: { parse_mode: "Markdown" },
     }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
-    // 1: HTML throws parse → 2: plain retry throws 500 → 3: failure notice succeeds
+    // 1: Markdown throws parse → 2: plain retry throws 500 → 3: failure notice succeeds
     assertEquals(calls.length, 3)
     assert(calls[2].text.startsWith("[sendText delivery failed:"), `expected notice: ${calls[2].text}`)
 })
@@ -466,7 +466,7 @@ Deno.test("sendFileToUser: parse-error in caption → retries with plain caption
     const calls = []
     let firstFile = true
     const fakeBot = {
-        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
         async sendText(chatId, text, options) { calls.push({ kind: "text", chatId, text, options }); return { messageId: String(calls.length) } },
         async sendFile(chatId, filePath, opts) {
             calls.push({ kind: "file", chatId, filePath, opts })
@@ -481,12 +481,12 @@ Deno.test("sendFileToUser: parse-error in caption → retries with plain caption
     await tgOut.sendFileToUser({
         chatId: "1",
         filePath: outsideFile,
-        caption: "<id>x</id>",
+        caption: "*unclosed",
     }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
-    // 2 file calls: HTML caption (threw) + plain caption (succeeded)
+    // 2 file calls: Markdown caption (threw) + plain caption (succeeded)
     const fileCalls = calls.filter(c => c.kind === "file")
     assertEquals(fileCalls.length, 2)
-    assertEquals(fileCalls[0].opts.format, "html")
+    assertEquals(fileCalls[0].opts.format, "markdown")
     assertEquals(fileCalls[1].opts.format, undefined)
     // No failure-notice text call needed (recovery succeeded)
     const textCalls = calls.filter(c => c.kind === "text")
@@ -498,7 +498,7 @@ Deno.test("sendFileToUser: non-parse error → sends a plain-text failure notice
     Deno.writeTextFileSync(outsideFile, "x")
     const calls = []
     const fakeBot = {
-        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
         async sendText(chatId, text, options) { calls.push({ kind: "text", chatId, text, options }); return { messageId: String(calls.length) } },
         async sendFile() {
             throw Object.assign(new Error("forbidden"), { error_code: 403, description: "Forbidden: bot was blocked" })
@@ -521,7 +521,7 @@ Deno.test("editTelegramMessage: parse error → retries plain text", async () =>
     const calls = []
     let firstEdit = true
     const fakeBot = {
-        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
         async sendText(chatId, text, options) { calls.push({ kind: "text", chatId, text, options }); return { messageId: "1" } },
         async sendFile() { return { messageId: "1" } },
         async editText(chatId, messageId, text, options) {
@@ -536,12 +536,12 @@ Deno.test("editTelegramMessage: parse error → retries plain text", async () =>
     await tgOut.editTelegramMessage({
         chatId: "1",
         messageId: "42",
-        text: "<id>x</id>",
-        options: { parse_mode: "HTML" },
+        text: "*unclosed",
+        options: { parse_mode: "Markdown" },
     }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
     const editCalls = calls.filter(c => c.kind === "edit")
     assertEquals(editCalls.length, 2)
-    assertEquals(editCalls[0].options.format, "html")
+    assertEquals(editCalls[0].options.format, "markdown")
     assertEquals(editCalls[1].options.format, undefined)
     // No failure-notice (recovery succeeded)
     assertEquals(calls.filter(c => c.kind === "text").length, 0)
@@ -550,7 +550,7 @@ Deno.test("editTelegramMessage: parse error → retries plain text", async () =>
 Deno.test("editTelegramMessage: 'message to edit not found' is NOT escalated to a notice", async () => {
     const calls = []
     const fakeBot = {
-        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
         async sendText(chatId, text, options) { calls.push({ kind: "text", chatId, text, options }); return { messageId: "1" } },
         async sendFile() { return { messageId: "1" } },
         async editText() {
@@ -572,7 +572,7 @@ Deno.test("sendTextMessageToUser: chunks over the 4096 limit into multiple messa
     const long = "x".repeat(10000)
     const calls = []
     const fakeBot = {
-        supports: { reactions: true, inlineButtons: true, htmlFormatting: true, markdownFormatting: false, fileDownload: true },
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
         async sendText(chatId, text, options) { calls.push({ chatId, text, options }); return { messageId: String(calls.length) } },
         async sendFile() { return { messageId: "1" } },
         async editText() {},

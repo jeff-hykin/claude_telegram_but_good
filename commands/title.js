@@ -10,7 +10,7 @@ const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/repl
 
 export const tips = [
     "/title without any argument will auto-generate a title",
-    "use /title &lt;name&gt; to label your claude sessions",
+    "use /title <name> to label your claude sessions",
 ]
 
 async function autoTitle(session) {

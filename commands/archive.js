@@ -19,12 +19,12 @@ export const commands = {
         const replyTo = replyToFromEvent(event, "cmd/archive")
 
         if (!ccChatId || String(event.chatId) !== String(ccChatId)) {
-            return { effects: [sendEffect(replyTo, "This command only works in the command center group.", { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, "This command only works in the command center group.", { parse_mode: "Markdown" })] }
         }
 
         const threadId = event.threadId
         if (!threadId) {
-            return { effects: [sendEffect(replyTo, "This command must be used inside a topic.", { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, "This command must be used inside a topic.", { parse_mode: "Markdown" })] }
         }
 
         const cc = core.chatState?.commandCenter ?? {}
@@ -45,7 +45,7 @@ export const commands = {
         }]
 
         // Notify before deleting the topic
-        effects.push(sendEffect(replyTo, `Archiving topic${sessionId ? ` (session ${sessionId})` : ""}...`, { parse_mode: "HTML" }))
+        effects.push(sendEffect(replyTo, `Archiving topic${sessionId ? ` (session ${sessionId})` : ""}...`, { parse_mode: "Markdown" }))
 
         // Delete the topic from Telegram
         effects.push({

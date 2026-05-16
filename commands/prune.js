@@ -7,7 +7,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
-const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
+const { escapeMarkdown: esc } = await versionedImport("../lib/pure/markdown.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const descriptions = {
@@ -43,7 +43,7 @@ export const commands = {
         if (removed.length === 0) {
             return {
                 stateChanges: {},
-                effects: [sendEffect(replyTo, "No disconnected sessions to prune.", { parse_mode: "HTML" })],
+                effects: [sendEffect(replyTo, "No disconnected sessions to prune.", { parse_mode: "Markdown" })],
             }
         }
 
@@ -55,11 +55,11 @@ export const commands = {
             stateChanges.chatState = { focusedSessionId: null }
         }
 
-        const listed = removed.map((id) => `<code>${esc(id)}</code>`).join(", ")
+        const listed = removed.map((id) => `\`${esc(id)}\``).join(", ")
         return {
             stateChanges,
             effects: [
-                sendEffect(replyTo, `Pruned ${removed.length} disconnected session${removed.length === 1 ? "" : "s"}: ${listed}`, { parse_mode: "HTML" }),
+                sendEffect(replyTo, `Pruned ${removed.length} disconnected session${removed.length === 1 ? "" : "s"}: ${listed}`, { parse_mode: "Markdown" }),
             ],
         }
     },

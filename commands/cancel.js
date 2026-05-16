@@ -30,7 +30,7 @@ const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { buildCancelAction } = await versionedImport("../lib/long-task-actions.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 const { topicShellKey } = await versionedImport("../lib/pure/shell-cwd.js", import.meta)
-const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
+const { escapeMarkdown: esc } = await versionedImport("../lib/pure/markdown.js", import.meta)
 
 export const tips = [
     "/cancel will stop the current request",
@@ -84,7 +84,7 @@ export const commands = {
             try {
                 shellEntry.proc.kill("SIGTERM")
                 dbg("CANCEL", `SIGTERM shell ${shellKey} pid=${shellEntry.proc.pid} cmd=${shellEntry.cmd}`)
-                return { effects: [sendEffect(replyTo, `Sent SIGTERM to: <code>${esc(shellEntry.cmd)}</code>`, { parse_mode: "HTML" })] }
+                return { effects: [sendEffect(replyTo, `Sent SIGTERM to: \`${esc(shellEntry.cmd)}\``, { parse_mode: "Markdown" })] }
             } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e)
                 dbg("CANCEL", `kill failed for shell ${shellKey}:`, msg)

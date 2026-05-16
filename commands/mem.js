@@ -3,7 +3,7 @@
 import { versionedImport } from "../lib/version.js"
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
-const { escapeHtml } = await versionedImport("../lib/pure/html.js", import.meta)
+const { escapeMarkdown } = await versionedImport("../lib/pure/markdown.js", import.meta)
 
 const PREVIEW_LINES = 30
 
@@ -41,18 +41,18 @@ export const commands = {
 
         let text
         if (!content) {
-            text = `<b>Topic memory</b>\n\n<code>${escapeHtml(memoryFile)}</code>\n\n<i>(file does not exist yet)</i>`
+            text = `*Topic memory*\n\n\`${escapeMarkdown(memoryFile)}\`\n\n_(file does not exist yet)_`
         } else {
             const lines = content.split("\n")
             const preview = lines.slice(0, PREVIEW_LINES).join("\n")
             const truncated = lines.length > PREVIEW_LINES
-                ? `\n\n<i>... (${lines.length - PREVIEW_LINES} more lines)</i>`
+                ? `\n\n_... (${lines.length - PREVIEW_LINES} more lines)_`
                 : ""
-            text = `<b>Topic memory</b>\n\n<code>${escapeHtml(memoryFile)}</code>\n\n<pre>${escapeHtml(preview)}</pre>${truncated}`
+            text = `*Topic memory*\n\n\`${escapeMarkdown(memoryFile)}\`\n\n\`\`\`\n${escapeMarkdown(preview)}\n\`\`\`${truncated}`
         }
 
         return {
-            effects: [sendEffect(replyTo, text, { parse_mode: "HTML" })],
+            effects: [sendEffect(replyTo, text, { parse_mode: "Markdown" })],
         }
     },
 }

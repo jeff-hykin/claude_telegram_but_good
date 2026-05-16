@@ -6,7 +6,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
-const { escapeHtml: esc } = await versionedImport("../lib/pure/html.js", import.meta)
+const { escapeMarkdown: esc } = await versionedImport("../lib/pure/markdown.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
@@ -71,7 +71,7 @@ export const commands = {
             return (b.createdAt ?? "").localeCompare(a.createdAt ?? "")
         })
 
-        const lines = [`<b>Long Tasks</b> (${tasks.length})\n`]
+        const lines = [`*Long Tasks* (${tasks.length})\n`]
 
         for (const task of tasks) {
             const emoji = STATE_EMOJI[task.state] ?? "❓"
@@ -84,8 +84,8 @@ export const commands = {
             const workerAlive = workerSess?._conn ? true : false
             const workerStatus = worker === "none" ? "" : workerAlive ? " (connected)" : " (disconnected)"
 
-            lines.push(`${emoji} <b>${esc(title)}</b>`)
-            lines.push(`   ID: <code>${esc(task.id)}</code>`)
+            lines.push(`${emoji} *${esc(title)}*`)
+            lines.push(`   ID: \`${esc(task.id)}\``)
             lines.push(`   State: ${esc(task.state)}${created ? ` • Created: ${created}` : ""}`)
             lines.push(`   Worker: ${esc(worker)}${workerStatus}`)
             if (task.state === "in_progress") {
@@ -94,6 +94,6 @@ export const commands = {
             lines.push("")
         }
 
-        return { effects: [sendEffect(replyTo, lines.join("\n"), { parse_mode: "HTML" })] }
+        return { effects: [sendEffect(replyTo, lines.join("\n"), { parse_mode: "Markdown" })] }
     },
 }

@@ -84,16 +84,16 @@ export const commands = {
         const replyTo = replyToFromEvent(event, "cmd/refresh")
 
         if (!ccChatId || String(event.chatId) !== String(ccChatId)) {
-            return { effects: [sendEffect(replyTo, "This command only works in the command center group.", { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, "This command only works in the command center group.", { parse_mode: "Markdown" })] }
         }
 
         const threadId = event.threadId
         if (!threadId) {
-            return { effects: [sendEffect(replyTo, "This command must be used inside a topic.", { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, "This command must be used inside a topic.", { parse_mode: "Markdown" })] }
         }
 
         if (!(await $.commandExists("dtach"))) {
-            return { effects: [sendEffect(replyTo, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach", { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach", { parse_mode: "Markdown" })] }
         }
 
         const cc = core.chatState?.commandCenter ?? {}
@@ -250,7 +250,7 @@ export const commands = {
                     ? `\nNo message history found for previous session — starting fresh.`
                     : "")
             const effects = [
-                sendEffect(replyTo, `Spawned new session <code>${sessionId}</code> (${title})${contextNote}`, { parse_mode: "HTML" }),
+                sendEffect(replyTo, `Spawned new session \`${sessionId}\` (${title})${contextNote}`, { parse_mode: "Markdown" }),
             ]
 
             // Kill old session: send /exit gracefully, then schedule a
@@ -322,7 +322,7 @@ export const commands = {
                 detail = String(err)
             }
             dbg("REFRESH", "failed:", detail)
-            return { effects: [sendEffect(replyTo, `Failed to spawn session:\n${detail}`, { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, `Failed to spawn session:\n${detail}`, { parse_mode: "Markdown" })] }
         }
     },
 }

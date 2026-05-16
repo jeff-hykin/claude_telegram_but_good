@@ -19,7 +19,7 @@ export const commands = {
         const ccChatId = access.commandCenterChatId
 
         if (!ccChatId) {
-            return { effects: [sendEffect(replyTo, "No command center is currently active.", { parse_mode: "HTML" })] }
+            return { effects: [sendEffect(replyTo, "No command center is currently active.", { parse_mode: "Markdown" })] }
         }
 
         // Clear from access.json
@@ -35,7 +35,7 @@ export const commands = {
                     commandCenter: undefined,
                 },
             },
-            effects: [sendEffect(replyTo, "Command center disabled. Topics remain in the group but the bot will no longer route through them.", { parse_mode: "HTML" })],
+            effects: [sendEffect(replyTo, "Command center disabled. Topics remain in the group but the bot will no longer route through them.", { parse_mode: "Markdown" })],
         }
     },
 }
