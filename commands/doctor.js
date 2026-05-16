@@ -103,11 +103,11 @@ export const commands = {
             trimmed = "..." + body.slice(-(budget - 3))
         }
 
-        effects.push(sendEffect(replyTo, `${opener}${escHtml(trimmed)}${closer}`, { parse_mode: "Markdown" }))
+        effects.push(sendEffect(replyTo, `${opener}${trimmed}${closer}`, { parse_mode: "Markdown" }))
 
         if (!result.ok && result.stderr?.trim()) {
             const errTail = result.stderr.trim().slice(-1500)
-            effects.push(sendEffect(replyTo, `*stderr:*\n\`\`\`\n${escHtml(errTail)}\n\`\`\``, { parse_mode: "Markdown" }))
+            effects.push(sendEffect(replyTo, `*stderr:*\n\`\`\`\n${errTail}\n\`\`\``, { parse_mode: "Markdown" }))
         }
 
         return { effects }

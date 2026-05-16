@@ -48,7 +48,7 @@ export const commands = {
             const truncated = lines.length > PREVIEW_LINES
                 ? `\n\n_... (${lines.length - PREVIEW_LINES} more lines)_`
                 : ""
-            text = `*Topic memory*\n\n\`${escapeMarkdown(memoryFile)}\`\n\n\`\`\`\n${escapeMarkdown(preview)}\n\`\`\`${truncated}`
+            text = `*Topic memory*\n\n\`${memoryFile}\`\n\n\`\`\`\n${preview}\n\`\`\`${truncated}`
         }
 
         return {
