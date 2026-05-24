@@ -504,6 +504,15 @@ enqueueEvent({ type: "screen_snapshot_tick" })
 // auto-restarts the bot. See lib/event-handlers/bot-health-check.js.
 enqueueEvent({ type: "bot_health_check" })
 
+// ── Scheduled-task stuck-run watchdog ──────────────────────────────
+// Seed the periodic scan for scheduled-task runs stuck in `running`
+// state. The handler self-reschedules every 5 min. Reaps any run that
+// has been in `running` longer than the per-task threshold (default
+// 6h), synthesizes a run_complete (errored) so state resets to
+// `scheduled` and the timer rearms.
+// See lib/event-handlers/scheduled-task-stuck-watchdog.js.
+enqueueEvent({ type: "scheduled_task_stuck_watchdog" })
+
 // ── Scheduled-task rehydration ─────────────────────────────────────────
 // For each non-terminal scheduled task in specialData, enqueue a
 // scheduled_task_rehydrate event so the schedule_timer_set effect
