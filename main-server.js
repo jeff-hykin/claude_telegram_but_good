@@ -358,6 +358,7 @@ function spawnIpcReadLoop(conn) {
                 await enqueueIpcMessage(msg, conn)
             }
         }
+        try { conn.close() } catch (e) { dbg("IPC", "close failed:", e) }
         enqueueEvent({ type: "ipc_connection_closed", _conn: conn })
     })()
 }
