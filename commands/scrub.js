@@ -104,7 +104,7 @@ export const commands = {
 
 /**
  * Parse "find replace" from command text.
- * Supports quoted strings: /scrub_add "outer space" "idk"
+ * Supports quoted strings: /scrub_add "[redacted]" "idk"
  * Or unquoted two-word: /scrub_add florp sudo
  */
 function parseArgs(text) {
