@@ -141,11 +141,54 @@ export const commands = {
             // as `pendingFocusId` so `session_register` promotes it to
             // focused when the registration lands. This replaces the
             // legacy setTimeout → state.setFocusedSession dance.
+            const chatStatePatch = { pendingFocusId: sessionId }
+            const extraEffects = []
+
+            // When invoked from a command-center topic, steal the topic:
+            // rebind threadMap/topicMap to the new session and gracefully
+            // kill the old session. Without this, the topic's threadMap
+            // keeps pointing at the old session and subsequent messages
+            // route to it (or fall into the "has disconnected" path if
+            // it's already dead).
+            const ccChatId = access.commandCenterChatId
+            const inCcTopic = ccChatId && String(event.chatId) === String(ccChatId) && event.threadId
+            if (inCcTopic) {
+                const cc = core.chatState?.commandCenter ?? {}
+                const threadKey = String(event.threadId)
+                const existingSessionId = cc.threadMap?.[threadKey]
+
+                const topicMap = { ...(cc.topicMap ?? {}) }
+                const threadMap = { ...(cc.threadMap ?? {}) }
+                if (existingSessionId) {
+                    delete topicMap[existingSessionId]
+                }
+                topicMap[sessionId] = threadKey
+                threadMap[threadKey] = sessionId
+                chatStatePatch.commandCenter = { ...cc, topicMap, threadMap }
+
+                if (existingSessionId && core.chatSessions?.[existingSessionId]) {
+                    extraEffects.push({
+                        type: "send_text_to_claude",
+                        sessionId: existingSessionId,
+                        text: "/exit",
+                    })
+                    extraEffects.push({
+                        type: "set_timer",
+                        delayMs: 15000,
+                        event: {
+                            type: "session_force_close",
+                            sessionId: existingSessionId,
+                        },
+                    })
+                    dbg("NEW", `killing old session ${existingSessionId} (CC topic ${threadKey})`)
+                }
+            }
+
             return {
                 stateChanges: {
-                    chatState: { pendingFocusId: sessionId },
+                    chatState: chatStatePatch,
                 },
-                effects: [sendEffect(replyTo, `Created: /chat_${sessionId}${displayTitle}`)],
+                effects: [...extraEffects, sendEffect(replyTo, `Created: /chat_${sessionId}${displayTitle}`)],
             }
         } catch (err) {
             let detail = ""
