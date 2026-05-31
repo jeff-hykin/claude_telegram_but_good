@@ -6,7 +6,6 @@
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
-const { escapeMarkdown: esc } = await versionedImport("../lib/pure/markdown.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
@@ -84,16 +83,16 @@ export const commands = {
             const workerAlive = workerSess?._conn ? true : false
             const workerStatus = worker === "none" ? "" : workerAlive ? " (connected)" : " (disconnected)"
 
-            lines.push(`${emoji} *${esc(title)}*`)
-            lines.push(`   ID: \`${esc(task.id)}\``)
-            lines.push(`   State: ${esc(task.state)}${created ? ` • Created: ${created}` : ""}`)
-            lines.push(`   Worker: ${esc(worker)}${workerStatus}`)
+            lines.push(`${emoji} ${title}`)
+            lines.push(`   ID: ${task.id}`)
+            lines.push(`   State: ${task.state}${created ? ` • Created: ${created}` : ""}`)
+            lines.push(`   Worker: ${worker}${workerStatus}`)
             if (task.state === "in_progress") {
-                lines.push(`   /task_status_${esc(task.id)} · /task_cancel_${esc(task.id)}`)
+                lines.push(`   /task_status_${task.id} · /task_cancel_${task.id}`)
             }
             lines.push("")
         }
 
-        return { effects: [sendEffect(replyTo, lines.join("\n"), { parse_mode: "Markdown" })] }
+        return { effects: [sendEffect(replyTo, lines.join("\n"), {})] }
     },
 }

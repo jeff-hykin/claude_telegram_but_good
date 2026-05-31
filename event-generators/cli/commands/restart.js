@@ -19,7 +19,7 @@ export async function runRestart(_args) {
     await ensureOnboarded()
     console.log(c.dim("  Restarting cbg daemon..."))
     killAllServers({ markStopped: false })
-    try { Deno.removeSync(paths.STOPPED_FILE) } catch (e) { dbg("CBG", "remove paths.STOPPED_FILE failed:", e) }
+    try { Deno.removeSync(paths.STOPPED_FILE) } catch (e) { if (!(e instanceof Deno.errors.NotFound)) { dbg("CBG", "remove paths.STOPPED_FILE failed:", e) } }
     const out = restartService()
     if (out.trim()) {
         console.log(c.dim("  " + out.trim()))

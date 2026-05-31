@@ -164,15 +164,22 @@ export function killAllServers({ markStopped = true } = {}) {
     if (markStopped) {
         Deno.writeTextFileSync(paths.STOPPED_FILE, String(Date.now()))
     }
-    try { stopService() } catch (e) { dbg("CBG", "stopService failed (may not be running):", e) }
+    // Read PID before stopService — the daemon's SIGTERM handler deletes the PID file
+    let savedPid = 0
     try {
-        const pidStr = Deno.readTextFileSync(paths.PID_FILE).trim()
-        const pid = parseInt(pidStr)
-        if (pid > 0) {
-            new Deno.Command("kill", { args: [String(pid)], stdout: "null", stderr: "null" }).outputSync()
-        }
+        savedPid = parseInt(Deno.readTextFileSync(paths.PID_FILE).trim()) || 0
     } catch (e) {
-        dbg("CBG", "kill server by PID failed:", e)
+        if (!(e instanceof Deno.errors.NotFound)) {
+            dbg("CBG", "read PID_FILE failed:", e)
+        }
+    }
+    try { stopService() } catch (e) { dbg("CBG", "stopService failed (may not be running):", e) }
+    if (savedPid > 0) {
+        try {
+            new Deno.Command("kill", { args: [String(savedPid)], stdout: "null", stderr: "null" }).outputSync()
+        } catch (e) {
+            dbg("CBG", "kill server by PID failed:", e)
+        }
     }
     try {
         new Deno.Command("pkill", {
