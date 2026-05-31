@@ -185,18 +185,21 @@ Deno.test("ipc-closed: conn not tied to any session emits only clear_inbox_waite
     assertEquals(action.effects[0].conn, closed)
 })
 
-Deno.test("ipc-closed: matching conn removes the session", () => {
+Deno.test("ipc-closed: matching conn soft-disconnects (keeps session, nulls _conn)", () => {
     const conn = fakeConn("s1-conn")
     const core = makeCore({
         chatState: { focusedSessionId: "s1" },
         chatSessions: { "s1": { id: "s1", _conn: conn } },
     })
     const action = ipcClosed({ _conn: conn }, core)
-    assertEquals(get(action, "stateChanges.chatSessions.s1"), undefined)
-    assertEquals(get(action, "stateChanges.chatState.focusedSessionId"), null)
+    const patch = get(action, "stateChanges.chatSessions.s1")
+    assertEquals(patch._conn, undefined)
+    assertEquals(typeof patch.disconnectedAt, "number")
+    // Focus is NOT cleared — the session persists for reconnect
+    assertEquals(get(action, "stateChanges.chatState"), undefined)
 })
 
-Deno.test("ipc-closed: matching conn on non-focused session leaves focus alone", () => {
+Deno.test("ipc-closed: soft-disconnect on non-focused session leaves focus alone", () => {
     const s1Conn = fakeConn("s1")
     const s2Conn = fakeConn("s2")
     const core = makeCore({
@@ -207,7 +210,9 @@ Deno.test("ipc-closed: matching conn on non-focused session leaves focus alone",
         },
     })
     const action = ipcClosed({ _conn: s2Conn }, core)
-    assertEquals(get(action, "stateChanges.chatSessions.s2"), undefined)
+    const patch = get(action, "stateChanges.chatSessions.s2")
+    assertEquals(patch._conn, undefined)
+    assertEquals(typeof patch.disconnectedAt, "number")
     assertEquals(get(action, "stateChanges.chatState"), undefined)
 })
 

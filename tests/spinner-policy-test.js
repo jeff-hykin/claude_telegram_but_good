@@ -190,7 +190,7 @@ spinnerTest("spinner:append — focused hook edits the active spinner in place",
     assertEquals(rec.items.length, 1)
 })
 
-spinnerTest("spinner:append — non-focused session is ignored", async () => {
+spinnerTest("spinner:append — non-focused session with active spinner still gets updated", async () => {
     const bot = fakeBot()
     const core = makeCore({
         chatState: { focusedSessionId: "other" },
@@ -204,8 +204,7 @@ spinnerTest("spinner:append — non-focused session is ignored", async () => {
         bot,
     })
     await applySpinnerPolicy(preEvent(), null, core)
-    assertEquals(bot.calls.length, 0)
-    assertEquals(core.chatSessions["sess-1"].activeSpinner.items.length, 0)
+    assertEquals(core.chatSessions["sess-1"].activeSpinner.items.length, 1)
 })
 
 spinnerTest("spinner:append — hidden tools (mcp__plugin_telegram_*) don't reach the spinner", async () => {

@@ -65,13 +65,14 @@ Deno.test("hook-pre: unknown session -> no-op", () => {
     assertEquals(action.effects, [])
 })
 
-Deno.test("hook-pre: non-focused session -> no-op", () => {
+Deno.test("hook-pre: non-focused session still emits cold_append", () => {
     const core = makeCore({
         chatState: { focusedSessionId: "other" },
         chatSessions: { "sess-1": session("sess-1"), "other": session("other") },
     })
     const action = pre(preEvent(), core)
-    assertEquals(action.effects, [])
+    assertEquals(action.effects.length, 1)
+    assertEquals(action.effects[0].type, "cold_append")
 })
 
 Deno.test("hook-pre: focused session emits cold_append + lastActive (spinner handled by policy)", () => {
