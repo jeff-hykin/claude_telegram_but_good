@@ -401,12 +401,15 @@ Deno.test("sendTextMessageToUser: Markdown parse error → retries as plain text
         text: "*unclosed bold some agent body",
         options: { parse_mode: "Markdown" },
     }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
-    // Two calls: original (Markdown format, threw) + retry (no format/parse_mode)
-    // toAbstractOptions converts parse_mode:"Markdown" → format:"markdown" at the bot interface
+    // Markdown is now rendered to entities and sent with format "plain" (no
+    // parse_mode) — so the primary send carries `entities`, not "markdown".
+    // If that still 400s, recovery strips format + entities and resends plain.
     assertEquals(calls.length, 2)
-    assertEquals(calls[0].options.format, "markdown")
+    assertEquals(calls[0].options.format, "plain")
+    assert(Array.isArray(calls[0].options.entities), "primary send carries entities")
     assertEquals(calls[1].options.format, undefined)
     assertEquals(calls[1].options.parse_mode, undefined)
+    assertEquals(calls[1].options.entities, undefined)
     assertEquals(calls[1].text, calls[0].text)  // same body, just unformatted
 })
 
@@ -483,11 +486,14 @@ Deno.test("sendFileToUser: parse-error in caption → retries with plain caption
         filePath: outsideFile,
         caption: "*unclosed",
     }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
-    // 2 file calls: Markdown caption (threw) + plain caption (succeeded)
+    // 2 file calls: caption rendered to caption_entities (threw) + plain
+    // caption fallback (succeeded). Captions no longer use parse_mode.
     const fileCalls = calls.filter(c => c.kind === "file")
     assertEquals(fileCalls.length, 2)
-    assertEquals(fileCalls[0].opts.format, "markdown")
+    assertEquals(fileCalls[0].opts.format, undefined)
+    assert(Array.isArray(fileCalls[0].opts.caption_entities), "primary caption carries caption_entities")
     assertEquals(fileCalls[1].opts.format, undefined)
+    assertEquals(fileCalls[1].opts.caption_entities, undefined)
     // No failure-notice text call needed (recovery succeeded)
     const textCalls = calls.filter(c => c.kind === "text")
     assertEquals(textCalls.length, 0)
@@ -541,8 +547,10 @@ Deno.test("editTelegramMessage: parse error → retries plain text", async () =>
     }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
     const editCalls = calls.filter(c => c.kind === "edit")
     assertEquals(editCalls.length, 2)
-    assertEquals(editCalls[0].options.format, "markdown")
+    assertEquals(editCalls[0].options.format, "plain")
+    assert(Array.isArray(editCalls[0].options.entities), "primary edit carries entities")
     assertEquals(editCalls[1].options.format, undefined)
+    assertEquals(editCalls[1].options.entities, undefined)
     // No failure-notice (recovery succeeded)
     assertEquals(calls.filter(c => c.kind === "text").length, 0)
 })
