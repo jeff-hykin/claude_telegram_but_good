@@ -36,7 +36,7 @@ export const TOOLS = [
                 format: {
                     type: "string",
                     enum: ["text", "markdown", "html", "markdownv2"],
-                    description: "Rendering mode. Default: 'text'. Use 'markdown' for *bold*, _italic_, `code`, ```pre```, [text](url) formatting (legacy Telegram Markdown).",
+                    description: "Rendering mode. DEFAULT is 'markdown' — *bold*, _italic_, `code`, ```pre```, [text](url) all render (and are sanitized for you, so loose markdown is fine). Pass 'text' to force literal plain text.",
                 },
             },
             required: ["chat_id", "text"],

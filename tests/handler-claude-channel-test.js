@@ -75,6 +75,27 @@ Deno.test("claude-channel: reply markdown format leaves /chat_ bare so it stays 
     assertEquals(sends[0].options.parse_mode, "Markdown")
 })
 
+Deno.test("claude-channel: reply with NO format defaults to markdown (rendered)", () => {
+    // Agents constantly write markdown but omit format:"markdown". The
+    // default is now markdown (safe — rendered to entities, see
+    // lib/pure/telegram-markdown.js), so their formatting renders.
+    const core = makeCore({
+        chatSessions: { "sess-1": { id: "sess-1", title: "cbg / master" } },
+    })
+    const action = handle(makeEvent("reply", { chat_id: "42", text: "*hi*" }), core)
+    const sends = effectsOfType(action, "send_text_to_user")
+    assertEquals(sends[0].options.parse_mode, "Markdown")
+})
+
+Deno.test("claude-channel: reply with explicit format:text stays plain", () => {
+    const core = makeCore({
+        chatSessions: { "sess-1": { id: "sess-1", title: "cbg / master" } },
+    })
+    const action = handle(makeEvent("reply", { chat_id: "42", text: "*hi*", format: "text" }), core)
+    const sends = effectsOfType(action, "send_text_to_user")
+    assertEquals(sends[0].options.parse_mode, undefined)
+})
+
 // Regression: when a reply lands in the CC group's General topic (chat_id
 // is the CC group AND the session has no topic-thread bound), the user has
 // no thread context to identify which agent is talking. The header switches
