@@ -634,6 +634,15 @@ export async function onboard() {
         fail(`settings.json update failed: ${err}`)
     }
 
+    try {
+        const { installUserSkills } = await versionedImport("../skills/setup.js", import.meta)
+        const skillResults = installUserSkills()
+        const okNames = skillResults.filter((r) => r.ok).map((r) => r.name)
+        if (okNames.length) { ok(`Installed cbg skills: ${okNames.join(", ")}.`) }
+    } catch (err) {
+        fail(`skill install failed: ${err}`)
+    }
+
     // --- Step 5: Permission mode ---
     header("5", "Permission Mode")
     info("How should spawned Claude sessions handle permissions?")

@@ -7,6 +7,7 @@ const [
     { dbg },
     { removeShim },
     { removeFromSettingsJson },
+    { removeUserSkills },
 ] = await Promise.all([
     versionedImport("../../../imports.js", import.meta),
     versionedImport("../../../lib/daemon.js", import.meta),
@@ -14,6 +15,7 @@ const [
     versionedImport("../../../lib/logging.js", import.meta),
     versionedImport("../shim-setup.js", import.meta),
     versionedImport("../helpers.js", import.meta),
+    versionedImport("../../skills/setup.js", import.meta),
 ])
 const c = colors
 
@@ -50,6 +52,15 @@ export async function runUninstall(_args) {
         console.log(c.green("  \u2714 ") + "Hooks and plugin removed from settings.json.")
     } catch (e) {
         console.log(c.yellow("  \u26A0 ") + "settings.json cleanup: " + e)
+    }
+
+    // Remove cbg's user-global skills
+    console.log(c.dim("  Removing cbg skills from ~/.claude/skills..."))
+    try {
+        removeUserSkills()
+        console.log(c.green("  ✔ ") + "cbg skills removed.")
+    } catch (e) {
+        console.log(c.yellow("  ⚠ ") + "skill cleanup: " + e)
     }
 
     // Remove the claude shim

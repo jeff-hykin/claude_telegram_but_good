@@ -50,6 +50,7 @@ const [
         ensureSettingsJson,
         hotReloadDaemon,
     },
+    { installUserSkills },
 ] = await Promise.all([
     versionedImport("../../../imports.js", import.meta),
     versionedImport("../../../lib/daemon.js", import.meta),
@@ -57,6 +58,7 @@ const [
     versionedImport("../../../lib/logging.js", import.meta),
     versionedImport("../shim-setup.js", import.meta),
     versionedImport("../helpers.js", import.meta),
+    versionedImport("../../skills/setup.js", import.meta),
 ])
 const c = colors
 
@@ -90,6 +92,22 @@ export async function runReinstall(_args) {
         console.log(c.green("  \u2714 ") + shimResult.message)
     } else {
         console.log(c.yellow("  \u26A0 ") + shimResult.message)
+    }
+
+    // ── Step 3b: user-global skills (self_compact / self_clear) ─────
+    console.log(c.dim("  Installing cbg skills into ~/.claude/skills..."))
+    try {
+        const skillResults = installUserSkills()
+        const okNames = skillResults.filter((r) => r.ok).map((r) => r.name)
+        const badNames = skillResults.filter((r) => !r.ok).map((r) => r.name)
+        if (okNames.length) {
+            console.log(c.green("  ✔ Skills installed: ") + okNames.join(", "))
+        }
+        if (badNames.length) {
+            console.log(c.yellow("  ⚠ Skills failed: ") + badNames.join(", "))
+        }
+    } catch (err) {
+        console.log(c.yellow("  ⚠ Skill install failed: " + err))
     }
 
     // ── Step 4: daemon — hot-reload in place, or start if down ──────
