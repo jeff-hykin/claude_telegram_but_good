@@ -60,9 +60,75 @@ dbg(
     "session:", data?.session_id ?? null,
 )
 
+// AskUserQuestion can't be answered in a channel-driven session, so the
+// daemon decides whether to deny it (deny iff this claudePid is a registered
+// cbg session). For that one tool we wait for the daemon's decision frame and,
+// if told to, emit a PreToolUse "deny" so Claude blocks the call and shows the
+// reason to the model. Every other hook stays fire-and-forget.
+const isAskUserQuestion = data?.hook_event_name === "PreToolUse" && data?.tool_name === "AskUserQuestion"
+
+/**
+ * Read one newline-delimited JSON frame from `conn`, bounded by an overall
+ * deadline. Returns the parsed object, or null on timeout / parse failure.
+ */
+async function readDecision(conn, timeoutMs) {
+    const decoder = new TextDecoder()
+    let acc = ""
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+        const remaining = timeoutMs - (Date.now() - start)
+        const buf = new Uint8Array(4096)
+        const n = await Promise.race([
+            conn.read(buf),
+            new Promise((resolve) => setTimeout(() => resolve("TIMEOUT"), remaining)),
+        ])
+        if (n === "TIMEOUT" || n === null) { break }
+        acc += decoder.decode(buf.subarray(0, n))
+        const nl = acc.indexOf("\n")
+        if (nl >= 0) {
+            try {
+                return JSON.parse(acc.slice(0, nl))
+            } catch (e) {
+                dbg("HOOK", "decision parse failed:", e)
+                return null
+            }
+        }
+    }
+    return null
+}
+
 try {
     const conn = await Deno.connect({ transport: "unix", path: paths.IPC_SOCK })
     await conn.write(encodeIpcFrame({ type: "hook_event", claudePid, data }))
+
+    if (isAskUserQuestion) {
+        // Do NOT closeWrite() here: closing our write half makes the daemon's
+        // read loop hit EOF and close the whole conn (its FD-leak guard)
+        // before it can send the decision back, so the response write fails
+        // with BadResource. The daemon parses our newline-framed message
+        // without needing EOF, so leaving the write half open is fine. We
+        // close fully once we've read the reply.
+        // 3s budget keeps us under the 5s hook timeout even after deno
+        // startup + the ancestry ps walk. Normal daemon response is sub-100ms.
+        const decision = await readDecision(conn, 3000)
+        try { conn.close() } catch (e) { dbg("HOOK", "close failed:", e) }
+        if (decision?.deny) {
+            console.log(JSON.stringify({
+                hookSpecificOutput: {
+                    hookEventName: "PreToolUse",
+                    permissionDecision: "deny",
+                    permissionDecisionReason: decision.reason
+                        ?? "AskUserQuestion is not available in this session; ask the user via the reply tool instead.",
+                },
+            }))
+        }
+        // No decision (timeout / not a cbg session / daemon down) → stay
+        // silent so Claude proceeds normally (fail open).
+        Deno.exit(0)
+    }
+
+    // Fire-and-forget for every other hook: signal completion with a write
+    // half-close, wait briefly for an optional ack, then close.
     try { await conn.closeWrite() } catch (e) { dbg("HOOK", "closeWrite failed:", e) }
     const buf = new Uint8Array(1)
     await Promise.race([
