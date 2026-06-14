@@ -130,6 +130,14 @@ switch (cmd) {
         await runUninstall(args)
         break
     }
+    // `cbg self-input <text>` types text into the current session's OWN
+    // dtach (via CBG_DTACH_SOCKET). Intentionally NOT in printUsage(): it's
+    // for running agents / skills (e.g. self_compact), not humans.
+    case "self-input": {
+        const { runSelfInput } = await versionedImport("./commands/self-input.js", import.meta)
+        await runSelfInput(args)
+        break
+    }
     // `cbg claude` is the JS reimplementation of the bash shim at
     // $PATH/claude. Intentionally NOT in printUsage(): users should run
     // `claude`, which the installed shim exec's into this subcommand.
