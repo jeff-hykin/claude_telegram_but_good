@@ -18,6 +18,7 @@ setupTempPaths("cbg-hooks-test-")
 const pre = (await import("../lib/event-handlers/claude-hook-pre-tool-use.js")).default
 const post = (await import("../lib/event-handlers/claude-hook-post-tool-use.js")).default
 const stop = (await import("../lib/event-handlers/claude-hook-stop.js")).default
+const nudgeFire = (await import("../lib/event-handlers/stop-nudge-fire.js")).default
 
 function session(id, patch = {}) {
     return { id, pid: 1234, _conn: {}, ...patch }
@@ -364,6 +365,45 @@ Deno.test("hook-stop: taskCheck without report.md on a SYNTHETIC Stop schedules 
     const timers = effectsOfType(action, "set_timer")
     const taskTimer = timers.find(t => t.event?.type === "stop_nudge_fire" && t.event?.nudgeType === "taskReport")
     assert(taskTimer, "should schedule a task report nudge timer")
+})
+
+// ── stop-nudge-fire: task-report rate limit ─────────────────────────
+
+Deno.test("stop-nudge-fire: taskReport nudge is rate-limited to once per 20 min", () => {
+    const taskId = "RateLimitDemo9999"
+    const chatId = "42"
+    const mkCore = (lastNudgeAt) => makeCore({
+        chatSessions: {
+            "sess-1": session("sess-1", { longTaskId: taskId, pendingNudgeAction: "taskCheck" }),
+        },
+        specialData: {
+            longTaskByChatId: {
+                [chatId]: {
+                    [taskId]: {
+                        id: taskId,
+                        state: "in_progress",
+                        workerSessionId: "sess-1",
+                        definition: "stub",
+                        ...(lastNudgeAt != null ? { lastNudgeAt } : {}),
+                    },
+                },
+            },
+        },
+    })
+    const ev = (ts) => ({ type: "stop_nudge_fire", sessionId: "sess-1", nudgeType: "taskReport", taskId, chatId, ts })
+    const now = 1_000_000_000
+
+    // Nudged 5 min ago → suppressed.
+    assertEquals(nudgeFire(ev(now), mkCore(now - 5 * 60 * 1000)), null)
+
+    // Nudged 25 min ago → fires.
+    const fired = nudgeFire(ev(now), mkCore(now - 25 * 60 * 1000))
+    assertEquals(effectsOfType(fired, "send_text_to_claude").length, 1)
+    assertEquals(get(fired, `stateChanges.specialData.longTaskByChatId.${chatId}.${taskId}.lastNudgeAt`), now)
+
+    // Never nudged before → fires.
+    const first = nudgeFire(ev(now), mkCore(null))
+    assertEquals(effectsOfType(first, "send_text_to_claude").length, 1)
 })
 
 // ── pendingQueue drain on Stop ──────────────────────────────────────
