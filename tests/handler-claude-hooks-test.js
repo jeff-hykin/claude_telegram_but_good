@@ -19,6 +19,7 @@ const pre = (await import("../lib/event-handlers/claude-hook-pre-tool-use.js")).
 const post = (await import("../lib/event-handlers/claude-hook-post-tool-use.js")).default
 const stop = (await import("../lib/event-handlers/claude-hook-stop.js")).default
 const nudgeFire = (await import("../lib/event-handlers/stop-nudge-fire.js")).default
+const checkin = (await import("../lib/event-handlers/task-checkin.js")).default
 
 function session(id, patch = {}) {
     return { id, pid: 1234, _conn: {}, ...patch }
@@ -404,6 +405,48 @@ Deno.test("stop-nudge-fire: taskReport nudge is rate-limited to once per 20 min"
     // Never nudged before → fires.
     const first = nudgeFire(ev(now), mkCore(null))
     assertEquals(effectsOfType(first, "send_text_to_claude").length, 1)
+})
+
+// ── task-checkin: rate limit + stack collapse ───────────────────────
+
+Deno.test("task-checkin: rate-limited to once per 20 min; suppressed fires don't reschedule", () => {
+    const taskId = "CheckinDemo7777"
+    const chatId = "42"
+    const mkCore = (lastCheckinAt) => makeCore({
+        chatSessions: {
+            "sess-1": session("sess-1", { longTaskId: taskId }),
+        },
+        specialData: {
+            longTaskByChatId: {
+                [chatId]: {
+                    [taskId]: {
+                        id: taskId,
+                        state: "in_progress",
+                        workerSessionId: "sess-1",
+                        definition: "stub",
+                        ...(lastCheckinAt != null ? { lastCheckinAt } : {}),
+                    },
+                },
+            },
+        },
+    })
+    const ev = (ts) => ({ type: "task_checkin", sessionId: "sess-1", taskId, ts })
+    const now = 1_000_000_000
+
+    // First check-in (no prior) → fires, stamps lastCheckinAt, reschedules.
+    const first = checkin(ev(now), mkCore(null))
+    assertEquals(effectsOfType(first, "send_text_to_claude").length, 1)
+    assertEquals(effectsOfType(first, "set_timer").length, 1)
+    assertEquals(get(first, `stateChanges.specialData.longTaskByChatId.${chatId}.${taskId}.lastCheckinAt`), now)
+
+    // Stacked timer firing 1 min later → suppressed, NO reschedule (so the
+    // pile of timers drains instead of multiplying).
+    const suppressed = checkin(ev(now + 60_000), mkCore(now))
+    assertEquals(suppressed, null)
+
+    // 21 min later → fires again.
+    const later = checkin(ev(now + 21 * 60 * 1000), mkCore(now))
+    assertEquals(effectsOfType(later, "send_text_to_claude").length, 1)
 })
 
 // ── pendingQueue drain on Stop ──────────────────────────────────────
