@@ -106,6 +106,33 @@ Deno.test("hook-pre: hidden telegram-plugin tools still update lastActive but em
     assertEquals(get(action, "stateChanges.chatSessions.sess-1.lastActive"), 5_000)
 })
 
+Deno.test("hook-pre: AskUserQuestion in a registered session -> ipc_respond deny", () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "sess-1" },
+        chatSessions: { "sess-1": session("sess-1") },
+    })
+    const conn = { id: "hookconn" }
+    const action = pre(preEvent({ toolName: "AskUserQuestion", _conn: conn }), core)
+    const responds = effectsOfType(action, "ipc_respond")
+    assertEquals(responds.length, 1)
+    assertEquals(responds[0].conn, conn)
+    assertEquals(responds[0].closeAfter, true)
+    assertEquals(responds[0].message.deny, true)
+    assert(typeof responds[0].message.reason === "string" && responds[0].message.reason.length > 0)
+    // No cold_append for the denied tool; lastActive still bumped.
+    assertEquals(effectsOfType(action, "cold_append").length, 0)
+    assertEquals(get(action, "stateChanges.chatSessions.sess-1.lastActive"), 5_000)
+})
+
+Deno.test("hook-pre: AskUserQuestion in an UNregistered session -> ipc_respond allow (deny:false)", () => {
+    const core = makeCore({ chatSessions: {} })
+    const conn = { id: "hookconn" }
+    const action = pre(preEvent({ toolName: "AskUserQuestion", sessionId: null, _conn: conn }), core)
+    const responds = effectsOfType(action, "ipc_respond")
+    assertEquals(responds.length, 1)
+    assertEquals(responds[0].message.deny, false)
+})
+
 // ── post-tool-use ───────────────────────────────────────────────────
 
 Deno.test("hook-post: focused session emits cold_append (spinner handled by policy)", () => {
