@@ -41,6 +41,24 @@ Deno.test("claude-channel: reply emits send_text_to_user with recordAs metadata"
     assertEquals(sends[0].recordAs.text, "hi")
 })
 
+Deno.test("claude-channel: /tldr — reply over the limit is rejected, nothing sent", () => {
+    const core = makeCore({ chatState: { tldrMaxChars: 10 } })
+    const action = handle(makeEvent("reply", { chat_id: "42", text: "x".repeat(50) }), core)
+    // No message goes to the user.
+    assertEquals(effectsOfType(action, "send_text_to_user").length, 0)
+    // The agent gets an isError tool_response telling it to be concise.
+    const responds = effectsOfType(action, "ipc_respond")
+    assertEquals(responds.length, 1)
+    assertEquals(responds[0].message.result.isError, true)
+    assert(responds[0].message.result.content[0].text.includes("like a human"))
+})
+
+Deno.test("claude-channel: /tldr — reply under the limit sends normally", () => {
+    const core = makeCore({ chatState: { tldrMaxChars: 100 } })
+    const action = handle(makeEvent("reply", { chat_id: "42", text: "short answer" }), core)
+    assertEquals(effectsOfType(action, "send_text_to_user").length, 1)
+})
+
 Deno.test("claude-channel: reply header includes session title when set", () => {
     const core = makeCore({
         chatSessions: {
