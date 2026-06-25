@@ -3,7 +3,7 @@
 // Spawns a new Claude session in the current topic, binding it to the
 // topic and feeding the last 50 messages as context.
 
-import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs"
+import { writeFileSync, readFileSync, existsSync, mkdirSync, renameSync } from "node:fs"
 import { join } from "node:path"
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
@@ -129,14 +129,31 @@ export const commands = {
         }
         cleanEnv.SHELL = "/bin/bash"
 
-        // Pre-accept workspace trust
+        // Pre-accept workspace trust.
+        //
+        // ~/.claude.json holds the user's entire Claude Code config (auth,
+        // projects, history). We MUST NOT corrupt it. Two safeguards:
+        //   1. Only proceed if the existing file parses as valid JSON AND
+        //      is non-empty — never write on top of an already-broken or
+        //      missing file (that would just cement the damage).
+        //   2. Write atomically: serialize to a temp file, then rename
+        //      over the target. rename(2) is atomic on POSIX, so a crash
+        //      (e.g. OOM kill) mid-write leaves the original intact rather
+        //      than a truncated 0-byte file. A plain writeFileSync
+        //      truncates-then-writes and can leave an empty file.
         try {
             const claudeJsonPath = join(home, ".claude.json")
-            const claudeJson = JSON.parse(readFileSync(claudeJsonPath, "utf8"))
+            const raw = readFileSync(claudeJsonPath, "utf8")
+            if (!raw.trim()) {
+                throw new Error("~/.claude.json is empty — refusing to overwrite")
+            }
+            const claudeJson = JSON.parse(raw)
             if (!claudeJson.projects) { claudeJson.projects = {} }
             if (!claudeJson.projects[home]) { claudeJson.projects[home] = {} }
             claudeJson.projects[home].hasTrustDialogAccepted = true
-            writeFileSync(claudeJsonPath, JSON.stringify(claudeJson, null, 2))
+            const tmpPath = `${claudeJsonPath}.cbg-tmp-${sessionId}`
+            writeFileSync(tmpPath, JSON.stringify(claudeJson, null, 2), { mode: 0o600 })
+            renameSync(tmpPath, claudeJsonPath)
         } catch (e) {
             dbg("REFRESH", "trust pre-accept failed:", e)
         }
