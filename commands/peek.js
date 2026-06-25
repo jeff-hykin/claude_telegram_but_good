@@ -4,10 +4,11 @@
 // terminal bytes through a VT100 emulator onto a virtual screen, and
 // sends the rendered screen as an HTML \`\`\`\n block.
 
-import { readFileSync } from "node:fs"
+import { readFileSync, existsSync } from "node:fs"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
+const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { escapeMarkdown: escMd } = await versionedImport("../lib/pure/markdown.js", import.meta)
 const { renderTui, trimTrailingMarker } = await versionedImport("../lib/pure/tui-render.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
@@ -158,7 +159,18 @@ export const commands = {
         if (targetId) {
             session = sessions.find(s => s.id === targetId)
             if (!session) {
-                return { effects: [sendEffect(replyTo, `Session "${targetId}" not found. Use /list_sessions to see available sessions.`)] }
+                // The session may have just been spawned — its topic is
+                // already bound to this id (so we resolved it above), but
+                // its shim hasn't registered yet, so it's not in
+                // chatSessions. The dtach log exists from spawn time, so
+                // peek it directly by deriving the path from the id.
+                const logFile = paths.dtachLogFile(targetId)
+                if (existsSync(logFile)) {
+                    dbg("PEEK", `${targetId} not in chatSessions but log exists — peeking detached`)
+                    session = { id: targetId, dtachSocket: paths.dtachSockFile(targetId), title: null }
+                } else {
+                    return { effects: [sendEffect(replyTo, `Session "${targetId}" not found. Use /list_sessions to see available sessions.`)] }
+                }
             }
         } else {
             const focusedId = core.chatState?.focusedSessionId
