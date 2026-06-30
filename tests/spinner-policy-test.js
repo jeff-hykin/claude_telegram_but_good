@@ -367,20 +367,82 @@ spinnerTest("spinner:append — rolling buffer caps at 10 items (drops oldest)",
 })
 
 // ── clear ───────────────────────────────────────────────────────────
+// The spinner lives for the whole turn: created on the user message,
+// cleared on claude_hook_stop. An intermediate `reply` must NOT clear
+// it, otherwise continued tool work would either go unshown or (the old
+// bug) spawn a flood of fresh "thinking" spinners.
 
-spinnerTest("spinner:clear — reply tool call freezes the active spinner", async () => {
+spinnerTest("spinner:clear — claude_hook_stop freezes the active spinner", async () => {
+    try {
+        const bot = fakeBot()
+        const core = makeCore({
+            chatSessions: {
+                "sess-1": {
+                    id: "sess-1",
+                    activeSpinner: { chatId: "42", messageId: "9001", threadId: 7212, headerHtml: "", items: [] },
+                },
+            },
+            bot,
+        })
+        const event = { type: "claude_hook_stop", sessionId: "sess-1", ts: 1 }
+        await applySpinnerPolicy(event, { effects: [] }, core)
+        assertEquals(core.chatSessions["sess-1"].activeSpinner, undefined)
+    } finally { cleanup() }
+})
+
+spinnerTest("spinner:clear — intermediate reply does NOT clear the spinner", async () => {
     const bot = fakeBot()
     const core = makeCore({
         chatSessions: {
             "sess-1": {
                 id: "sess-1",
-                activeSpinner: { chatId: "42", messageId: "9001", headerHtml: "", items: [] },
+                activeSpinner: { chatId: "42", messageId: "9001", threadId: 7212, headerHtml: "", items: [] },
             },
         },
         bot,
     })
     const event = { type: "claude_channel_tool_request", toolName: "reply", sessionId: "sess-1" }
     await applySpinnerPolicy(event, null, core)
+    // Spinner stays alive across the reply — no flood, no silent gap.
+    assert(core.chatSessions["sess-1"].activeSpinner)
+})
+
+spinnerTest("spinner:clear — tool hooks after a reply append to the SAME spinner (no new message)", async () => {
+    try {
+        const bot = fakeBot()
+        const core = makeCore({
+            chatSessions: {
+                "sess-1": {
+                    id: "sess-1",
+                    activeSpinner: { chatId: "42", messageId: "9001", threadId: 7212, headerHtml: "", items: [] },
+                },
+            },
+            bot,
+        })
+        // Agent sends an intermediate reply, then keeps working.
+        await applySpinnerPolicy(
+            { type: "claude_channel_tool_request", toolName: "reply", sessionId: "sess-1" },
+            null,
+            core,
+        )
+        await applySpinnerPolicy(preEvent(), null, core)
+
+        // No fresh spinner was sent — the existing one was edited in place.
+        assertEquals(bot.calls.filter(c => c.method === "sendText").length, 0)
+        const spinner = core.chatSessions["sess-1"].activeSpinner
+        assertEquals(spinner.messageId, "9001")
+        assertEquals(spinner.items.length, 1)
+    } finally { cleanup() }
+})
+
+spinnerTest("spinner:clear — tool hook with no active spinner is a no-op", async () => {
+    const bot = fakeBot()
+    const core = makeCore({
+        chatSessions: { "sess-1": { id: "sess-1" } },
+        bot,
+    })
+    await applySpinnerPolicy(preEvent(), null, core)
+    assertEquals(bot.calls.length, 0)
     assertEquals(core.chatSessions["sess-1"].activeSpinner, undefined)
 })
 
