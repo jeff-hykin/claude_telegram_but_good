@@ -64,8 +64,29 @@ export const commands = {
         }
 
         dbg("RAW-INPUT", `injecting ${text.length} chars to session ${session.id}`)
+
+        // After the input lands, wait 0.5s then re-enter the command
+        // pipeline with a synthetic "/peek" message routed to the same
+        // topic — so the user sees the resulting terminal state without
+        // having to ask. The timer fires the event at the front of the
+        // queue (see lib/effects/timers.js). /peek emits no
+        // deliver_channel_event, so this won't spuriously start a spinner.
+        const peekEvent = {
+            type: "chat_user_message",
+            chatId: event.chatId,
+            threadId: event.threadId ?? null,
+            chatType: event.chatType,
+            userId: event.userId,
+            username: event.username ?? null,
+            messageId: `raw_input_peek_${Date.now()}`,
+            text: "/peek",
+            ts: Date.now(),
+        }
         return {
-            effects: [{ type: "send_raw_input_to_claude", sessionId: session.id, text }],
+            effects: [
+                { type: "send_raw_input_to_claude", sessionId: session.id, text },
+                { type: "set_timer", delayMs: 500, event: peekEvent },
+            ],
         }
     },
 }
