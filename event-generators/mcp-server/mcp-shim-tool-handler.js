@@ -194,6 +194,49 @@ export const TOOLS = [
         },
     },
     {
+        name: "create_interval_hook",
+        description:
+            "Create a recurring 'interval hook' — an agent-written JS decision function that runs on an interval and, " +
+            "unlike a scheduled task, does NOT always involve an agent. Each run your function is called and returns " +
+            "either null (do nothing this tick) or a string (message the target topic's agent, resurrecting that topic's " +
+            "session if it is dead). If the function throws or times out, the error is delivered to the topic's agent to " +
+            "handle. The JS is stored cbg-managed under $CBG_DIR/interval-hooks/<id>/hook.js (you write it here). " +
+            "Use this for lightweight polling/monitoring where most ticks should stay silent.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                topic: { type: "string", description: "The Telegram topic NAME to message when the function returns a string." },
+                title: { type: "string", description: "Optional short display title (defaults to the topic name)." },
+                code: {
+                    type: "string",
+                    description:
+                        "Full JS source. MUST `export default` a function `(context) => null | string` (may be async). " +
+                        "Return null to stay silent this tick, or a string to message the topic agent. `context` provides " +
+                        "{ hookId, topic, title, now, fireIso, totalRuns, lastRunAt, lastRunStatus, lastResult, stateDir }. " +
+                        "`stateDir` is a persistent scratch directory you can read/write across runs. The function runs in an " +
+                        "isolated deno subprocess with --allow-all and a wall-clock timeout.",
+                },
+                rule: {
+                    type: "object",
+                    description: "rrule.js-compatible JSON defining the interval: { freq: DAILY|WEEKLY|MONTHLY|YEARLY|HOURLY|MINUTELY|SECONDLY, interval?, byhour?, byminute?, byday? ([\"MO\"..]), count?, until?, tzid? }. Include tzid explicitly.",
+                },
+                timeoutMs: { type: "number", description: "Optional per-run wall-clock budget in ms (default 30000)." },
+            },
+            required: ["topic", "code", "rule"],
+        },
+    },
+    {
+        name: "deactivate_interval_hook",
+        description: "Hot-deactivate an interval hook by id. Flips it inactive and clears its timer immediately so it stops firing. Idempotent.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                hookId: { type: "string", description: "The interval hook id (ih_...)." },
+            },
+            required: ["hookId"],
+        },
+    },
+    {
         name: "set_reminder",
         description:
             "Schedule a one-shot reminder that delivers a message to this session after a delay. " +
@@ -390,6 +433,24 @@ export async function handleToolCall(req, ctx) {
             description: args.description ?? args.title,
             rule: args.rule,
             definitionOfDone: args.definitionOfDone,
+        }
+    } else if (name === "create_interval_hook") {
+        ipcMessage = {
+            type: "create_interval_hook",
+            sessionId,
+            requestId,
+            topic: args.topic,
+            title: args.title,
+            code: args.code,
+            rule: args.rule,
+            timeoutMs: args.timeoutMs,
+        }
+    } else if (name === "deactivate_interval_hook") {
+        ipcMessage = {
+            type: "deactivate_interval_hook",
+            sessionId,
+            requestId,
+            hookId: args.hookId,
         }
     } else if (name === "set_reminder" || name === "set_repeat" || name === "cancel_reminder" || name === "snooze_reminder" || name === "watch_file") {
         ipcMessage = {

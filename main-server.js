@@ -566,6 +566,50 @@ try {
     dbg("MAIN", "scheduled-task rehydrate failed:", e)
 }
 
+// ── Interval-hook stuck-run watchdog ──────────────────────────────────
+// Seed the periodic scan for hook runs whose currentRun lingered past a
+// threshold (self-reschedules every 5 min).
+// See lib/event-handlers/interval-hook-stuck-watchdog.js.
+enqueueEvent({ type: "interval_hook_stuck_watchdog" })
+
+// ── Interval-hook rehydration ─────────────────────────────────────────
+// For each active interval hook, re-arm its timer after a restart. Any
+// orphaned currentRun (daemon crashed mid-run) gets a synthetic
+// interval_hook_run_complete (error) so currentRun clears and the timer
+// rearms cleanly.
+try {
+    const byChat = specialData?.intervalHookByChatId ?? {}
+    let hookRehydrated = 0
+    let hookOrphans = 0
+    for (const [chatId, hooks] of Object.entries(byChat)) {
+        for (const [hookId, hook] of Object.entries(hooks ?? {})) {
+            if (!hook || typeof hook !== "object") { continue }
+            if (!hook.active) { continue }
+            if (hook.currentRun) {
+                enqueueEvent({
+                    type: "interval_hook_run_complete",
+                    chatId,
+                    hookId,
+                    runIso: hook.currentRun.runIso,
+                    status: "error",
+                    error: "daemon restarted mid-run; orphaned run cleaned up",
+                })
+                hookOrphans++
+            }
+            enqueueEvent({
+                type: "interval_hook_rehydrate",
+                chatId,
+                hookId,
+                rule: hook.rule,
+            })
+            hookRehydrated++
+        }
+    }
+    dbg("MAIN", `interval-hook rehydrate: ${hookRehydrated} timers queued, ${hookOrphans} orphans cleaned`)
+} catch (e) {
+    dbg("MAIN", "interval-hook rehydrate failed:", e)
+}
+
 // ── Go ─────────────────────────────────────────────────────────────────
 dbg("MAIN", `main-server ready (cbgVersion=${globalThis.cbgVersion}, pid=${Deno.pid})`)
 await eventLoop()
