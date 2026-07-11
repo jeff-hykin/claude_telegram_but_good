@@ -26,6 +26,44 @@ deno install -Agfr -n cbg https://raw.githubusercontent.com/jeff-hykin/claude_te
 cbg onboard
 ```
 
+## Install by Forking (hack on cbg with live changes)
+
+Want to run your own modified cbg and edit it live? Point cbg at a local
+clone of your fork instead of the published code. The `CBG_DEV` env var
+tells onboarding to **symlink** cbg's on-disk repo to your working tree
+(instead of cloning `master`), so your edits are what actually runs.
+
+```sh
+# 1. Fork on GitHub, then clone your fork
+git clone https://github.com/<you>/claude_telegram_but_good.git ~/cbg-fork
+
+# 2. Install the `cbg` CLI FROM your clone (local path, not the raw URL),
+#    so edits to the CLI + daemon both come from your fork.
+deno install -Agfr -n cbg ~/cbg-fork/event-generators/cli/cli.js
+
+# 3. Onboard with CBG_DEV pointing at your clone. This symlinks
+#    ~/.local/share/cbg/repo -> ~/cbg-fork instead of cloning.
+CBG_DEV="$HOME/cbg-fork" cbg onboard
+```
+
+Now edit code in `~/cbg-fork` and apply it:
+
+```sh
+cbg reinstall   # refresh plugin/hooks/shim on disk + hot-reload the daemon in place
+```
+
+Notes:
+
+- `CBG_DEV` only matters at onboard time — it creates a persistent symlink,
+  so later `cbg` commands automatically use your fork. No need to re-export it.
+- `cbg update` **refuses** to run against a dev symlink (a git checkout would
+  clobber your working tree). Use `cbg reinstall` to deploy your edits.
+- Most of the daemon hot-reloads via a version bump, so `cbg reinstall` picks
+  up handler / effect / command changes without dropping live sessions.
+  Changes to statically-loaded files (`main-server.js`, `lib/bot/telegram-bot.js`)
+  need a full `cbg restart`.
+- Run the tests with `deno test tests/*-test.js --allow-all`.
+
 ## CLI Reference
 
 | Command | Description |
