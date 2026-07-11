@@ -44,8 +44,24 @@ import { join } from "../../imports.js"
 const { dbg } = await versionedImport("../../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../../lib/paths.js", import.meta)
 
+// The absolute path to the deno binary currently running (the daemon's /
+// shim's own deno). Baked into the patched .mcp.json so the shim launch
+// never depends on `deno` being on the PATH that Claude Code uses to spawn
+// MCP servers — that PATH frequently lacks ~/.deno/bin (GUI launches,
+// non-login shells), which silently fails the shim and leaves every session
+// unregistered ("No session connected"). Falls back to bare `deno` only if
+// execPath is somehow unavailable.
+function denoBin() {
+    try {
+        return Deno.execPath()
+    } catch (e) {
+        dbg("PLUGIN-PATCH", "Deno.execPath() failed, falling back to bare deno:", String(e))
+        return "deno"
+    }
+}
+
 function expectedArg() {
-    return `SESSION_CWD="$PWD" deno run -A "${paths.MCP_SHIM_JS}"`
+    return `SESSION_CWD="$PWD" "${denoBin()}" run -A "${paths.MCP_SHIM_JS}"`
 }
 
 export function buildPatchedMcpJson() {
