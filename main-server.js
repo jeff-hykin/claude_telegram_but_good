@@ -610,6 +610,38 @@ try {
     dbg("MAIN", "interval-hook rehydrate failed:", e)
 }
 
+// ── Long-task nudge rehydration ───────────────────────────────────────
+// The 30-minute task_checkin is the restart-independent backup nudge for
+// in-progress long tasks, but it rides on an in-memory set_timer that a
+// daemon restart wipes. Without this, the check-in chain dies on restart
+// and the worker silently stops being nudged (a task once stalled ~5h
+// unseen this way). Re-arm the check-in timer for every in_progress task;
+// task_checkin re-validates the session at fire time and self-reschedules.
+try {
+    const byChat = specialData?.longTaskByChatId ?? {}
+    let taskRehydrated = 0
+    for (const [chatId, tasks] of Object.entries(byChat)) {
+        for (const [taskId, task] of Object.entries(tasks ?? {})) {
+            if (!task || typeof task !== "object") { continue }
+            if (task.state !== "in_progress") { continue }
+            if (!task.workerSessionId) {
+                dbg("MAIN", `long-task rehydrate: ${taskId} in_progress but no workerSessionId — skipping`)
+                continue
+            }
+            enqueueEvent({
+                type: "long_task_rehydrate",
+                chatId,
+                taskId,
+                workerSessionId: task.workerSessionId,
+            })
+            taskRehydrated++
+        }
+    }
+    dbg("MAIN", `long-task rehydrate: ${taskRehydrated} check-in timers queued`)
+} catch (e) {
+    dbg("MAIN", "long-task rehydrate failed:", e)
+}
+
 // ── Go ─────────────────────────────────────────────────────────────────
 dbg("MAIN", `main-server ready (cbgVersion=${globalThis.cbgVersion}, pid=${Deno.pid})`)
 await eventLoop()
