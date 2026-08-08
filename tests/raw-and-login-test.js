@@ -10,7 +10,7 @@ import { setupTempPaths, paths, makeCore, effectsOfType, writeAccess } from "./_
 setupTempPaths("cbg-raw-login-test-")
 writeAccess(["42"])
 
-const { extractLoginUrl, looksLikeLoginCode, loginTopicKey } = await import("../lib/pure/login.js")
+const { extractLoginUrl, looksLikeLoginCode, loginTopicKey, isOpeningBrowser, awaitsLoginConfirm } = await import("../lib/pure/login.js")
 const handle = (await import("../lib/event-handlers/chat-user.js")).default
 
 const hotCommandsMod = await import("../lib/hot-commands.js")
@@ -128,8 +128,9 @@ Deno.test("every injection command peeks afterwards so the result is visible", (
 
 const TOPIC_KEY = loginTopicKey(CHAT, null)
 const CODE = "PxT9dK2mQ7vLbN4wZaEr#s0meStateValue"
-const scrapeState = (url, scrapes) => ({ loginScrape: { [TOPIC_KEY]: { url, scrapes } } })
+const expired = () => Date.now() - 1000
 const scrapeUrl = () => registry.get("login")(userEvent("/login __url"), coreWithSession())
+const writeScreen = (screen) => Deno.writeTextFileSync(SOCKET().replace(/\.sock$/, ".log"), screen)
 
 Deno.test("/login types the slash command and nothing else — a stray Enter cancels the panel", () => {
     const action = registry.get("login")(userEvent("/login"), coreWithSession())
@@ -140,7 +141,7 @@ Deno.test("/login types the slash command and nothing else — a stray Enter can
 })
 
 Deno.test("/login __url waits for a second scrape to agree before trusting the URL", () => {
-    Deno.writeTextFileSync(SOCKET().replace(/\.sock$/, ".log"), BOXED_SCREEN)
+    writeScreen(BOXED_SCREEN)
     const first = scrapeUrl()
     assertEquals(effectsOfType(first, "send_text_to_user").length, 0)
     assertEquals(effectsOfType(first, "set_timer")[0].event.text, "/login __url")
@@ -157,42 +158,116 @@ Deno.test("/login __url waits for a second scrape to agree before trusting the U
 })
 
 Deno.test("/login __url keeps retrying rather than giving up on a blank screen", () => {
-    Deno.writeTextFileSync(SOCKET().replace(/\.sock$/, ".log"), "just a shell prompt $")
+    writeScreen("just a shell prompt $")
     const action = scrapeUrl()
     assertEquals(effectsOfType(action, "send_text_to_user").length, 0)
     assertEquals(effectsOfType(action, "set_timer")[0].event.text, "/login __url")
     assertEquals(action.stateChanges.chatState.pendingLogin, undefined)
 })
 
-Deno.test("/login __url reports failure instead of arming once the retries run out", () => {
-    Deno.writeTextFileSync(SOCKET().replace(/\.sock$/, ".log"), "just a shell prompt $")
+Deno.test("/login __url keeps waiting while the TUI is still opening a browser", () => {
+    writeScreen("✢ Opening browser to sign in…")
     const action = registry.get("login")(
         userEvent("/login __url"),
-        coreWithSession(scrapeState(null, 7)),
+        // Would have expired on its own, but the spinner says otherwise.
+        coreWithSession({ loginScrape: { [TOPIC_KEY]: { url: null, scrapes: 40, deadline: expired(), hardDeadline: Date.now() + 60_000 } } }),
+    )
+    assertEquals(effectsOfType(action, "send_text_to_user").length, 0)
+    assertEquals(effectsOfType(action, "set_timer")[0].event.text, "/login __url")
+})
+
+Deno.test("/login __url reports failure instead of arming once the budget runs out", () => {
+    writeScreen("just a shell prompt $")
+    const action = registry.get("login")(
+        userEvent("/login __url"),
+        coreWithSession({ loginScrape: { [TOPIC_KEY]: { url: null, scrapes: 40, deadline: expired(), hardDeadline: expired() } } }),
     )
     assert(effectsOfType(action, "send_text_to_user")[0].text.includes("couldn't find"))
     assertEquals(action.stateChanges.chatState.pendingLogin, undefined)
 })
 
-Deno.test("/login <code> types the code instead of restarting the login", () => {
+Deno.test("a repeat /login mid-round-trip resumes instead of typing into the paste prompt", () => {
+    const scraping = registry.get("login")(
+        userEvent("/login"),
+        coreWithSession({ loginScrape: { [TOPIC_KEY]: { url: null, scrapes: 1, deadline: Date.now() + 30_000, hardDeadline: Date.now() + 60_000 } } }),
+    )
+    assertEquals(rawInputs(scraping).length, 0)
+    assert(effectsOfType(scraping, "send_text_to_user")[0].text.includes("Already running"))
+
+    const armed = registry.get("login")(
+        userEvent("/login"),
+        coreWithSession({ pendingLogin: { [TOPIC_KEY]: { sessionId: SESSION, armedAt: Date.now(), url: "https://claude.ai/oauth/authorize?x=1" } } }),
+    )
+    assertEquals(rawInputs(armed).length, 0)
+    assert(effectsOfType(armed, "send_text_to_user")[0].text.includes("https://claude.ai/oauth/authorize?x=1"))
+})
+
+Deno.test("/login starts over once an abandoned round-trip has aged out", () => {
+    const action = registry.get("login")(
+        userEvent("/login"),
+        coreWithSession({
+            loginScrape: { [TOPIC_KEY]: { url: null, scrapes: 40, deadline: expired(), hardDeadline: expired() } },
+            pendingLogin: { [TOPIC_KEY]: { sessionId: SESSION, armedAt: 1, url: "https://claude.ai/oauth/authorize?x=1" } },
+        }),
+    )
+    assertEquals(rawInputs(action)[0].text, "/login")
+})
+
+Deno.test("/login <code> types the code, then chases the confirmation panel", () => {
     const action = registry.get("login")(userEvent(`/login ${CODE}`), coreWithSession())
     assertEquals(rawInputs(action).length, 1)
     assertEquals(rawInputs(action)[0].text, CODE)
     assertEquals(action.stateChanges.chatState.pendingLogin[TOPIC_KEY], undefined)
+    assertEquals(effectsOfType(action, "set_timer")[0].event.text, "/login __confirm")
+})
+
+// --- dismissing "Press Enter to continue…" ---------------------------------
+
+Deno.test("screen predicates match the panels /login actually paints", () => {
+    assert(isOpeningBrowser("✢ Opening browser to sign in…"))
+    assert(!isOpeningBrowser(BOXED_SCREEN))
+    assert(awaitsLoginConfirm("Logged in as jeff@example.com\nLogin successful. Press Enter to continue…"))
+    assert(!awaitsLoginConfirm(BOXED_SCREEN))
+})
+
+Deno.test("/login __confirm presses Return once the confirmation panel is up", () => {
+    writeScreen("Login successful. Press Enter to continue…")
+    const action = registry.get("login")(userEvent("/login __confirm"), coreWithSession())
+    const [enter] = rawInputs(action)
+    assertEquals(enter.text, "")
+    assertEquals(enter.submit, undefined)
+    assertEquals(action.stateChanges.chatState.loginConfirm[TOPIC_KEY], undefined)
+})
+
+Deno.test("/login __confirm waits rather than pressing Return at some other prompt", () => {
+    writeScreen("Do you want to proceed? ❯ 1. Yes  2. No")
+    const action = registry.get("login")(userEvent("/login __confirm"), coreWithSession())
+    assertEquals(rawInputs(action).length, 0)
+    assertEquals(effectsOfType(action, "set_timer")[0].event.text, "/login __confirm")
+})
+
+Deno.test("/login __confirm gives up quietly instead of pressing Return blind", () => {
+    writeScreen("Do you want to proceed? ❯ 1. Yes  2. No")
+    const action = registry.get("login")(
+        userEvent("/login __confirm"),
+        coreWithSession({ loginConfirm: { [TOPIC_KEY]: { deadline: expired() } } }),
+    )
+    assertEquals(rawInputs(action).length, 0)
+    assertEquals(effectsOfType(action, "set_timer")[0].event.text, "/peek")
 })
 
 // --- code capture in chat-user --------------------------------------------
 
 const ARMED = { pendingLogin: { [TOPIC_KEY]: { sessionId: SESSION, armedAt: 1 } } }
 
-Deno.test("a pasted code is typed into the session, then peeked 5s later", async () => {
+Deno.test("a pasted code is typed in, then handed to the confirmation step", async () => {
     const action = await handle(userEvent(CODE), coreWithSession(ARMED))
     assertEquals(rawInputs(action).length, 1)
     assertEquals(rawInputs(action)[0].text, CODE)
     const timers = effectsOfType(action, "set_timer")
     assertEquals(timers.length, 1)
-    assertEquals(timers[0].event.text, "/peek")
-    assertEquals(timers[0].delayMs, 5000)
+    assertEquals(timers[0].event.text, "/login __confirm")
+    assertEquals(timers[0].delayMs, 2000)
 })
 
 Deno.test("the code capture disarms so a later message is never swallowed", async () => {
