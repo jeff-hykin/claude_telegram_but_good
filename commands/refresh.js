@@ -128,6 +128,13 @@ export const commands = {
             }
         }
         cleanEnv.SHELL = "/bin/bash"
+        // Make the spawned session self-aware of its own dtach socket so
+        // `cbg self-input` / self-compact / self-clear can type into it.
+        // (Matches lib/dtach.js createSession; without these the env is
+        // empty and self-input aborts with "CBG_DTACH_SOCKET is not set".)
+        cleanEnv.CBG_DTACH = "1"
+        cleanEnv.CBG_DTACH_SOCKET = dtachSock
+        cleanEnv.CBG_SESSION_ID = sessionId
 
         // Pre-accept workspace trust.
         //

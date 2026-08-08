@@ -9,7 +9,7 @@
 // stay inline — they're orthogonal to the event loop and have no
 // meaningful effect-layer analogues today.
 
-import { writeFileSync, readFileSync, existsSync } from "node:fs"
+import { writeFileSync, readFileSync, existsSync, renameSync } from "node:fs"
 import { join } from "node:path"
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
@@ -102,17 +102,34 @@ export const commands = {
             }
         }
         cleanEnv.SHELL = "/bin/bash"
+        // Make the spawned session self-aware of its own dtach socket so
+        // `cbg self-input` / self-compact / self-clear can type into it.
+        // (Matches lib/dtach.js createSession; without these the env is
+        // empty and self-input aborts with "CBG_DTACH_SOCKET is not set".)
+        cleanEnv.CBG_DTACH = "1"
+        cleanEnv.CBG_DTACH_SOCKET = dtachSock
+        cleanEnv.CBG_SESSION_ID = sessionId
 
-        // Pre-accept the workspace trust dialog for the target directory
+        // Pre-accept the workspace trust dialog for the target directory.
+        // ~/.claude.json holds the user's entire Claude Code config — never
+        // overwrite an empty/broken file, and write atomically (temp + rename)
+        // so an OOM mid-write can't leave a truncated 0-byte file.
         try {
             const claudeJsonPath = join(home, ".claude.json")
-            const claudeJson = JSON.parse(readFileSync(claudeJsonPath, "utf8"))
+            const raw = readFileSync(claudeJsonPath, "utf8")
+            if (!raw.trim()) {
+                throw new Error("~/.claude.json is empty — refusing to overwrite")
+            }
+            const claudeJson = JSON.parse(raw)
             if (!claudeJson.projects) { claudeJson.projects = {} }
             if (!claudeJson.projects[home]) { claudeJson.projects[home] = {} }
             claudeJson.projects[home].hasTrustDialogAccepted = true
-            writeFileSync(claudeJsonPath, JSON.stringify(claudeJson, null, 2))
+            const tmpPath = `${claudeJsonPath}.cbg-tmp-${sessionId}`
+            writeFileSync(tmpPath, JSON.stringify(claudeJson, null, 2), { mode: 0o600 })
+            renameSync(tmpPath, claudeJsonPath)
         } catch (e) {
             // Best-effort — watchForTrustPrompt is the fallback.
+            dbg("NEW", "trust pre-accept failed:", e)
         }
 
         writeFileSync(paths.NEXT_SESSION_FILE, JSON.stringify({
