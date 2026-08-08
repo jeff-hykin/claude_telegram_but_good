@@ -124,6 +124,51 @@ Deno.test("every injection command peeks afterwards so the result is visible", (
     }
 })
 
+// --- injecting into the session the topic is actually showing --------------
+
+const CC_THREAD = "19"
+const DETACHED = "GhostOtter"
+
+function inCommandCenter(run) {
+    Deno.writeTextFileSync(
+        paths.ACCESS_FILE,
+        JSON.stringify({ dmPolicy: "pairing", allowFrom: [CHAT], groups: {}, pending: {}, commandCenterChatId: CHAT }),
+    )
+    try {
+        return run()
+    } finally {
+        writeAccess([CHAT])
+    }
+}
+
+const topicEvent = (text) => ({ ...userEvent(text), chatType: "supergroup", threadId: CC_THREAD })
+
+const topicCore = () => makeCore({
+    chatState: {
+        commandCenter: { threadMap: { [CC_THREAD]: DETACHED } },
+        focusedSessionId: SESSION,
+    },
+    chatSessions: { [SESSION]: { id: SESSION, dtachSocket: SOCKET() } },
+})
+
+Deno.test("/raw types into the topic's own session even when its shim hasn't registered", () => {
+    Deno.writeTextFileSync(`${paths.STATE_DIR}/dtach-${DETACHED}.sock`, "")
+    inCommandCenter(() => {
+        const action = registry.get("raw")(topicEvent("/raw hello"), topicCore())
+        assertEquals(rawInputs(action).length, 1)
+        assertEquals(rawInputs(action)[0].sessionId, DETACHED)
+    })
+})
+
+Deno.test("/raw says so instead of typing into a different session when the terminal is gone", () => {
+    Deno.removeSync(`${paths.STATE_DIR}/dtach-${DETACHED}.sock`)
+    inCommandCenter(() => {
+        const action = registry.get("raw")(topicEvent("/raw hello"), topicCore())
+        assertEquals(rawInputs(action).length, 0)
+        assertEquals(effectsOfType(action, "send_text_to_user").length, 1)
+    })
+})
+
 // --- /login ----------------------------------------------------------------
 
 const TOPIC_KEY = loginTopicKey(CHAT, null)
