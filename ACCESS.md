@@ -41,7 +41,37 @@ Pairing captures the ID automatically. To find one manually, have the person mes
 /telegram:access remove 412587349
 ```
 
-## Groups
+## Group buckets: BotCenter vs GroupChats
+
+Every group the bot is in belongs to exactly one of two buckets.
+
+| Bucket | Membership | Behavior |
+| --- | --- | --- |
+| **BotCenter** | Explicit: listed in `botCenterGroups`, or the `commandCenterChatId` | Full bot behavior — topics map to sessions, plain text reaches Claude, spinners and status messages are posted. |
+| **GroupChats** | The default for everything else | Silent but listening: the group gets its own session that reads every message, and the daemon refuses that session's replies until someone addresses the bot. No spinner, no status messages. |
+
+A group CBG has never seen is a GroupChat, so it can never wake the bot by accident. The first message from a new group appends its ID to `groupChats` so the bucket it landed in is visible and can be promoted:
+
+```jsonc
+"botCenterGroups": ["-1001654782309"],
+"groupChats": ["-1009876543210"]
+```
+
+`/set_command_center`, sent in a group, promotes it to BotCenter. To promote by hand, move the ID from `groupChats` to `botCenterGroups`.
+
+**Addressing the bot** in a GroupChat means an `@botusername` mention, a reply to one of the bot's own messages, or a `mentionPatterns` match. If the bot's username cannot be determined, GroupChats stay silent — silence is the safe default.
+
+### Listen mode
+
+The GroupChat session's silence is enforced by the daemon, not by instructing the agent: the `reply` tool itself is refused (see `lib/listen-mode.js`). A session carries `listenMode`, an optional `listenChatId` scoping the block to one chat, and `listenUnlockedAt`. Addressing the bot sets the unlock; the Stop hook clears it when the turn ends, so the session speaks exactly once per time it is spoken to. Because the block is scoped, a group's session can still talk to its command center topic while the group hears nothing.
+
+Any session can be put in this mode by hand with `/listen on`, `/listen off`, or `/listen` for status. Slash commands from allowlisted senders still dispatch inside a GroupChat so the group's own session can be managed from the group.
+
+Sessions CBG spawns when it is added to a group start in listen mode automatically, via the `my_chat_member` update.
+
+> **Telegram privacy mode.** By default a bot only receives group messages that mention it or reply to it — Telegram filters the rest server-side, before CBG sees anything. To have a listening session read the whole conversation, message [@BotFather](https://t.me/BotFather), send `/setprivacy`, pick the bot, and choose **Disable**. Nothing in this repo can work around it.
+
+## Per-group policy
 
 Groups are off by default. Opt each one in individually.
 
@@ -117,6 +147,13 @@ Configure outbound behavior with `/telegram:access set <key> <value>`.
 
   // Numeric user IDs allowed to DM.
   "allowFrom": ["412587349"],
+
+  // Groups with full bot behavior. Everything else is a GroupChat,
+  // where the bot stays silent unless it is addressed.
+  "botCenterGroups": ["-1001654782309"],
+
+  // Groups CBG has seen and bucketed as silent. Auto-populated.
+  "groupChats": ["-1009876543210"],
 
   // Groups the bot is active in. Empty object = DM-only.
   "groups": {

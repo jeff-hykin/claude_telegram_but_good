@@ -218,7 +218,7 @@ Side-effect implementations. Counterpart to `lib/event-handlers/`: handlers desc
 
 ### Non-event-loop (still used)
 - `config.js` — YAML config at `paths.CONFIG_FILE`. `readConfig`, `writeConfig`, `getConfig(key)`, `setConfig`, `getBotToken`, `getPermissionArgs`.
-- `access.js` — `loadAccess`, `gate`, `assertAllowedChat`, pairing, allowlists, group policies
+- `access.js` — `loadAccess`, `gate`, `assertAllowedChat`, `classifyGroup`, `isBotMentioned`, pairing, allowlists, group policies. Groups split into two buckets: **BotCenter** (explicit `botCenterGroups` + `commandCenterChatId`, full behavior) and **GroupChats** (the default — each gets its own session that reads the whole conversation but is held silent at the daemon level, spinner included, until the message addresses the bot). See ACCESS.md and `lib/listen-mode.js`.
 - `daemon.js` — systemd / launchd service management; installs `main-server.js` as a user-level service
 - `event-generators/mcp-server/setup.js` — `ensureOfficialPluginPatched` self-heals the official `telegram@claude-plugins-official` plugin's `.mcp.json` files to point at our MCP shim. Lives next to `mcp-shim.js` because both halves (install-time write + shim-bootstrap self-heal) are tightly coupled to the shim it's patching in. Consumed by both `event-generators/cli/helpers.js` (install path) and `event-generators/mcp-server/mcp-shim.js` (runtime drift-heal path).
 - `event-generators/cli/shim-setup.js` — claude CLI wrapper installer. NOT the MCP shim — this is the bash script installed at `$PATH/claude` that intercepts the user's `claude` command and adds `--channels` + dtach.
