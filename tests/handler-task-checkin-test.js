@@ -111,10 +111,50 @@ Deno.test("checkin: task not in_progress → dies (no reschedule)", () => {
     assertEquals(action, null)
 })
 
-Deno.test("checkin: session no longer owns task → dies (no reschedule)", () => {
+// An in_progress task whose worker vanished is the case that most needs a
+// watchdog, so losing the worker must not be what silences it.
+
+Deno.test("checkin: a vanished worker keeps the watchdog alive", () => {
+    removeReport()
+    const core = coreFor()
+    delete core.chatSessions[SESSION]
+    const action = checkin(ev(1_000_000), core)
+    assert(reschedules(action))
+    assertEquals(action.stateChanges.specialData.longTaskByChatId[CHAT][TASK].orphanedSince, 1_000_000)
+})
+
+Deno.test("checkin: a worker that moved on also counts as orphaned", () => {
     removeReport()
     const core = coreFor()
     core.chatSessions[SESSION].longTaskId = "other"
-    const action = checkin(ev(1_000_000), core)
-    assertEquals(action, null)
+    assert(reschedules(checkin(ev(1_000_000), core)))
+})
+
+Deno.test("checkin: an orphaned task stays quiet at first, then tells the user once", () => {
+    removeReport()
+    const orphanedSince = 1_000_000
+    const core = coreFor({ orphanedSince })
+    delete core.chatSessions[SESSION]
+
+    const early = checkin(ev(orphanedSince + 5 * 60 * 1000), core)
+    assertEquals(effectsOfType(early, "send_text_to_user").length, 0)
+
+    const late = checkin(ev(orphanedSince + 45 * 60 * 1000), core)
+    const alerts = effectsOfType(late, "send_text_to_user")
+    assertEquals(alerts.length, 1)
+    assertEquals(alerts[0].chatId, CHAT)
+    assert(alerts[0].text.includes(TASK))
+
+    const alerted = coreFor({ orphanedSince, orphanAlertedAt: orphanedSince + 45 * 60 * 1000 })
+    delete alerted.chatSessions[SESSION]
+    assertEquals(effectsOfType(checkin(ev(orphanedSince + 90 * 60 * 1000), alerted), "send_text_to_user").length, 0)
+})
+
+Deno.test("checkin: a worker that comes back clears the orphan markers", () => {
+    removeReport()
+    const core = coreFor({ orphanedSince: 1_000, orphanAlertedAt: 2_000 })
+    const patch = checkin(ev(5_000_000), core).stateChanges.specialData.longTaskByChatId[CHAT][TASK]
+    assertEquals(patch.orphanedSince, undefined)
+    assertEquals(patch.orphanAlertedAt, undefined)
+    assert("orphanedSince" in patch)
 })
