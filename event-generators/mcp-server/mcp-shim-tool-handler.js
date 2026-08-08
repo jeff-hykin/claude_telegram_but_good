@@ -33,6 +33,7 @@ export const TOOLS = [
                 text: { type: "string" },
                 reply_to: { type: "string", description: "Message ID to thread under." },
                 files: { type: "array", items: { type: "string" }, description: "Absolute file paths to attach." },
+                pin: { type: "boolean", description: "Pin this message in the chat/topic. With multiple files only the first is pinned." },
                 format: {
                     type: "string",
                     enum: ["text", "markdown", "html", "markdownv2"],
