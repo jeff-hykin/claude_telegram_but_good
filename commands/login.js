@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs"
 import { versionedImport } from "../lib/version.js"
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { renderTui } = await versionedImport("../lib/pure/tui-render.js", import.meta)
-const { extractLoginUrl, loginTopicKey, looksLikeLoginCode, isOpeningBrowser, awaitsLoginConfirm } = await versionedImport("../lib/pure/login.js", import.meta)
+const { extractLoginUrl, loginTopicKey, looksLikeLoginCode, awaitsLoginMethod, isOpeningBrowser, awaitsLoginConfirm } = await versionedImport("../lib/pure/login.js", import.meta)
 const { sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 const { resolveCommandSession, peekTimerEffect, selfMessageTimerEffect } = await versionedImport("../lib/command-session.js", import.meta)
 
@@ -57,6 +57,13 @@ const SCRAPE_HARD_LIMIT_MS = 180_000
 const CONFIRM_DELAY_MS = 2000
 const CONFIRM_POLL_MS = 800
 const CONFIRM_BUDGET_MS = 30_000
+
+// The account-type picker opens on "Claude account with subscription", which
+// is the one a Telegram user is signing back in to, so Return takes it.
+// Return rather than typing "1" because the menu reads a keystream, and the
+// digit would be one more thing that has to land in the right order.
+const METHOD_REPRESS_MS = 3000
+const MAX_METHOD_PRESSES = 3
 
 // How long a sent-but-unanswered URL stays live. Past this the user has
 // almost certainly abandoned that attempt, so /login starts a fresh one
@@ -103,9 +110,43 @@ export const commands = {
 
             const hardDeadline = previous?.hardDeadline ?? (now + SCRAPE_HARD_LIMIT_MS)
             let deadline = previous?.deadline ?? (now + SCRAPE_BUDGET_MS)
+
+            // Nothing will ever appear while the account-type picker is up,
+            // so answer it. Re-pressing covers a Return that arrived while
+            // the menu was still painting, but only a few times — if the
+            // picker is somehow unanswerable, an Enter every 800ms would
+            // land somewhere far worse once it finally goes away.
+            const methodPresses = previous?.methodPresses ?? 0
+            if (awaitsLoginMethod(screen) && methodPresses < MAX_METHOD_PRESSES && now - (previous?.methodPressedAt ?? 0) >= METHOD_REPRESS_MS) {
+                dbg("LOGIN", `answering the account-type picker for ${session.id}`)
+                return {
+                    stateChanges: {
+                        chatState: {
+                            loginScrape: {
+                                [topicKey]: {
+                                    url: null,
+                                    scrapes,
+                                    // The clock starts when the picker is
+                                    // answered — waiting on it isn't the
+                                    // stall the budget is there to catch.
+                                    deadline: Math.min(hardDeadline, now + SCRAPE_BUDGET_MS),
+                                    hardDeadline,
+                                    methodPresses: methodPresses + 1,
+                                    methodPressedAt: now,
+                                },
+                            },
+                        },
+                    },
+                    effects: [
+                        { type: "send_raw_input_to_claude", sessionId: session.id, text: "" },
+                        selfMessageTimerEffect(event, "/login __url", rescrapeDelay(scrapes), "login_url"),
+                    ],
+                }
+            }
+
             // The TUI is still working, so the silence isn't evidence of
             // anything — hold the deadline open (up to the hard ceiling).
-            if (isOpeningBrowser(screen)) {
+            if (isOpeningBrowser(screen) || awaitsLoginMethod(screen)) {
                 deadline = Math.min(hardDeadline, Math.max(deadline, now + SCRAPE_BUDGET_MS))
             }
 
@@ -113,7 +154,13 @@ export const commands = {
             const expired = now >= deadline || now >= hardDeadline
             if (!settled && !expired) {
                 return {
-                    stateChanges: { chatState: { loginScrape: { [topicKey]: { url, scrapes, deadline, hardDeadline } } } },
+                    stateChanges: {
+                        chatState: {
+                            loginScrape: {
+                                [topicKey]: { url, scrapes, deadline, hardDeadline, methodPresses, methodPressedAt: previous?.methodPressedAt ?? 0 },
+                            },
+                        },
+                    },
                     effects: [selfMessageTimerEffect(event, "/login __url", rescrapeDelay(scrapes), "login_url")],
                 }
             }
@@ -205,12 +252,20 @@ export const commands = {
             return { effects: [sendEffect(replyTo, `Already waiting on the code for this one:\n\n${armed.url}`)] }
         }
 
-        dbg("LOGIN", `starting login sequence on session ${session.id}`)
+        // A picker left open from an earlier attempt is modal, so typing the
+        // slash command would go into the menu rather than the prompt. The
+        // sign-in it belongs to is already under way — just pick up there.
+        const resuming = awaitsLoginMethod(screenOf(session))
+        if (resuming) {
+            dbg("LOGIN", `account-type picker already open on ${session.id} — resuming`)
+        } else {
+            dbg("LOGIN", `starting login sequence on session ${session.id}`)
+        }
         return {
             stateChanges: { chatState: { loginScrape: { [topicKey]: undefined }, loginConfirm: { [topicKey]: undefined } } },
             effects: [
-                { type: "send_raw_input_to_claude", sessionId: session.id, text: "/login" },
-                selfMessageTimerEffect(event, "/login __url", URL_RENDER_DELAY_MS, "login_url"),
+                ...(resuming ? [] : [{ type: "send_raw_input_to_claude", sessionId: session.id, text: "/login" }]),
+                selfMessageTimerEffect(event, "/login __url", resuming ? 0 : URL_RENDER_DELAY_MS, "login_url"),
             ],
         }
     },

@@ -10,7 +10,7 @@ import { setupTempPaths, paths, makeCore, effectsOfType, writeAccess } from "./_
 setupTempPaths("cbg-raw-login-test-")
 writeAccess(["42"])
 
-const { extractLoginUrl, looksLikeLoginCode, loginTopicKey, isOpeningBrowser, awaitsLoginConfirm } = await import("../lib/pure/login.js")
+const { extractLoginUrl, looksLikeLoginCode, loginTopicKey, awaitsLoginMethod, isOpeningBrowser, awaitsLoginConfirm } = await import("../lib/pure/login.js")
 const handle = (await import("../lib/event-handlers/chat-user.js")).default
 
 const hotCommandsMod = await import("../lib/hot-commands.js")
@@ -165,6 +165,60 @@ Deno.test("/login __url keeps retrying rather than giving up on a blank screen",
     assertEquals(action.stateChanges.chatState.pendingLogin, undefined)
 })
 
+// What /login opens with. Nothing else happens until it's answered.
+const METHOD_PICKER_SCREEN = [
+    "   Login",
+    "",
+    "   Select login method:",
+    "",
+    "   ❯ 1. Claude account with subscription · Pro, Max, Team, or Enterprise",
+    "     2. Anthropic Console account · API usage billing",
+    "",
+    "   Esc to cancel",
+].join("\n")
+
+Deno.test("/login __url answers the account-type picker with Return", () => {
+    writeScreen(METHOD_PICKER_SCREEN)
+    const action = scrapeUrl()
+    const [enter] = rawInputs(action)
+    assertEquals(enter.text, "")
+    assertEquals(enter.submit, undefined)
+    assertEquals(action.stateChanges.chatState.loginScrape[TOPIC_KEY].methodPresses, 1)
+    assertEquals(effectsOfType(action, "set_timer")[0].event.text, "/login __url")
+})
+
+Deno.test("/login __url doesn't re-press the picker on every scrape", () => {
+    writeScreen(METHOD_PICKER_SCREEN)
+    const action = registry.get("login")(
+        userEvent("/login __url"),
+        coreWithSession({
+            loginScrape: { [TOPIC_KEY]: { url: null, scrapes: 1, deadline: Date.now() + 30_000, hardDeadline: Date.now() + 60_000, methodPresses: 1, methodPressedAt: Date.now() } },
+        }),
+    )
+    assertEquals(rawInputs(action).length, 0)
+    assertEquals(effectsOfType(action, "set_timer")[0].event.text, "/login __url")
+})
+
+Deno.test("/login __url stops pressing rather than typing Enter forever", () => {
+    writeScreen(METHOD_PICKER_SCREEN)
+    const action = registry.get("login")(
+        userEvent("/login __url"),
+        coreWithSession({
+            loginScrape: { [TOPIC_KEY]: { url: null, scrapes: 9, deadline: Date.now() + 30_000, hardDeadline: Date.now() + 60_000, methodPresses: 3, methodPressedAt: 1 } },
+        }),
+    )
+    assertEquals(rawInputs(action).length, 0)
+})
+
+Deno.test("/login resumes at an already-open picker instead of typing into it", () => {
+    writeScreen(METHOD_PICKER_SCREEN)
+    const action = registry.get("login")(userEvent("/login"), coreWithSession())
+    assertEquals(rawInputs(action).length, 0)
+    const [timer] = effectsOfType(action, "set_timer")
+    assertEquals(timer.event.text, "/login __url")
+    assertEquals(timer.delayMs, 0)
+})
+
 Deno.test("/login __url keeps waiting while the TUI is still opening a browser", () => {
     writeScreen("✢ Opening browser to sign in…")
     const action = registry.get("login")(
@@ -203,6 +257,7 @@ Deno.test("a repeat /login mid-round-trip resumes instead of typing into the pas
 })
 
 Deno.test("/login starts over once an abandoned round-trip has aged out", () => {
+    writeScreen("just a shell prompt $")
     const action = registry.get("login")(
         userEvent("/login"),
         coreWithSession({
@@ -228,6 +283,8 @@ Deno.test("screen predicates match the panels /login actually paints", () => {
     assert(!isOpeningBrowser(BOXED_SCREEN))
     assert(awaitsLoginConfirm("Logged in as jeff@example.com\nLogin successful. Press Enter to continue…"))
     assert(!awaitsLoginConfirm(BOXED_SCREEN))
+    assert(awaitsLoginMethod(METHOD_PICKER_SCREEN))
+    assert(!awaitsLoginMethod(BOXED_SCREEN))
 })
 
 Deno.test("/login __confirm presses Return once the confirmation panel is up", () => {
