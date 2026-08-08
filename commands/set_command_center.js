@@ -53,14 +53,19 @@ export const commands = {
 
         // Save to access.json
         const access = readAccessFile()
-        access.commandCenterChatId = String(event.chatId)
+        const groupId = String(event.chatId)
+        access.commandCenterChatId = groupId
         // Also add to groups if not already there
-        if (!access.groups[String(event.chatId)]) {
-            access.groups[String(event.chatId)] = {
+        if (!access.groups[groupId]) {
+            access.groups[groupId] = {
                 requireMention: false,
                 allowFrom: [],
             }
         }
+        if (!access.botCenterGroups.includes(groupId)) {
+            access.botCenterGroups.push(groupId)
+        }
+        access.groupChats = access.groupChats.filter(id => id !== groupId)
         saveAccess(access)
 
         // Initialize command center state
