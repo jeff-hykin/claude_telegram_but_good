@@ -89,6 +89,24 @@ Effect types currently implemented:
 - **Downloads**: `download_telegram_file` (downloads a file_id to INBOX_DIR, enqueues a follow-up)
 - **Hot commands**: `run_hot_command`, `reload_hot_commands`
 
+## Agent backends (`lib/agent-backends/`)
+
+Claude Code is one agent implementation, not *the* agent. `lib/agent-backends/spec.js` is the contract; read its header before touching anything here. It has two halves:
+
+- **Daemon side** — a plain object of async methods (`spawn`, `sendUserText`, `sendFiles`, `sendRawInput`, `interrupt`, `kill`, `readScreen`, `healthCheck`) built with `defineBackend`. Anything you omit becomes a clean "unsupported by <name>" response instead of a crash, and `capabilities` declares what you do support.
+- **Session side** — the newline-JSON IPC protocol the session process speaks (`register`, `hook_event`, `tool_request`, `unregister` outbound; `channel_event`, `tool_response`, `agent_input`, `agent_control` inbound). `hook_event` is load-bearing: PreToolUse/PostToolUse drive the spinner, `Stop` drives the nudge watchdog, the long-task report nudge, the critic and the message-queue drain.
+
+Implementations:
+
+- **`claude.js`** — the `claude` CLI in a dtach-wrapped pty. Talks to it by typing keystrokes (`\r` to submit, ESC to interrupt); its MCP shim + hook script are the session side.
+- **`local-openai.js`** — a local OpenAI-compatible server (LM Studio serving Qwen). Spawns `event-generators/agent-runner/runner.js`, a plain Deno process that owns its own agent loop and speaks the session-side protocol directly. No pty, no screen scraping — it emits the hook frames itself, which is why it inherits the spinner, nudges, long tasks and the critic with zero daemon changes.
+
+`index.js` is the registry. `defaultBackend()` reads the `agent_backend` config key for NEW sessions; `backendForSession(session)` reads `session.backend` (stamped at register time, absent ⇒ `claude`) so a running session keeps its own semantics even if the config default flips.
+
+Config keys: `agent_backend`, `local_model_base_url`, `local_model`, `local_model_api_key`, `local_model_temperature`, `local_model_max_tokens`, `local_model_max_turns`, `local_model_request_timeout_ms`, `local_model_history_limit`.
+
+Install-time wiring (Claude's hooks, `.mcp.json` patches, skills) is deliberately NOT part of the interface — it still lives in `event-generators/cli/helpers.js`. The local backend needs no install step.
+
 ## Hot reload via `versionedImport`
 
 The daemon is fully hot-reloadable. The pattern:

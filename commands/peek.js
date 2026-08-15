@@ -1,16 +1,17 @@
 // commands/peek.js — Action-returning hot command.
 //
-// Reads the dtach log file of a session, replays the tail of the raw
-// terminal bytes through a VT100 emulator onto a virtual screen, and
-// sends the rendered screen as an HTML \`\`\`\n block.
+// Asks the session's agent backend for its current screen and sends it
+// back as a fenced block. What "screen" means is the backend's business:
+// Claude replays raw pty bytes through a VT100 emulator, a local-model
+// session returns the tail of its transcript.
 
-import { readFileSync, existsSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { escapeMarkdown: escMd } = await versionedImport("../lib/pure/markdown.js", import.meta)
-const { renderTui, trimTrailingMarker } = await versionedImport("../lib/pure/tui-render.js", import.meta)
+const { backendForSession } = await versionedImport("../lib/agent-backends/index.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 
 export const tips = [
@@ -76,39 +77,12 @@ function smartWrap(text, maxWidth) {
     return text.split("\n").map((l) => smartWrapLine(l, maxWidth)).join("\n")
 }
 
-/**
- * Render the tail of `rawLines` through the VT100 emulator, growing
- * the history window until the rendered (+ trailing-marker-trimmed)
- * screen has at least `height` non-blank rows or we've consumed every
- * line in the log.
- *
- * Returns the rendered screen and the number of raw log lines that
- * ended up contributing to it (for the header readout).
- */
-function renderWithGrowingHistory(rawLines, { width, height, historyStart }) {
-    const totalLines = rawLines.length
-    let historyLines = historyStart
-    let rendered = ""
-    let taken = 0
-    while (true) {
-        taken = Math.min(historyLines, totalLines)
-        const ingest = rawLines.slice(-taken).join("\n")
-        rendered = renderTui(ingest, { width, height, ansi: false, trim: true })
-        rendered = trimTrailingMarker(rendered)
-        const nonBlank = rendered.split("\n").filter((l) => l.trim().length > 0).length
-        if (nonBlank >= height || taken >= totalLines) {
-            return { rendered, historyUsed: taken }
-        }
-        historyLines *= 2
-    }
-}
-
 export const descriptions = {
     peek: "Show the current virtual screen of a session",
 }
 
 export const commands = {
-    peek: (event, core) => {
+    peek: async (event, core) => {
         const access = loadAccess()
         const isCommandCenter = String(event.chatId) === String(access.commandCenterChatId ?? "")
         if (event.chatType !== "private" && !isCommandCenter) { return { effects: [] } }
@@ -183,41 +157,29 @@ export const commands = {
         }
         if (!session) { return { effects: [sendEffect(replyTo, "No active sessions.")] } }
 
-        const dtachSocket = session.dtachSocket
-        if (!dtachSocket) {
-            return { effects: [sendEffect(replyTo, `Session "${session.id}" has no dtach socket — can't find log file.`)] }
-        }
-        const logPath = dtachSocket.replace(/\.sock$/, ".log")
-
-        let content
-        try {
-            content = readFileSync(logPath, "utf8")
-        } catch (e) {
-            dbg("PEEK", `read ${logPath} failed:`, e)
-            return { effects: [sendEffect(replyTo, `No log file found for session "${session.id}".`)] }
-        }
-        if (!content.trim()) {
-            return { effects: [sendEffect(replyTo, `Log file for session "${session.id}" is empty.`)] }
+        const backend = backendForSession(session)
+        if (!backend.capabilities.screen) {
+            return { effects: [sendEffect(replyTo, `Session "${session.id}" runs on the "${backend.name}" backend, which has no screen to peek at.`)] }
         }
 
-        const rawLines = content.split(/\r?\n/)
-
-        let rendered
+        let screen
         let historyUsed = 0
         try {
-            const out = renderWithGrowingHistory(rawLines, { width, height, historyStart })
-            rendered = smartWrap(out.rendered, SMART_WRAP_WIDTH)
-            historyUsed = out.historyUsed
+            const out = await backend.readScreen({ session, width, height, historyStart })
+            if (!out.ok) {
+                return { effects: [sendEffect(replyTo, `Can't peek at "${session.id}": ${out.detail}`)] }
+            }
+            screen = smartWrap(out.screen, SMART_WRAP_WIDTH)
+            historyUsed = out.historyUsed ?? 0
         } catch (e) {
-            dbg("PEEK", "renderTui failed:", e)
+            dbg("PEEK", "readScreen failed:", e)
             return { effects: [sendEffect(replyTo, `Failed to render session "${session.id}".`)] }
         }
-        if (!rendered.trim()) {
-            return { effects: [sendEffect(replyTo, `Log file for session "${session.id}" rendered empty.`)] }
+        if (!screen.trim()) {
+            return { effects: [sendEffect(replyTo, `Session "${session.id}" rendered an empty screen.`)] }
         }
-
         const header = `${session.id}${session.title ? ` (${session.title})` : ""} [${width}x${height}, ${historyUsed}L]:`
-        let body = rendered
+        let body = screen
         const bodyBudget = TELEGRAM_MAX_MESSAGE_CHARS - header.length - MD_WRAPPER_OVERHEAD_CHARS
         if (body.length > bodyBudget) {
             body = TRUNCATION_PREFIX + body.slice(-(bodyBudget - TRUNCATION_PREFIX.length))
