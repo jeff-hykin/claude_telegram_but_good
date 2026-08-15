@@ -27,6 +27,11 @@ const handle = mod.default
 const hotCommandsMod = await import("../lib/hot-commands.js")
 const commandsDir = new URL("../commands", import.meta.url).pathname
 await hotCommandsMod.loadCommands(commandsDir)
+// The handler reaches hot-commands through versionedImport, which is a
+// separate module instance with its own registry — load that one too or
+// every command it dispatches comes back "unknown".
+const { versionedImport } = await import("../lib/version.js")
+await (await versionedImport("../lib/hot-commands.js", import.meta)).loadCommands(commandsDir)
 
 function baseEvent(overrides = {}) {
     return {
@@ -343,6 +348,21 @@ Deno.test("chat-user: /task <description> creates a long task + notifies worker"
     assertEquals(delivers[0].sessionId, "worker")
 })
 
+Deno.test("chat-user: /task keeps everything after a newline", async () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "worker" },
+        chatSessions: { "worker": { id: "worker", _conn: {} } },
+    })
+    const description = "write a readme\n\n- cover install\n- cover usage"
+    const action = await handle(baseEvent({ text: `/task ${description}` }), core)
+    const tasks = get(action, "stateChanges.specialData.longTaskByChatId.42")
+    const task = tasks[Object.keys(tasks)[0]]
+    assertEquals(task.originalPrompt, description)
+    const delivers = effectsOfType(action, "deliver_channel_event")
+    assertEquals(delivers[0].content.includes("- cover usage"), true)
+    assertEquals(delivers[0].content.includes("> - cover usage"), true)
+})
+
 Deno.test("chat-user: /task rejects if the focused session already has a live task", async () => {
     // Session.longTaskId points at an existing live task in specialData →
     // the new /task should be rejected and the user shown the edit/cancel
@@ -506,4 +526,29 @@ Deno.test("chat-user: /task_resume_<id> revives a cancelled task back to its pre
     const delivers = effectsOfType(action, "deliver_channel_event")
     assertEquals(delivers.length, 1)
     assert(delivers[0].content.includes("resumed"))
+})
+
+// `//foo` is the only way to reach a slash command that Claude Code's TUI
+// and cbg both define — /model, /compact — since cbg's own copy wins.
+Deno.test("chat-user: //foo types /foo into the session's terminal", async () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "sess-1" },
+        chatSessions: { "sess-1": { id: "sess-1", _conn: {}, dtachSocket: `${tmpPaths.STATE_DIR}/dtach-sess-1.sock` } },
+    })
+    const action = await handle(baseEvent({ text: "//model opus" }), core)
+    const injected = effectsOfType(action, "send_raw_input_to_claude")
+    assertEquals(injected.length, 1)
+    assertEquals(injected[0].text, "/model opus")
+    assertEquals(injected[0].sessionId, "sess-1")
+    // Nothing is delivered to the session as a chat message.
+    assertEquals(effectsOfType(action, "deliver_channel_event").length, 0)
+})
+
+Deno.test("chat-user: a bare // is not a command — it stays plain text", async () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "sess-1" },
+        chatSessions: { "sess-1": { id: "sess-1", _conn: {}, dtachSocket: `${tmpPaths.STATE_DIR}/dtach-sess-1.sock` } },
+    })
+    const action = await handle(baseEvent({ text: "//" }), core)
+    assertEquals(effectsOfType(action, "send_raw_input_to_claude").length, 0)
 })
