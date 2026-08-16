@@ -499,6 +499,54 @@ Deno.test("sendFileToUser: parse-error in caption → retries with plain caption
     assertEquals(textCalls.length, 0)
 })
 
+Deno.test("sendFileToUser: over-long caption → sent as its own message, file goes bare", async () => {
+    const outsideFile = `${TEST_HOME}/longcap.png`
+    Deno.writeTextFileSync(outsideFile, "x")
+    const calls = []
+    const fakeBot = {
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
+        async sendText(chatId, text, options) { calls.push({ kind: "text", chatId, text, options }); return { messageId: String(calls.length) } },
+        async sendFile(chatId, filePath, opts) { calls.push({ kind: "file", chatId, filePath, opts }); return { messageId: String(calls.length) } },
+        async editText() {}, async react() { return true }, async answerCallback() { return true }, async downloadFile() { return true },
+    }
+    const longCaption = "a".repeat(1500)
+    await tgOut.sendFileToUser({
+        chatId: "1",
+        filePath: outsideFile,
+        filename: "longcap.png",
+        caption: longCaption,
+    }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
+    const textCalls = calls.filter(c => c.kind === "text")
+    const fileCalls = calls.filter(c => c.kind === "file")
+    assertEquals(textCalls.length, 1)
+    assertEquals(textCalls[0].text, longCaption)
+    assertEquals(fileCalls.length, 1)
+    assertEquals(fileCalls[0].opts.caption, undefined)
+    assertEquals(fileCalls[0].opts.caption_entities, undefined)
+    // caption first, then the file
+    assertEquals(calls[0].kind, "text")
+})
+
+Deno.test("sendFileToUser: caption under the cap stays on the file", async () => {
+    const outsideFile = `${TEST_HOME}/shortcap.png`
+    Deno.writeTextFileSync(outsideFile, "x")
+    const calls = []
+    const fakeBot = {
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
+        async sendText(chatId, text, options) { calls.push({ kind: "text", chatId, text, options }); return { messageId: String(calls.length) } },
+        async sendFile(chatId, filePath, opts) { calls.push({ kind: "file", chatId, filePath, opts }); return { messageId: String(calls.length) } },
+        async editText() {}, async react() { return true }, async answerCallback() { return true }, async downloadFile() { return true },
+    }
+    await tgOut.sendFileToUser({
+        chatId: "1",
+        filePath: outsideFile,
+        filename: "shortcap.png",
+        caption: "here is the plot",
+    }, { bot: fakeBot, chatSessions: {}, chatState: { commandCenter: {} } })
+    assertEquals(calls.filter(c => c.kind === "text").length, 0)
+    assertEquals(calls[0].opts.caption, "here is the plot")
+})
+
 Deno.test("sendFileToUser: non-parse error → sends a plain-text failure notice", async () => {
     const outsideFile = `${TEST_HOME}/fail.txt`
     Deno.writeTextFileSync(outsideFile, "x")
