@@ -341,6 +341,24 @@ export const TOOLS = [
         inputSchema: { type: "object", properties: {} },
     },
     {
+        name: "create_memory_hook",
+        description:
+            "Record a fact that should resurface whenever a keyword comes up. From then on, if the pattern " +
+            "appears in a user's message, in a reply you are about to send, or in a tool call you just made, " +
+            "the hint is shown to you again. Use it for things that are easy to forget and expensive to get " +
+            "wrong — standing corrections, exceptions, and 'always check X first' notes. " +
+            "A reply that trips a hook is held back so you can fix it before the user ever sees it.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                pattern: { type: "string", description: "Keyword matched anywhere, case-insensitively (e.g. 'dimos'), or a regex wrapped in slashes (e.g. '/Manipulation Weekly/i')." },
+                hint: { type: "string", description: "What to be reminded of, e.g. \"jeff doesn't attend that\". One sentence." },
+                on: { type: "string", enum: ["user", "agent", "both"], description: "Which side triggers it: 'user' messages, your own 'agent' output, or 'both' (the default)." },
+            },
+            required: ["pattern", "hint"],
+        },
+    },
+    {
         name: "cbg_debug",
         description:
             "Returns the path to the CBG server log and a fresh server state dump for debugging. " +
@@ -461,7 +479,7 @@ export async function handleToolCall(req, ctx) {
             toolName: name,
             args,
         }
-    } else if (name === "list_sessions" || name === "tell_session" || name === "get_topic_memory") {
+    } else if (name === "list_sessions" || name === "tell_session" || name === "get_topic_memory" || name === "create_memory_hook") {
         // Routed via the generic tool_request path — the server handles
         // these in claude-channel.js.
         ipcMessage = {

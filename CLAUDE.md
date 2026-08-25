@@ -320,6 +320,7 @@ Claude Code queries the shim's tool list ONCE at MCP server startup. Tool NAMES 
 - **`submit_scheduled_task_definition`** — worker submits a scheduled-task definition
 - **`create_scheduled_task`** — create a recurring scheduled task directly (skips drafting flow)
 - **`get_topic_memory`** — returns the path and content of this session's topic memory file
+- **`create_memory_hook`** — pair a keyword/regex with a hint that gets re-stated whenever the pattern shows up (see `lib/memory-hooks.js`)
 - **`cbg_debug`** — returns `{ logPath, dumpPath }` for debugging (writes a fresh server_dump). Accepts optional `filter` param.
 
 ## Topic memory
