@@ -10,13 +10,21 @@ setupTempPaths("cbg-channel-test-")
 
 const { deliverChannelEvent } = await import("../lib/effects/channel-event.js")
 
-function recordingConn() {
-    const writes = []
+// Mimics a real Deno.Conn: `write` accepts at most `chunkLimit` bytes per
+// call and returns the count it took, so callers that ignore the return
+// value truncate exactly the way a full kernel socket buffer makes them.
+function recordingConn({ chunkLimit = Infinity } = {}) {
+    const chunks = []
     return {
-        write(bytes) { writes.push(new TextDecoder().decode(bytes)); return Promise.resolve() },
+        write(bytes) {
+            const taken = bytes.subarray(0, Math.min(bytes.length, chunkLimit))
+            chunks.push(new TextDecoder().decode(taken))
+            return Promise.resolve(taken.length)
+        },
         close() {},
         read() { return Promise.resolve(null) },
-        get writes() { return writes },
+        // One entry per completed frame, reassembled from its chunks.
+        get writes() { return chunks.join("").split(/(?<=\n)/).filter((f) => f) },
     }
 }
 
@@ -181,4 +189,28 @@ Deno.test("channel-event: stringifies attachment_size when present (QB regressio
     assertEquals(typeof wire.meta.attachment_size, "string")
     assertEquals(wire.meta.attachment_size, "4096")
     assertEquals(wire.meta.attachment_kind, "photo")
+})
+
+// Regression: a Unix socket accepts only what fits in its buffer and
+// `conn.write()` returns that short count. deliverChannelEvent used to
+// call it once and discard the count, so any frame over ~8 KB reached the
+// shim with its tail sliced off and no trailing newline — the receiver's
+// parser then glued the NEXT frame onto the orphan and lost that one too.
+// Symptom: /agenda (a ~10 KB expansion) silently vanished, and so did
+// whatever Jeff sent right after it.
+Deno.test("channel-event: writes the whole frame when the socket takes short writes", async () => {
+    const conn = recordingConn({ chunkLimit: 4096 })
+    const core = makeCore({
+        chatState: { commandCenter: { topicMap: {}, topicNames: {} } },
+        chatSessions: { S1: { id: "S1", _conn: conn } },
+    })
+    const big = "z".repeat(10_000)
+    await deliverChannelEvent(
+        { type: "deliver_channel_event", sessionId: "S1", content: big, meta: {} },
+        core,
+    )
+    assertEquals(conn.writes.length, 1)
+    const frame = conn.writes[0]
+    assert(frame.endsWith("\n"), "frame must be newline-terminated or the receiver's parser desyncs")
+    assertEquals(JSON.parse(frame.replace(/\n$/, "")).content, big)
 })

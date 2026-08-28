@@ -33,7 +33,7 @@
 import { paths } from "../../lib/paths.js"
 import { dbg } from "../../lib/logging.js"
 import { findClaudePidStrict } from "../../lib/pid.js"
-import { encodeIpcFrame, UNKNOWN_CLAUDE_PID } from "../../lib/ipc.js"
+import { writeIpcFrame, UNKNOWN_CLAUDE_PID } from "../../lib/ipc.js"
 
 // Strict lookup so we never send a guessed/fallback PID. If the ancestor
 // walk can't find a real claude process, tag with the UNKNOWN sentinel
@@ -99,7 +99,7 @@ async function readDecision(conn, timeoutMs) {
 
 try {
     const conn = await Deno.connect({ transport: "unix", path: paths.IPC_SOCK })
-    await conn.write(encodeIpcFrame({ type: "hook_event", claudePid, data }))
+    await writeIpcFrame(conn, { type: "hook_event", claudePid, data })
 
     if (isAskUserQuestion) {
         // Do NOT closeWrite() here: closing our write half makes the daemon's

@@ -16,7 +16,7 @@ import { versionedImport } from "../../../lib/version.js"
 const [
     { colors },
     { paths },
-    { encodeIpcFrame, parseIpcMessages },
+    { writeIpcFrame, parseIpcMessages },
 ] = await Promise.all([
     versionedImport("../../../imports.js", import.meta),
     versionedImport("../../../lib/paths.js", import.meta),
@@ -77,11 +77,11 @@ export async function runAsk(args) {
     }
 
     try {
-        await conn.write(encodeIpcFrame({
+        await writeIpcFrame(conn, {
             type: "cli_command",
             kind: "ask_sync",
             payload: { target: opts.to, text: opts.question, replyToInbox: opts.from, queueUntilIdle: opts.queueUntilIdle },
-        }))
+        })
     } catch (e) {
         console.error(c.red(`  Failed to send: ${e.message}`))
         try { conn.close() } catch { /* already closed */ }

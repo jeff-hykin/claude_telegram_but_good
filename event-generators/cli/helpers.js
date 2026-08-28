@@ -26,7 +26,7 @@ const [
     { installShim, isShimInstalled, findClaudeBinary },
     { paths },
     { dbg },
-    { encodeIpcFrame },
+    { writeIpcFrame },
     { buildPatchedMcpJson },
     { installHooks, uninstallHooks },
 ] = await Promise.all([
@@ -58,7 +58,7 @@ const _cliReplyDecoder = new TextDecoder()
  * Send a one-shot `cli_command` to the daemon and await its reply.
  *
  * Connects to paths.IPC_SOCK, writes one newline-JSON frame (via
- * encodeIpcFrame — the framing format lives only in lib/ipc.js), reads
+ * writeIpcFrame — the framing format lives only in lib/ipc.js), reads
  * lines until a JSON line arrives, parses it, and returns it. Closes
  * the connection afterwards.
  *
@@ -92,7 +92,7 @@ export async function sendCliCommand(kind, payload = {}, { timeoutMs = 5000 } = 
         // Awaiting the write ourselves so any encode/write failure
         // surfaces before we start waiting for a reply that can never
         // come. (Fire-and-forget wouldn't catch write errors.)
-        await conn.write(encodeIpcFrame({ type: "cli_command", kind, payload }))
+        await writeIpcFrame(conn, { type: "cli_command", kind, payload })
 
         const readPromise = (async () => {
             const buf = new Uint8Array(8 * 1024)

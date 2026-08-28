@@ -14,7 +14,7 @@
 
 import { paths } from "../../lib/paths.js"
 import { dbg } from "../../lib/logging.js"
-import { encodeIpcFrame, parseIpcMessages } from "../../lib/ipc.js"
+import { writeIpcFrame, parseIpcMessages } from "../../lib/ipc.js"
 
 const RECONNECT_INITIAL_MS = 2_000
 const RECONNECT_MAX_MS = 30_000
@@ -106,11 +106,7 @@ export class DaemonLink {
             dbg("RUNNER-IPC", `dropping ${msg.type} — not connected`)
             return
         }
-        try {
-            this.conn.write(encodeIpcFrame(msg))
-        } catch (e) {
-            dbg("RUNNER-IPC", "write failed:", e)
-        }
+        writeIpcFrame(this.conn, msg).catch((e) => dbg("RUNNER-IPC", "write failed:", e))
     }
 
     /**

@@ -53,7 +53,7 @@ function _t() { return `+${Date.now() - _STARTUP_T0}ms since boot` }
 const [
     { paths },
     { dbg },
-    { encodeIpcFrame, parseIpcMessages },
+    { writeIpcFrame, parseIpcMessages },
     { randomHex, generateName },
     { findClaudePid },
     { ensureOfficialPluginPatched },
@@ -66,19 +66,12 @@ const [
     versionedImport("./setup.js", import.meta),
 ])
 
-// Local shim→server write helper. Previously imported from lib/ipc.js
-// as `sendIpc`; that helper moved into each of its callers because the
-// right error-handling shape differs by context. The shim's context:
-// fire-and-forget, swallow errors, log and continue. We keep the name
-// `sendIpc` so the ctx object we pass into mcp-shim-tool-handler.js
-// can stay byte-identical — the tool handler doesn't know (or care)
-// that sendIpc is now a local closure instead of a library import.
+// Local shim→server write helper. The shim's context is fire-and-forget:
+// log the failure and carry on. We keep the name `sendIpc` so the ctx
+// object we pass into mcp-shim-tool-handler.js can stay byte-identical —
+// the tool handler doesn't know (or care) that sendIpc is a local closure.
 function sendIpc(conn, msg) {
-    try {
-        conn.write(encodeIpcFrame(msg))
-    } catch (e) {
-        dbg("SHIM-IPC", "write failed:", e)
-    }
+    writeIpcFrame(conn, msg).catch((e) => dbg("SHIM-IPC", "write failed:", e))
 }
 
 // ── Drift self-heal ───────────────────────────────────────────────────

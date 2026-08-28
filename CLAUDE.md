@@ -193,7 +193,7 @@ All imports go through `imports.js` which re-exports from pinned esm.sh URLs. No
 - **`version.js`** — bootstrap: `versionedImport` + `VERSION` constant. THE only statically-imported file inside `lib/`.
 - **`paths.js`** — `buildPaths` factory + pre-built `paths` object (see above).
 - **`logging.js`** — `dbg(label, ...args)`. The single most-imported export in the codebase; lives alone because ~40 files need it. (Was part of the old `protocol.js` grab-bag, split out.)
-- **`ipc.js`** — `encodeIpcFrame`, `parseIpcMessages`, `UNKNOWN_CLAUDE_PID`. The shared newline-JSON wire format — the one place framing is defined. No `sendIpc` wrapper: each caller inlines `conn.write(encodeIpcFrame(msg))` with the error-handling shape appropriate to its context.
+- **`ipc.js`** — `encodeIpcFrame`, `writeIpcFrame`, `parseIpcMessages`, `UNKNOWN_CLAUDE_PID`. The shared newline-JSON wire format — the one place framing is defined. **Always send with `await writeIpcFrame(conn, msg)`, never a bare `conn.write(encodeIpcFrame(msg))`** — `conn.write` returns a short count, so a single call truncates any frame larger than the socket buffer and desyncs the receiver's parser.
 - **`pid.js`** — `findClaudePid`, `findClaudePidStrict`. Ancestry-walk via `ps` used by the hook script to tag events with the originating Claude session's PID.
 - **`pure/state-merge.js`** — `mergeSessionData(target, patch)`. Recursive merge with `undefined` = delete, arrays replace wholesale, non-plain objects (UnixConn, etc.) replace by reference, underscore-prefixed keys treated as opaque.
 - **`pure/ipc-inbound.js`** — `translateIpcMessage(msg, conn, core)`. Server-side INBOUND dispatch: takes a parsed JSON frame (from `parseIpcMessages`) and returns 0+ events for the main queue. Kept as its own reloadable module so new IPC message types can ship via hot-reload.
@@ -230,7 +230,7 @@ Side-effect implementations. Counterpart to `lib/event-handlers/`: handlers desc
 - `hook-compact.js` — selects/compacts hook event fields
 - `long-task-util.js` — `slugify`, `generateTaskId`
 - `pure/markdown.js` — `escapeMarkdown` (legacy Markdown char escape). The old `pure/html.js` `escapeHtml` helper is kept around for any straggling HTML callers but should not be used by new code.
-- `ipc.js` — shared byte-level framing (`encodeIpcFrame`, `parseIpcMessages`, `UNKNOWN_CLAUDE_PID`); the single place the newline-JSON wire format is defined. No `sendIpc` helper — each caller inlines `conn.write(encodeIpcFrame(msg))` with the error-handling shape appropriate to its context.
+- `ipc.js` — shared byte-level framing (`encodeIpcFrame`, `writeIpcFrame`, `parseIpcMessages`, `UNKNOWN_CLAUDE_PID`); the single place the newline-JSON wire format is defined. Send via `writeIpcFrame`, which retries until every byte is out; `encodeIpcFrame` alone is only for the two sync fire-and-forget sites that must throw synchronously.
 - `ipc-inbound.js`, `pure/telegram-translator.js` — raw IPC / Grammy → event conversion (dynamically imported per-message, hot-reloadable so new message types ship without a daemon restart)
 - CLI ↔ daemon one-shot round-trip (`sendCliCommand`) lives inside `event-generators/cli/helpers.js` alongside the onboard/authorize/reinstall logic that uses it.
 
