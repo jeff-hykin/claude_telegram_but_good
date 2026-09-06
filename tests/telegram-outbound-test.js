@@ -645,3 +645,65 @@ Deno.test("sendTextMessageToUser: chunks over the 4096 limit into multiple messa
         assert(call.text.length <= 4096, `piece of length ${call.text.length} exceeds 4096`)
     }
 })
+
+// A routing-only options bag (`{}`, or `{ message_thread_id }`) used to be
+// downgraded to plain text, so every `*bold*` / `[link](url)` a caller wrote
+// arrived as literal markers. The loudest victim was the scheduled-task
+// run-complete report — `sendEffect()` defaults its extraOptions to `{}`.
+function makeRecordingBot(calls) {
+    return {
+        supports: { reactions: true, inlineButtons: true, htmlFormatting: false, markdownFormatting: true, fileDownload: true },
+        async sendText(chatId, text, options) { calls.push({ chatId, text, options }); return { messageId: String(calls.length) } },
+        async sendFile() { return { messageId: "1" } },
+        async editText() {},
+        async react() { return true },
+        async answerCallback() { return true },
+        async downloadFile() { return true },
+    }
+}
+
+Deno.test("sendTextMessageToUser: empty options bag still renders markdown", async () => {
+    const calls = []
+    await tgOut.sendTextMessageToUser(
+        { chatId: "1", text: "**HN Digest**\n_summary_", options: {} },
+        { bot: makeRecordingBot(calls) },
+    )
+    assertEquals(calls.length, 1)
+    assertEquals(calls[0].text, "HN Digest\nsummary")
+    assertEquals(calls[0].options.entities.map(e => e.type), ["bold", "italic"])
+})
+
+Deno.test("sendTextMessageToUser: routing-only options bag still renders markdown", async () => {
+    const calls = []
+    await tgOut.sendTextMessageToUser(
+        { chatId: "1", text: "*bold*", options: { message_thread_id: 74 } },
+        { bot: makeRecordingBot(calls) },
+    )
+    assertEquals(calls.length, 1)
+    assertEquals(calls[0].text, "bold")
+    assertEquals(calls[0].options.threadId, 74)
+    assertEquals(calls[0].options.entities.map(e => e.type), ["bold"])
+})
+
+Deno.test("sendTextMessageToUser: explicit parse_mode null is the plain escape hatch", async () => {
+    const calls = []
+    await tgOut.sendTextMessageToUser(
+        { chatId: "1", text: "*bold*", options: { parse_mode: null } },
+        { bot: makeRecordingBot(calls) },
+    )
+    assertEquals(calls.length, 1)
+    assertEquals(calls[0].text, "*bold*")
+    assertEquals(calls[0].options.format, "plain")
+    assertEquals(calls[0].options.entities, undefined)
+})
+
+Deno.test("sendTextMessageToUser: abstract options still route to a legacy message_thread_id", async () => {
+    const calls = []
+    await tgOut.sendTextMessageToUser(
+        { chatId: "1", text: "*bold*", options: { format: "plain", message_thread_id: 74 } },
+        { bot: makeRecordingBot(calls) },
+    )
+    assertEquals(calls.length, 1)
+    assertEquals(calls[0].text, "*bold*")
+    assertEquals(calls[0].options.threadId, 74)
+})
