@@ -93,19 +93,38 @@ Effect types currently implemented:
 
 Claude Code is one agent implementation, not *the* agent. `lib/agent-backends/spec.js` is the contract; read its header before touching anything here. It has two halves:
 
-- **Daemon side** — a plain object of async methods (`spawn`, `sendUserText`, `sendFiles`, `sendRawInput`, `interrupt`, `kill`, `readScreen`, `healthCheck`) built with `defineBackend`. Anything you omit becomes a clean "unsupported by <name>" response instead of a crash, and `capabilities` declares what you do support.
+- **Daemon side** — a plain object of async methods (`spawn`, `sendUserText`, `sendFiles`, `sendRawInput`, `interrupt`, `kill`, `readScreen`, `contextUsage`, `runInBackground`, `healthCheck`) built with `defineBackend`. Anything you omit becomes a clean "unsupported by <name>" response instead of a crash, and `capabilities` declares what you do support.
 - **Session side** — the newline-JSON IPC protocol the session process speaks (`register`, `hook_event`, `tool_request`, `unregister` outbound; `channel_event`, `tool_response`, `agent_input`, `agent_control` inbound). `hook_event` is load-bearing: PreToolUse/PostToolUse drive the spinner, `Stop` drives the nudge watchdog, the long-task report nudge, the critic and the message-queue drain.
 
 Implementations:
 
 - **`claude.js`** — the `claude` CLI in a dtach-wrapped pty. Talks to it by typing keystrokes (`\r` to submit, ESC to interrupt); its MCP shim + hook script are the session side.
 - **`local-openai.js`** — a local OpenAI-compatible server (LM Studio serving Qwen). Spawns `event-generators/agent-runner/runner.js`, a plain Deno process that owns its own agent loop and speaks the session-side protocol directly. No pty, no screen scraping — it emits the hook frames itself, which is why it inherits the spinner, nudges, long tasks and the critic with zero daemon changes.
+- **`codex.js`** — OpenAI's Codex CLI. Spawns `event-generators/agent-runner/codex-runner.js`, which drives `codex app-server` over its stdio JSON-RPC protocol. Codex already owns its model, tools, sandbox and history, so unlike the local backend there is no agent loop here — the runner is pure protocol translation (`item/started`→PreToolUse, `item/completed`→PostToolUse, `turn/completed`→reply + Stop, `thread/tokenUsage/updated`→`/tokens`).
 
-`index.js` is the registry. `defaultBackend()` reads the `agent_backend` config key for NEW sessions; `backendForSession(session)` reads `session.backend` (stamped at register time, absent ⇒ `claude`) so a running session keeps its own semantics even if the config default flips.
+Both runner-based backends share `runner-process.js` (spawn/kill/screen/usage). `claude.js` deliberately does not — a dtach pty is a different animal.
 
-Config keys: `agent_backend`, `local_model_base_url`, `local_model`, `local_model_api_key`, `local_model_temperature`, `local_model_max_tokens`, `local_model_max_turns`, `local_model_request_timeout_ms`, `local_model_history_limit`.
+`index.js` is the registry. `defaultBackend()` reads the `agent_backend` config key for NEW sessions; `backendForSession(session)` reads `session.backend` (stamped at register time, absent ⇒ `claude`) so a running session keeps its own semantics even if the config default flips. The `spawn_dtach_session` effect also takes an explicit `backend`, so one session can be Codex without flipping the global default.
 
-Install-time wiring (Claude's hooks, `.mcp.json` patches, skills) is deliberately NOT part of the interface — it still lives in `event-generators/cli/helpers.js`. The local backend needs no install step.
+`/backend <name>` (`commands/backend.js`) is the user-facing switch. A session cannot change its own backend, so switching means replacing it: spawn on the requested backend, rebind the topic, hand over the same context `/refresh` would (`lib/topic-context.js`, shared by both), then retire the predecessor. Only a Claude predecessor gets a `/exit` first — any other backend would answer it as a user message.
+
+Config keys: `agent_backend`, `local_model_*` (`base_url`, `model`, `api_key`, `temperature`, `max_tokens`, `max_turns`, `request_timeout_ms`, `history_limit`), `codex_binary`, `codex_model`, `codex_sandbox`, `codex_approval_policy`, `codex_turn_timeout_ms`.
+
+Install-time wiring (Claude's hooks, `.mcp.json` patches, skills) is deliberately NOT part of the interface — it still lives in `event-generators/cli/helpers.js`. Neither runner-based backend needs an install step.
+
+### Codex protocol gotchas
+
+Confirmed empirically against codex-cli 0.149.1; all of these fail *silently* if you get them wrong.
+
+- Framing is **bare newline-delimited JSON**, not LSP `Content-Length`. The server omits `"jsonrpc"` on everything it sends.
+- A message with **both `id` and `method` is a server→client REQUEST** and Codex blocks until answered. An unanswered approval hangs the turn forever, so `codex-runner.js` answers every one, including unknown methods.
+- The server numbers its requests from **0 in its own id space**, so our client request ids are strings (`cbg-1`).
+- Approval decline vocabularies differ per method and **a value from the wrong one is accepted silently and treated as a rejection**: `{decision:"decline"}` for `item/*/requestApproval`, `{decision:"abort"}` for the legacy `execCommandApproval`/`applyPatchApproval`, `{action:"decline"}` for `mcpServer/elicitation/request`.
+- The reply is the agentMessage with **`phase: "final_answer"`**; `phase: "commentary"` messages are preamble narrated mid-turn. Delivering a commentary message sends the user "I'll take a look" and drops the actual answer.
+- `turn/start`'s result and an interrupted turn both come back `itemsView: "notLoaded"` with **no items**, so the runner also tracks the final answer as it streams past.
+- Interrupting **abandons** in-flight commands rather than killing them: they emit no `item/completed` at interrupt time, then report minutes later. The runner reaps dangling spinners on turn end and ignores items from already-finished turns.
+- `tokenUsage.last` is the context window; `.total` is a cumulative thread bill that would climb past the limit and stay pinned.
+- `approvalPolicy: "never"` does not auto-approve MCP tool calls — it hard-fails them. Per-thread MCP servers can be injected via `thread/start.config.mcp_servers`, but using them requires `on-request` plus auto-answering elicitations.
 
 ## Hot reload via `versionedImport`
 
@@ -358,6 +377,12 @@ Messages sent when no sessions are connected get queued in `chatState.messageQue
 
 When Claude finishes a turn (Stop hook fires) and there's a pending inbound Telegram message older than 45 seconds that hasn't been replied to, the bot injects an `[automated reminder]` into the session's dtach. One nudge per pending inbound (reset when a reply is recorded).
 
+## Slow-tool watchdog
+
+A session blocked inside one tool call (a Bash scanning a 17 GB file) cannot read the messages queued behind that turn, so it looks dead. `claude-hook-pre-tool-use.js` records every call in `session.activeTools[tool_use_id] = {toolName, startedAt}` and arms a `slow_tool_check` timer (`slow_tool_background_ms`, default 10 s). When it fires and the call is still in flight, `slow-tool-check.js` emits `run_tool_in_background` → `backend.runInBackground` — the Claude backend presses **Ctrl+B**, which backgrounds a running Bash command and lets the turn continue; it declines non-Bash tools (an MCP call has no background mode). PostToolUse clears the entry and logs the duration (`HOOK-POST: … ok (8m06s)`); Stop clears them all; `activeTools` is reset on daemon restart. While a tool is in flight, `stall-check.js` reschedules instead of firing a synthetic Stop — a synthetic Stop there only injected nudges as keystrokes into a TUI that could not read them.
+
+Per topic: `/auto_background off | on | <seconds>` (`commands/auto_background.js`), stored as overrides only in `chatState.autoBackground[<chat>:<thread>]` (`lib/pure/auto-background.js`). Absent entry = on at the config threshold.
+
 ## Long task subsystem
 
 `/task <description>` creates a task under `specialData.longTaskByChatId[chatId][taskId]` in `defining` state and injects a definition-drafting prompt to the focused worker. The worker asks clarifying questions via `reply`, then calls the `submit_long_task_definition` MCP tool to lock the definition. The worker writes `context.md`, `progress.md`, and eventually `report.md` under `$CBG_DIR/long-tasks/<id>/`. When `report.md` appears, the `critic-subprocess` spawns `claude -p` to judge it. The critic's verdict enqueues a `critic_verdict` event which either notifies the worker "certified" (terminal) or archives revisions and tells the worker to try again.
@@ -380,7 +405,12 @@ Points at `event-generators/mcp-server/mcp-shim.js`. The launch command uses `sh
 
 ## Testing
 
-Unit tests live in `tests/` and run with `deno test tests/ --allow-all`. Pure modules (`state-merge`, `cold-storage`, `telegram-outbound`, `long-task-util`) have direct unit tests. Handlers are testable in isolation by constructing a synthetic `core` object and asserting on the returned Action. Tests that touch paths use the temp-HOME pattern (set `HOME` + `CBG_DIR` + `CLAUDE_DIR` env vars BEFORE dynamically importing the module).
+Unit tests live in `tests/` and run with `deno test tests/ --allow-all`. Pure modules (`state-merge`, `cold-storage`, `telegram-outbound`, `long-task-util`) have direct unit tests. Handlers are testable in isolation by constructing a synthetic `core` object and asserting on the returned Action.
+
+A test may isolate its filesystem two ways, and mixing them destroys the live install:
+
+- `setupTempPaths()` from `tests/_helpers.js` — then `paths` MUST also come from `_helpers.js`. It re-exports the `versionedImport`ed singleton that `setupTempPaths` mutated. A bare `import("../lib/paths.js")` resolves to a *different* URL and therefore a second, un-redirected singleton still pointing at the real `$CBG_DIR`; writing through it has silently overwritten the running daemon's `access.json`.
+- The temp-HOME pattern — set `HOME` + `CBG_DIR` + `CLAUDE_DIR` env vars BEFORE dynamically importing anything. Then a bare import is fine, because paths.js reads env at module load.
 
 Currently: **61 unit tests passing** (22 state-merge + 12 cold-storage + 13 telegram-outbound + 14 long-task-util).
 

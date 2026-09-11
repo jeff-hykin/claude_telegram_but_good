@@ -3,7 +3,7 @@
 // Spawns a new Claude session in the current topic, binding it to the
 // topic and feeding the last 50 messages as context.
 
-import { writeFileSync, readFileSync, existsSync, mkdirSync, renameSync } from "node:fs"
+import { writeFileSync, readFileSync, existsSync, renameSync } from "node:fs"
 import { join } from "node:path"
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
@@ -11,30 +11,8 @@ const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { generateName } = await versionedImport("../lib/pure/ids.js", import.meta)
-const { tailColdStream } = await versionedImport("../lib/cold-storage.js", import.meta)
+const { prepareTopicHandoff } = await versionedImport("../lib/topic-context.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
-
-const CONTEXT_MESSAGE_LIMIT = 50
-
-function gatherSessionContext(oldSessionId) {
-    if (!oldSessionId) { return null }
-    try {
-        const all = tailColdStream("messages", 500)
-        const sessionMsgs = all.filter(m => m.sessionId === oldSessionId && m.text)
-        const recent = sessionMsgs.slice(-CONTEXT_MESSAGE_LIMIT)
-        if (recent.length === 0) { return null }
-        const lines = recent.map(m => {
-            const who = m.from === "user" ? "User" : "Agent"
-            const ts = m.ts ? new Date(m.ts).toISOString().slice(0, 16) : ""
-            const text = (m.text ?? "").slice(0, 500)
-            return `[${ts}] ${who}: ${text}`
-        })
-        return { count: recent.length, text: lines.join("\n\n") }
-    } catch (e) {
-        dbg("REFRESH", "gatherSessionContext failed:", e)
-        return null
-    }
-}
 
 export const descriptions = {
     refresh: "Spawn a new session in this topic",
@@ -184,70 +162,7 @@ export const commands = {
                 .stdout("piped")
                 .stderr("piped")
 
-            // Gather context from the old session's message history
-            const context = gatherSessionContext(existingSessionId)
-
-            // Topic memory: persistent .md file that survives refreshes.
-            // Uses the topic name as the directory name for human readability.
-            // Lives at $CBG_DIR/topics/<topicName>/memory.md
-            const topicMemoryFile = paths.topicMemoryFile(title)
-            let topicMemory = null
-            try {
-                if (existsSync(topicMemoryFile)) {
-                    topicMemory = readFileSync(topicMemoryFile, "utf8").trim()
-                }
-            } catch (e) {
-                dbg("REFRESH", "read topic memory failed:", e)
-            }
-
-            // Ensure the topic directory exists so the new session can
-            // write to memory.md immediately.
-            try {
-                mkdirSync(paths.topicDir(title), { recursive: true })
-            } catch (e) {
-                dbg("REFRESH", "mkdir topic dir failed:", e)
-            }
-
-            let contextFile = null
-            if (context || topicMemory) {
-                contextFile = join(paths.STATE_DIR, `refresh-context-${sessionId}.md`)
-                const sections = []
-
-                if (topicMemory) {
-                    sections.push(
-                        `# Topic memory`,
-                        ``,
-                        `This is the persistent memory for this topic. It was written by previous sessions and survives across refreshes.`,
-                        ``,
-                        topicMemory,
-                    )
-                }
-
-                if (context) {
-                    sections.push(
-                        `# Recent conversation history`,
-                        ``,
-                        `The following is the recent conversation history (last ${context.count} messages) from the previous session in this topic.`,
-                        ``,
-                        context.text,
-                    )
-                }
-
-                sections.push(
-                    `# Topic memory file`,
-                    ``,
-                    `Your topic memory file is at: ${topicMemoryFile}`,
-                    `Update this file regularly as you work — it persists across session refreshes and is the primary way context is preserved for the next session in this topic.`,
-                    `Keep it concise and focused: what's being worked on, current state, key decisions, and next steps.`,
-                )
-
-                try {
-                    writeFileSync(contextFile, sections.join("\n"))
-                } catch (e) {
-                    dbg("REFRESH", "failed to write context file:", e)
-                    contextFile = null
-                }
-            }
+            const handoff = prepareTopicHandoff({ sessionId, title, oldSessionId: existingSessionId })
 
             watchForTrustPrompt(dtachSock, logFile)
 
@@ -265,16 +180,8 @@ export const commands = {
             threadMap[threadKey] = sessionId
             topicNames[threadKey] = title
 
-            const contextParts = []
-            if (topicMemory) { contextParts.push("topic memory") }
-            if (context) { contextParts.push(`last ${context.count} messages`) }
-            const contextNote = contextParts.length > 0
-                ? `\nSending ${contextParts.join(" + ")} for context.`
-                : (existingSessionId
-                    ? `\nNo message history found for previous session — starting fresh.`
-                    : "")
             const effects = [
-                sendEffect(replyTo, `Spawned new session \`${sessionId}\` (${title})${contextNote}`, { parse_mode: "Markdown" }),
+                sendEffect(replyTo, `Spawned new session \`${sessionId}\` (${title})${handoff.note}`, { parse_mode: "Markdown" }),
             ]
 
             // Kill old session: send /exit gracefully, then schedule a
@@ -303,23 +210,12 @@ export const commands = {
             // through the event queue when the session registers and
             // becomes focused — no dtach race with user messages.
             const messageQueue = [...(core.chatState?.messageQueue ?? [])]
-            if (contextFile) {
-                messageQueue.push({
-                    content: `Read the file ${contextFile} for context from the previous session in this topic. Then briefly acknowledge what was being discussed and ask how you can help. Remember to update your topic memory file at ${topicMemoryFile} as you work.`,
-                    meta: { source: "refresh-context" },
-                    queuedAt: Date.now(),
-                })
-                dbg("REFRESH", `queued context (${topicMemory ? "memory+" : ""}${context ? context.count + " msgs" : "memory only"}) for ${sessionId}`)
-            } else {
-                // No previous context, but still tell the session about
-                // its topic memory file.
-                messageQueue.push({
-                    content: `You have a topic memory file at ${topicMemoryFile}. Update it regularly as you work — it persists across session refreshes and helps future sessions understand what was done. Ask how you can help.`,
-                    meta: { source: "refresh-context" },
-                    queuedAt: Date.now(),
-                })
-                dbg("REFRESH", `queued memory-file intro for ${sessionId}`)
-            }
+            messageQueue.push({
+                content: handoff.prompt,
+                meta: { source: "refresh-context" },
+                queuedAt: Date.now(),
+            })
+            dbg("REFRESH", `queued handoff for ${sessionId}${handoff.note}`)
 
             return {
                 stateChanges: {
