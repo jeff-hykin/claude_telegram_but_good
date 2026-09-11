@@ -528,6 +528,57 @@ Deno.test("chat-user: /task_resume_<id> revives a cancelled task back to its pre
     assert(delivers[0].content.includes("resumed"))
 })
 
+Deno.test("chat-user: /task_resume_<id> reassigns an orphaned in_progress task to the current session", async () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "fresh" },
+        chatSessions: { "fresh": { id: "fresh", _conn: {} } },
+        specialData: {
+            longTaskByChatId: {
+                "42": {
+                    "t1": {
+                        id: "t1", title: "old task",
+                        state: "in_progress",
+                        workerSessionId: "dead-worker", definition: "x",
+                        orphanedSince: 1, orphanAlertedAt: 2,
+                    },
+                },
+            },
+        },
+    })
+    const action = await handle(baseEvent({ text: "/task_resume_t1" }), core)
+    const taskPatch = action.stateChanges.specialData.longTaskByChatId["42"].t1
+    assertEquals(taskPatch.state, "in_progress")
+    assertEquals(taskPatch.workerSessionId, "fresh")
+    assertEquals(taskPatch.orphanedSince, undefined)
+    assertEquals(taskPatch.orphanAlertedAt, undefined)
+    assertEquals(action.stateChanges.chatSessions.fresh.longTaskId, "t1")
+    // The new owner is told to read the task dir, and the 30-min check-in
+    // chain is re-armed against it.
+    const delivers = effectsOfType(action, "deliver_channel_event")
+    assertEquals(delivers[0].sessionId, "fresh")
+    assert(delivers[0].content.includes("reassigned"))
+    const timers = effectsOfType(action, "set_timer").filter((t) => t.event.type === "task_checkin")
+    assertEquals(timers.length, 1)
+    assertEquals(timers[0].event.sessionId, "fresh")
+})
+
+Deno.test("chat-user: /task_resume_<id> refuses a task whose worker is alive and still on it", async () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "worker" },
+        chatSessions: { "worker": { id: "worker", _conn: {}, longTaskId: "t1" } },
+        specialData: {
+            longTaskByChatId: {
+                "42": {
+                    "t1": { id: "t1", state: "in_progress", workerSessionId: "worker", definition: "x" },
+                },
+            },
+        },
+    })
+    const action = await handle(baseEvent({ text: "/task_resume_t1" }), core)
+    assertEquals(action.stateChanges?.specialData?.longTaskByChatId, undefined)
+    assert(effectsOfType(action, "send_text_to_user")[0].text.includes("already running"))
+})
+
 // `//foo` is the only way to reach a slash command that Claude Code's TUI
 // and cbg both define — /model, /compact — since cbg's own copy wins.
 Deno.test("chat-user: //foo types /foo into the session's terminal", async () => {
