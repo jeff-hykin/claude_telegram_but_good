@@ -154,10 +154,10 @@ Deno.test("chat-user: unaddressed GroupChat text is delivered but posts nothing"
     assertEquals(action.stateChanges.chatSessions["group-sess"].listenUnlockedAt, undefined)
 })
 
-Deno.test("chat-user: an unallowlisted sender's slash command is just more chatter", async () => {
+Deno.test("chat-user: an unallowlisted sender's slash command never runs, and never reaches the session", async () => {
     const action = await handle(groupEvent({ text: "/help", userId: "999" }), coreWithGroupSession())
     assertEquals(effectsOfType(action, "send_text_to_user").length, 0)
-    assertEquals(effectsOfType(action, "deliver_channel_event").length, 1)
+    assertEquals(effectsOfType(action, "deliver_channel_event").length, 0)
 })
 
 Deno.test("chat-user: an allowlisted sender's slash command still dispatches in a GroupChat", async () => {
@@ -206,4 +206,46 @@ Deno.test("chat-user: a newly seen group is recorded in the GroupChats list", as
     // Second sighting is already on the list — no repeat write.
     const again = await handle(groupEvent({ chatId: unseen }), coreWithSession())
     assertEquals(effectsOfType(again, "record_group_chat").length, 0)
+})
+
+// ── commands in a GroupChat are allowlist-only ────────────────────────
+
+Deno.test("chat-user: a stranger's slash command in a GroupChat is never executed", async () => {
+    const event = groupEvent({ text: "/listen", userId: "999" })
+    const action = await handle(event, coreWithGroupSession())
+    // Nothing runs, nothing is posted back, and nothing reaches the model.
+    assertEquals(effectsOfType(action, "send_text_to_user").length, 0)
+    assertEquals(effectsOfType(action, "deliver_channel_event").length, 0)
+})
+
+Deno.test("chat-user: a stranger cannot /refresh a group's session", async () => {
+    const event = groupEvent({ text: "/refresh", userId: "999" })
+    const action = await handle(event, coreWithGroupSession())
+    assertEquals(effectsOfType(action, "send_text_to_user").length, 0)
+    assertEquals(effectsOfType(action, "spawn_dtach_session").length, 0)
+    assertEquals(action.stateChanges.chatState?.groupChatSessions, undefined)
+})
+
+Deno.test("chat-user: a stranger cannot /peek at a group's session", async () => {
+    const event = groupEvent({ text: "/peek", userId: "999" })
+    const action = await handle(event, coreWithGroupSession())
+    assertEquals(effectsOfType(action, "send_text_to_user").length, 0)
+})
+
+Deno.test("chat-user: a stranger's chatter never reaches the group's session", async () => {
+    const action = await handle(groupEvent({ userId: "999" }), coreWithGroupSession())
+    assertEquals(effectsOfType(action, "deliver_channel_event").length, 0)
+    assertEquals(effectsOfType(action, "send_text_to_user").length, 0)
+})
+
+Deno.test("chat-user: a stranger cannot summon a session by @mentioning the bot", async () => {
+    const event = { ...mentionEvent(), userId: "999" }
+    const action = await handle(event, coreWithSession())
+    assertEquals(effectsOfType(action, "spawn_dtach_session").length, 0)
+    assertEquals(effectsOfType(action, "deliver_channel_event").length, 0)
+})
+
+Deno.test("chat-user: an allowlisted member's chatter still reaches the session", async () => {
+    const action = await handle(groupEvent(), coreWithGroupSession())
+    assertEquals(effectsOfType(action, "deliver_channel_event").length, 1)
 })

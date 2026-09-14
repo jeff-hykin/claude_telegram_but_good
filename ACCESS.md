@@ -41,6 +41,8 @@ Pairing captures the ID automatically. To find one manually, have the person mes
 /telegram:access remove 412587349
 ```
 
+From Telegram itself, `/allow` does the same without an assistant session: bare to list who is allowed and which pairing codes are waiting, `/allow <user id>` or `/allow <pairing code>` to add, `/allow remove <id>` to take someone off. Replying to one of someone's messages with `/allow` adds that person, which saves looking up a numeric id. Only a sender already on the allowlist may run it — being in the command center is not enough, since this is the command that hands out access.
+
 ## Group buckets: BotCenter vs GroupChats
 
 Every group the bot is in belongs to exactly one of two buckets.
@@ -48,7 +50,7 @@ Every group the bot is in belongs to exactly one of two buckets.
 | Bucket | Membership | Behavior |
 | --- | --- | --- |
 | **BotCenter** | Explicit: listed in `botCenterGroups`, or the `commandCenterChatId` | Full bot behavior — topics map to sessions, plain text reaches Claude, spinners and status messages are posted. |
-| **GroupChats** | The default for everything else | Silent but listening: the group gets its own session that reads every message, and the daemon refuses that session's replies until someone addresses the bot. No spinner, no status messages. The session has a topic memory of its own at `topics/<group name>/memory.md`, and `/refresh` works inside the group, so what it learned survives the session. |
+| **GroupChats** | The default for everything else | Silent but listening: the group gets its own session that reads every message **from an allowlisted sender** (everyone else is dropped before it reaches the model), and the daemon refuses that session's replies until someone addresses the bot. No spinner, no status messages. The session has a topic memory of its own at `topics/<group name>/memory.md`, and `/refresh` works inside the group, so what it learned survives the session. |
 
 A group CBG has never seen is a GroupChat, so it can never wake the bot by accident. The first message from a new group appends its ID to `groupChats` so the bucket it landed in is visible and can be promoted:
 
@@ -58,6 +60,8 @@ A group CBG has never seen is a GroupChat, so it can never wake the bot by accid
 ```
 
 `/set_command_center`, sent in a group, promotes it to BotCenter. To promote by hand, move the ID from `groupChats` to `botCenterGroups`.
+
+Members who are not on `allowFrom` are dropped entirely in a GroupChat — not as commands, not as chatter, not even as an @mention. Nothing they write reaches the model. Add them with `/telegram:access allow <id>`.
 
 **Addressing the bot** in a GroupChat means an `@botusername` mention, a reply to one of the bot's own messages, or a `mentionPatterns` match. If the bot's username cannot be determined, GroupChats stay silent — silence is the safe default.
 
