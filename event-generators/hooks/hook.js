@@ -60,12 +60,22 @@ dbg(
     "session:", data?.session_id ?? null,
 )
 
-// AskUserQuestion can't be answered in a channel-driven session, so the
-// daemon decides whether to deny it (deny iff this claudePid is a registered
-// cbg session). For that one tool we wait for the daemon's decision frame and,
-// if told to, emit a PreToolUse "deny" so Claude blocks the call and shows the
-// reason to the model. Every other hook stays fire-and-forget.
-const isAskUserQuestion = data?.hook_event_name === "PreToolUse" && data?.tool_name === "AskUserQuestion"
+// Two tools need the daemon's answer before Claude runs them, so for
+// these we wait for a decision frame and, if told to, emit a PreToolUse
+// "deny" that blocks the call and shows the reason to the model. Every
+// other hook stays fire-and-forget.
+//
+//   AskUserQuestion — cannot be answered in a channel-driven session, so
+//     it would hang the agent forever.
+//   SendUserFile    — does not reach the chat driving the session; the
+//     daemon delivers the files itself and denies the call, rather than
+//     letting the tool report a success nobody receives.
+//
+// Both are denied only when the claudePid resolves to a registered cbg
+// session; a plain interactive `claude` gets an immediate allow.
+const SYNC_DECISION_TOOLS = new Set(["AskUserQuestion", "SendUserFile"])
+const needsDecision = data?.hook_event_name === "PreToolUse" &&
+    SYNC_DECISION_TOOLS.has(data?.tool_name)
 
 /**
  * Read one newline-delimited JSON frame from `conn`, bounded by an overall
@@ -101,7 +111,7 @@ try {
     const conn = await Deno.connect({ transport: "unix", path: paths.IPC_SOCK })
     await writeIpcFrame(conn, { type: "hook_event", claudePid, data })
 
-    if (isAskUserQuestion) {
+    if (needsDecision) {
         // Do NOT closeWrite() here: closing our write half makes the daemon's
         // read loop hit EOF and close the whole conn (its FD-leak guard)
         // before it can send the decision back, so the response write fails
@@ -118,7 +128,7 @@ try {
                     hookEventName: "PreToolUse",
                     permissionDecision: "deny",
                     permissionDecisionReason: decision.reason
-                        ?? "AskUserQuestion is not available in this session; ask the user via the reply tool instead.",
+                        ?? `${data?.tool_name} is not available in this session; use the reply tool instead.`,
                 },
             }))
         }
