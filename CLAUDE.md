@@ -344,13 +344,14 @@ Claude Code queries the shim's tool list ONCE at MCP server startup. Tool NAMES 
 
 ## Topic memory
 
-Each command center topic gets a persistent memory file at `$CBG_DIR/topics/<topicName>/memory.md`. This file:
+Each command center topic gets a persistent memory file at `$CBG_DIR/topics/<topicName>/memory.md`. A group chat cbg only listens to gets one too, named after the group (`lib/pure/group-topic.js` sanitizes the title so it cannot escape `topics/`, and the name is stored in the group's binding so renaming the group keeps the directory it already has). This file:
 
 - Survives across session refreshes — it's the primary way context is preserved between sessions in a topic
 - Is included in the context file when /refresh spawns a new session
 - Can be read/written by the session at any time via the filesystem
 - Path and content are available via the `get_topic_memory` MCP tool
 - Uses the topic name as the directory name (human-readable); renamed automatically if the Telegram topic is renamed
+- Is handed to a replacement session by `/refresh`, which works both in a command center topic (keyed by thread) and in a group chat (keyed by chat). `lib/refresh-target.js` decides which, and a group's replacement starts in listen mode without taking focus
 
 Sessions should update their topic memory regularly with: what's being worked on, current state, key decisions, and next steps.
 

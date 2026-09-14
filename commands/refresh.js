@@ -8,6 +8,9 @@ import { join } from "node:path"
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { resolveRefreshTarget } = await versionedImport("../lib/refresh-target.js", import.meta)
+const { commandScope } = await versionedImport("../lib/command-scope.js", import.meta)
+const { groupHandoffPrompt } = await versionedImport("../lib/listen-mode.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { generateName } = await versionedImport("../lib/pure/ids.js", import.meta)
@@ -58,31 +61,26 @@ function watchForTrustPrompt(dtachSock, logFile, maxWaitMs = 15000) {
 export const commands = {
     refresh: async (event, core) => {
         const access = loadAccess()
-        const ccChatId = access.commandCenterChatId
         const replyTo = replyToFromEvent(event, "cmd/refresh")
 
-        if (!ccChatId || String(event.chatId) !== String(ccChatId)) {
-            return { effects: [sendEffect(replyTo, "This command only works in the command center group.", { parse_mode: "Markdown" })] }
-        }
+        // chat-user already refuses a non-allowlisted sender's slash
+        // command in a group chat, but /refresh spawns a session and
+        // retires one — it states its own authorization rather than
+        // inheriting the dispatcher's.
+        if (!commandScope(event, core, access).allowed) { return { effects: [] } }
 
-        const threadId = event.threadId
-        if (!threadId) {
-            return { effects: [sendEffect(replyTo, "This command must be used inside a topic.", { parse_mode: "Markdown" })] }
+        const target = resolveRefreshTarget(event, core, access)
+        if (target.error) {
+            return { effects: [sendEffect(replyTo, target.error, { parse_mode: "Markdown" })] }
         }
+        const { chatKey, threadKey, title, sessionTitle, existingSessionId } = target
+        const isGroupChat = target.kind === "groupChat"
 
         if (!(await $.commandExists("dtach"))) {
             return { effects: [sendEffect(replyTo, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach", { parse_mode: "Markdown" })] }
         }
 
         const cc = core.chatState?.commandCenter ?? {}
-        const threadKey = String(threadId)
-
-        // Title always comes from the topic name — the Telegram topic
-        // is the source of truth, not a command argument.
-        const existingSessionId = cc.threadMap?.[threadKey]
-        const topicName = cc.topicNames?.[threadKey] ?? null
-        const existingTitle = existingSessionId ? core.chatSessions?.[existingSessionId]?.title : null
-        const title = topicName || existingTitle || `Topic${threadKey}`
 
         const sessionId = generateName()
 
@@ -145,7 +143,7 @@ export const commands = {
 
         writeFileSync(paths.NEXT_SESSION_FILE, JSON.stringify({
             id: sessionId,
-            title: title,
+            title: sessionTitle,
             dtachSocket: dtachSock,
         }))
 
@@ -166,22 +164,8 @@ export const commands = {
 
             watchForTrustPrompt(dtachSock, logFile)
 
-            // Update topic maps
-            const topicMap = { ...(cc.topicMap ?? {}) }
-            const threadMap = { ...(cc.threadMap ?? {}) }
-            const topicNames = { ...(cc.topicNames ?? {}) }
-
-            // Unbind old session if any
-            if (existingSessionId) {
-                delete topicMap[existingSessionId]
-            }
-
-            topicMap[sessionId] = threadKey
-            threadMap[threadKey] = sessionId
-            topicNames[threadKey] = title
-
             const effects = [
-                sendEffect(replyTo, `Spawned new session \`${sessionId}\` (${title})${handoff.note}`, { parse_mode: "Markdown" }),
+                sendEffect(replyTo, `Spawned new session \`${sessionId}\` (${sessionTitle})${handoff.note}`, { parse_mode: "Markdown" }),
             ]
 
             // Kill old session: send /exit gracefully, then schedule a
@@ -210,6 +194,55 @@ export const commands = {
             // through the event queue when the session registers and
             // becomes focused — no dtach race with user messages.
             const messageQueue = [...(core.chatState?.messageQueue ?? [])]
+
+            if (isGroupChat) {
+                // A group session replaces one that was listening, so it
+                // starts silent too, and is told the listening rules
+                // rather than "ask how you can help". Focus is left alone:
+                // the handoff is targeted, and a group chat should not
+                // steal the operator's focused session.
+                messageQueue.push({
+                    content: groupHandoffPrompt(sessionTitle, handoff),
+                    meta: { source: "group-listen-context" },
+                    queuedAt: Date.now(),
+                    targetSessionId: sessionId,
+                })
+                dbg("REFRESH", `queued group handoff for ${sessionId} (topic ${title})${handoff.note}`)
+                return {
+                    stateChanges: {
+                        chatState: {
+                            messageQueue,
+                            groupChatSessions: {
+                                [chatKey]: { sessionId, spawnedAt: Date.now(), topicName: title },
+                            },
+                        },
+                        chatSessions: {
+                            [sessionId]: {
+                                id: sessionId,
+                                title: sessionTitle,
+                                listenMode: true,
+                                listenChatId: chatKey,
+                            },
+                        },
+                    },
+                    effects,
+                }
+            }
+
+            // Update topic maps
+            const topicMap = { ...(cc.topicMap ?? {}) }
+            const threadMap = { ...(cc.threadMap ?? {}) }
+            const topicNames = { ...(cc.topicNames ?? {}) }
+
+            // Unbind old session if any
+            if (existingSessionId) {
+                delete topicMap[existingSessionId]
+            }
+
+            topicMap[sessionId] = threadKey
+            threadMap[threadKey] = sessionId
+            topicNames[threadKey] = title
+
             messageQueue.push({
                 content: handoff.prompt,
                 meta: { source: "refresh-context" },

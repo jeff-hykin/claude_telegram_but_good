@@ -8,6 +8,7 @@
 import { existsSync } from "node:fs"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { commandScope } = await versionedImport("../lib/command-scope.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { escapeMarkdown: escMd } = await versionedImport("../lib/pure/markdown.js", import.meta)
@@ -84,11 +85,8 @@ export const descriptions = {
 export const commands = {
     peek: async (event, core) => {
         const access = loadAccess()
-        const isCommandCenter = String(event.chatId) === String(access.commandCenterChatId ?? "")
-        if (event.chatType !== "private" && !isCommandCenter) { return { effects: [] } }
-        if (!isCommandCenter && !access.allowFrom.includes(String(event.userId ?? ""))) {
-            return { effects: [] }
-        }
+        const scope = commandScope(event, core, access)
+        if (!scope.allowed) { return { effects: [] } }
 
         const replyTo = replyToFromEvent(event, "cmd/peek")
         const argText = (event.text ?? "").replace(/^\/peek\s*/, "").trim()
@@ -115,16 +113,11 @@ export const commands = {
             }
         }
 
-        // In command center, resolve session from topic if no explicit target
-        if (!targetId && isCommandCenter && event.threadId) {
-            const cc = core.chatState?.commandCenter ?? {}
-            const mappedSession = cc.threadMap?.[String(event.threadId)]
-            if (mappedSession) {
-                dbg("PEEK", `CC topic ${event.threadId} → session ${mappedSession}`)
-                targetId = mappedSession
-            } else {
-                dbg("PEEK", `CC topic ${event.threadId} has no mapped session`)
-            }
+        // A command center topic or a group chat already names its
+        // session, so peek that one rather than whatever has focus.
+        if (!targetId && scope.sessionId) {
+            dbg("PEEK", `chat ${event.chatId}/${event.threadId ?? "-"} → session ${scope.sessionId}`)
+            targetId = scope.sessionId
         }
 
         const sessionsMap = core.chatSessions ?? {}

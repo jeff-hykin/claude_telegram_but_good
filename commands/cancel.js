@@ -28,6 +28,7 @@
 import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { commandScope } = await versionedImport("../lib/command-scope.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 const { topicShellKey } = await versionedImport("../lib/pure/shell-cwd.js", import.meta)
@@ -48,16 +49,16 @@ export const descriptions = {
 const DTACH_WRITE_TIMEOUT_MS = 3000
 
 function findSessionForEvent(event, core, label = "CMD") {
-    const access = loadAccess()
-    const isCC = String(event.chatId) === String(access.commandCenterChatId ?? "")
-    if (isCC && event.threadId) {
-        const cc = core.chatState?.commandCenter ?? {}
-        const sid = cc.threadMap?.[String(event.threadId)]
-        if (sid) {
-            dbg(label, `CC topic ${event.threadId} → session ${sid}`)
-            return core.chatSessions?.[sid] ?? null
-        }
-        dbg(label, `CC topic ${event.threadId} has no mapped session`)
+    const scope = commandScope(event, core, loadAccess())
+    // A topic or a group chat names its own session. Falling back to the
+    // focused session there would ESC somebody else's work.
+    if (scope.sessionId) {
+        dbg(label, `chat ${event.chatId}/${event.threadId ?? "-"} → session ${scope.sessionId}`)
+        return core.chatSessions?.[scope.sessionId] ?? null
+    }
+    if (scope.isGroupChat) {
+        dbg(label, `group ${event.chatId} has no session of its own`)
+        return null
     }
     const focusedId = core.chatState?.focusedSessionId
     return focusedId ? core.chatSessions?.[focusedId] : null
@@ -66,11 +67,7 @@ function findSessionForEvent(event, core, label = "CMD") {
 export const commands = {
     cancel: async (event, core) => {
         const access = loadAccess()
-        const isCommandCenter = String(event.chatId) === String(access.commandCenterChatId ?? "")
-        if (event.chatType !== "private" && !isCommandCenter) { return { effects: [] } }
-        if (!isCommandCenter && !access.allowFrom.includes(String(event.userId ?? ""))) {
-            return { effects: [] }
-        }
+        if (!commandScope(event, core, access).allowed) { return { effects: [] } }
 
         const replyTo = replyToFromEvent(event, "cmd/cancel")
 

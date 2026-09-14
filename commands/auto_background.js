@@ -15,6 +15,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
+const { commandScope } = await versionedImport("../lib/command-scope.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
 const { getSlowToolBackgroundMs } = await versionedImport("../lib/config-manager.js", import.meta)
 const {
@@ -44,11 +45,7 @@ function describe(setting) {
 export const commands = {
     auto_background: (event, core) => {
         const access = loadAccess()
-        const isCommandCenter = String(event.chatId) === String(access.commandCenterChatId ?? "")
-        if (event.chatType !== "private" && !isCommandCenter) { return { effects: [] } }
-        if (!isCommandCenter && !access.allowFrom.includes(String(event.userId ?? ""))) {
-            return { effects: [] }
-        }
+        if (!commandScope(event, core, access).allowed) { return { effects: [] } }
 
         const replyTo = replyToFromEvent(event, "cmd/auto_background")
         const key = autoBackgroundKey(event.chatId, event.threadId)

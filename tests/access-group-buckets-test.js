@@ -177,8 +177,10 @@ Deno.test("chat-user: a mention while the session is still starting is queued, s
     const action = await handle(mentionEvent(), coreWithSession())
     const sessionId = effectsOfType(action, "spawn_dtach_session")[0].sessionId
     const queue = action.stateChanges.chatState.messageQueue
-    assertEquals(queue.length, 1)
-    assertEquals(queue[0].targetSessionId, sessionId)
+    // The spawn's own topic handoff, then the message that summoned it.
+    assertEquals(queue.length, 2)
+    assertEquals(queue[0].meta.source, "group-listen-context")
+    assertEquals(queue.map(q => q.targetSessionId), [sessionId, sessionId])
     assertEquals(effectsOfType(action, "send_text_to_user").length, 0)
     // It must be able to answer the message that summoned it.
     assertEquals(action.stateChanges.chatSessions[sessionId].listenUnlockedAt, 1_000_000)

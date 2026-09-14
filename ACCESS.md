@@ -48,7 +48,7 @@ Every group the bot is in belongs to exactly one of two buckets.
 | Bucket | Membership | Behavior |
 | --- | --- | --- |
 | **BotCenter** | Explicit: listed in `botCenterGroups`, or the `commandCenterChatId` | Full bot behavior — topics map to sessions, plain text reaches Claude, spinners and status messages are posted. |
-| **GroupChats** | The default for everything else | Silent but listening: the group gets its own session that reads every message, and the daemon refuses that session's replies until someone addresses the bot. No spinner, no status messages. |
+| **GroupChats** | The default for everything else | Silent but listening: the group gets its own session that reads every message, and the daemon refuses that session's replies until someone addresses the bot. No spinner, no status messages. The session has a topic memory of its own at `topics/<group name>/memory.md`, and `/refresh` works inside the group, so what it learned survives the session. |
 
 A group CBG has never seen is a GroupChat, so it can never wake the bot by accident. The first message from a new group appends its ID to `groupChats` so the bucket it landed in is visible and can be promoted:
 
