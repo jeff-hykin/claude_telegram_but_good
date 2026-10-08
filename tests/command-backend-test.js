@@ -166,3 +166,18 @@ Deno.test("prepareTopicHandoff still points a fresh topic at its memory file", (
     assertEquals(handoff.note, "")
     assert(tempPaths)
 })
+
+const refreshCmd = hotCommandsMod.getHotCommands().get("refresh")
+
+for (const backend of ["claude", "codex"]) {
+    Deno.test(`/refresh preserves ${backend} and targets its handoff to the replacement`, async () => {
+        const action = await refreshCmd(event("/refresh"), coreWithTopic(backend))
+        const spawn = effectsOfType(action, "spawn_dtach_session")[0]
+        assert(spawn)
+        assertEquals(spawn.backend, backend)
+        assertEquals(action.stateChanges.chatState.commandCenter.threadMap["55"], spawn.sessionId)
+        assertEquals(action.stateChanges.chatState.messageQueue.at(-1).targetSessionId, spawn.sessionId)
+        assertEquals(effectsOfType(action, "send_text_to_claude").length, backend === "claude" ? 1 : 0)
+        assertEquals(effectsOfType(action, "send_text_to_user")[0].replyTo.threadId, 55)
+    })
+}

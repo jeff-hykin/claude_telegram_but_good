@@ -1,62 +1,23 @@
 // commands/refresh.js — Action-returning hot command.
 //
-// Spawns a new Claude session in the current topic, binding it to the
+// Spawns a new agent session in the current topic, binding it to the
 // topic and feeding the last 50 messages as context.
 
-import { writeFileSync, readFileSync, existsSync, renameSync } from "node:fs"
-import { join } from "node:path"
-import { $ } from "../imports.js"
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
 const { resolveRefreshTarget } = await versionedImport("../lib/refresh-target.js", import.meta)
 const { commandScope } = await versionedImport("../lib/command-scope.js", import.meta)
 const { groupHandoffPrompt } = await versionedImport("../lib/listen-mode.js", import.meta)
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
-const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { generateName } = await versionedImport("../lib/pure/ids.js", import.meta)
 const { prepareTopicHandoff } = await versionedImport("../lib/topic-context.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { DEFAULT_BACKEND_NAME, defaultBackend, getBackend } = await versionedImport("../lib/agent-backends/index.js", import.meta)
 
 export const descriptions = {
     refresh: "Spawn a new session in this topic",
 }
 
-
-/**
- * After dtach spawns Claude, poll the log file for the "trust this
- * folder" prompt. If detected, send Enter to accept it.
- */
-function watchForTrustPrompt(dtachSock, logFile, maxWaitMs = 15000) {
-    const start = Date.now()
-    const poll = async () => {
-        if (Date.now() - start > maxWaitMs) { return }
-        try {
-            if (!existsSync(logFile)) {
-                setTimeout(poll, 500)
-                return
-            }
-            const raw = readFileSync(logFile, "utf8")
-            const text = raw
-                .replace(/\x1b\[\d*C/g, " ")
-                .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, "")
-                .replace(/\x1b\[[0-9;?]*[a-zA-Z~]/g, "")
-                .replace(/\x1b[>=<]/g, "")
-                .replace(/\x1b[()][0-9A-Za-z]/g, "")
-                .replace(/\x1b./g, "")
-                .replace(/[\x00-\x08\x0e-\x1f\x7f]/g, "")
-            if (/trust this folder|trust this project|Yes,?\s*I\s*trust/i.test(text)) {
-                try {
-                    await $`dtach -p ${dtachSock}`.stdinText("\n").timeout(3000)
-                } catch (e) { dbg("REFRESH", "trust-prompt send failed:", e) }
-                return
-            }
-        } catch (e) {
-            dbg("REFRESH", "trust prompt poll error:", e)
-        }
-        setTimeout(poll, 500)
-    }
-    setTimeout(poll, 1000)
-}
 
 export const commands = {
     refresh: async (event, core) => {
@@ -76,95 +37,20 @@ export const commands = {
         const { chatKey, threadKey, title, sessionTitle, existingSessionId } = target
         const isGroupChat = target.kind === "groupChat"
 
-        if (!(await $.commandExists("dtach"))) {
-            return { effects: [sendEffect(replyTo, "dtach not found. Install it with: brew install dtach / apt-get install dtach / nix profile install nixpkgs#dtach", { parse_mode: "Markdown" })] }
-        }
-
         const cc = core.chatState?.commandCenter ?? {}
-
+        const oldSession = existingSessionId ? core.chatSessions?.[existingSessionId] : null
+        const backend = oldSession ? (oldSession.backend ?? DEFAULT_BACKEND_NAME) : defaultBackend().name
+        const health = await getBackend(backend).healthCheck()
+        if (!health.ok) {
+            return { effects: [sendEffect(replyTo, `The ${backend} backend isn't usable right now: ${health.detail}`)] }
+        }
         const sessionId = generateName()
 
-        let permArgs = ""
         try {
-            permArgs = readFileSync(paths.PERMISSION_ARGS_FILE, "utf8").trim()
-        } catch (e) {
-            dbg("REFRESH", "no permission args:", e)
-        }
-        const claudeCmd = `claude --no-tele ${permArgs} --channels plugin:telegram@claude-plugins-official`
-            .replace(/  +/g, " ")
-            .trim()
-        const home = Deno.env.get("HOME") ?? ""
-        const dtachSock = paths.dtachSockFile(sessionId)
-        const logFile = paths.dtachLogFile(sessionId)
-
-        const cleanEnv = { ...Deno.env.toObject() }
-        for (const key of Object.keys(cleanEnv)) {
-            if (key.startsWith("CLAUDE_") || key.startsWith("MCP_")) {
-                delete cleanEnv[key]
-            }
-        }
-        cleanEnv.SHELL = "/bin/bash"
-        // Make the spawned session self-aware of its own dtach socket so
-        // `cbg self-input` / self-compact / self-clear can type into it.
-        // (Matches lib/dtach.js createSession; without these the env is
-        // empty and self-input aborts with "CBG_DTACH_SOCKET is not set".)
-        cleanEnv.CBG_DTACH = "1"
-        cleanEnv.CBG_DTACH_SOCKET = dtachSock
-        cleanEnv.CBG_SESSION_ID = sessionId
-
-        // Pre-accept workspace trust.
-        //
-        // ~/.claude.json holds the user's entire Claude Code config (auth,
-        // projects, history). We MUST NOT corrupt it. Two safeguards:
-        //   1. Only proceed if the existing file parses as valid JSON AND
-        //      is non-empty — never write on top of an already-broken or
-        //      missing file (that would just cement the damage).
-        //   2. Write atomically: serialize to a temp file, then rename
-        //      over the target. rename(2) is atomic on POSIX, so a crash
-        //      (e.g. OOM kill) mid-write leaves the original intact rather
-        //      than a truncated 0-byte file. A plain writeFileSync
-        //      truncates-then-writes and can leave an empty file.
-        try {
-            const claudeJsonPath = join(home, ".claude.json")
-            const raw = readFileSync(claudeJsonPath, "utf8")
-            if (!raw.trim()) {
-                throw new Error("~/.claude.json is empty — refusing to overwrite")
-            }
-            const claudeJson = JSON.parse(raw)
-            if (!claudeJson.projects) { claudeJson.projects = {} }
-            if (!claudeJson.projects[home]) { claudeJson.projects[home] = {} }
-            claudeJson.projects[home].hasTrustDialogAccepted = true
-            const tmpPath = `${claudeJsonPath}.cbg-tmp-${sessionId}`
-            writeFileSync(tmpPath, JSON.stringify(claudeJson, null, 2), { mode: 0o600 })
-            renameSync(tmpPath, claudeJsonPath)
-        } catch (e) {
-            dbg("REFRESH", "trust pre-accept failed:", e)
-        }
-
-        writeFileSync(paths.NEXT_SESSION_FILE, JSON.stringify({
-            id: sessionId,
-            title: sessionTitle,
-            dtachSocket: dtachSock,
-        }))
-
-        try {
-            const inner = `cd "${home}" && ${claudeCmd}`
-            const isDarwin = Deno.build.os === "darwin"
-            const cmd = isDarwin
-                ? $`dtach -n ${dtachSock} -Ez script -q -F ${logFile} bash -c ${inner}`
-                : $`dtach -n ${dtachSock} -Ez script -fq -c ${inner} ${logFile}`
-            await cmd
-                .clearEnv()
-                .env(cleanEnv)
-                .timeout(5000)
-                .stdout("piped")
-                .stderr("piped")
-
             const handoff = prepareTopicHandoff({ sessionId, title, oldSessionId: existingSessionId })
 
-            watchForTrustPrompt(dtachSock, logFile)
-
             const effects = [
+                { type: "spawn_dtach_session", sessionId, title: sessionTitle, topicName: title, backend },
                 sendEffect(replyTo, `Spawned new session \`${sessionId}\` (${sessionTitle})${handoff.note}`, { parse_mode: "Markdown" }),
             ]
 
@@ -173,14 +59,16 @@ export const commands = {
             if (existingSessionId) {
                 const oldSession = core.chatSessions?.[existingSessionId]
                 if (oldSession) {
-                    effects.push({
-                        type: "send_text_to_claude",
-                        sessionId: existingSessionId,
-                        text: "/exit",
-                    })
+                    if (backend === DEFAULT_BACKEND_NAME) {
+                        effects.push({
+                            type: "send_text_to_claude",
+                            sessionId: existingSessionId,
+                            text: "/exit",
+                        })
+                    }
                     effects.push({
                         type: "set_timer",
-                        delayMs: 15000,
+                        delayMs: backend === DEFAULT_BACKEND_NAME ? 15000 : 0,
                         event: {
                             type: "session_force_close",
                             sessionId: existingSessionId,
@@ -245,6 +133,7 @@ export const commands = {
 
             messageQueue.push({
                 content: handoff.prompt,
+                targetSessionId: sessionId,
                 meta: { source: "refresh-context" },
                 queuedAt: Date.now(),
             })
