@@ -42,7 +42,7 @@ export const commands = {
         const threadKey = String(event.threadId)
         const oldSessionId = cc.threadMap?.[threadKey] ?? null
         const oldSession = oldSessionId ? core.chatSessions?.[oldSessionId] : null
-        const currentName = oldSession?.backend ?? DEFAULT_BACKEND_NAME
+        const currentName = oldSession?.backend ?? cc.topicBackends?.[threadKey] ?? DEFAULT_BACKEND_NAME
 
         const names = listBackends().map(b => b.name)
         const wanted = (event.text ?? "").replace(/^\/backend\S*\s*/, "").trim().toLowerCase()
@@ -117,7 +117,7 @@ export const commands = {
                 chatState: {
                     pendingFocusId: sessionId,
                     messageQueue,
-                    commandCenter: { ...cc, topicMap, threadMap, topicNames },
+                    commandCenter: { ...cc, topicMap, threadMap, topicNames, topicBackends: { ...(cc.topicBackends ?? {}), [threadKey]: wanted } },
                 },
             },
             effects,

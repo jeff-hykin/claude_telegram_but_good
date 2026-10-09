@@ -39,7 +39,10 @@ export const commands = {
 
         const cc = core.chatState?.commandCenter ?? {}
         const oldSession = existingSessionId ? core.chatSessions?.[existingSessionId] : null
-        const backend = oldSession ? (oldSession.backend ?? DEFAULT_BACKEND_NAME) : defaultBackend().name
+        const savedBackend = isGroupChat
+            ? core.chatState?.groupChatSessions?.[chatKey]?.backend
+            : cc.topicBackends?.[threadKey]
+        const backend = oldSession ? (oldSession.backend ?? DEFAULT_BACKEND_NAME) : (savedBackend ?? defaultBackend().name)
         const health = await getBackend(backend).healthCheck()
         if (!health.ok) {
             return { effects: [sendEffect(replyTo, `The ${backend} backend isn't usable right now: ${health.detail}`)] }
@@ -101,13 +104,14 @@ export const commands = {
                         chatState: {
                             messageQueue,
                             groupChatSessions: {
-                                [chatKey]: { sessionId, spawnedAt: Date.now(), topicName: title },
+                                [chatKey]: { sessionId, spawnedAt: Date.now(), topicName: title, backend },
                             },
                         },
                         chatSessions: {
                             [sessionId]: {
                                 id: sessionId,
                                 title: sessionTitle,
+                                backend,
                                 listenMode: true,
                                 listenChatId: chatKey,
                             },
@@ -149,6 +153,7 @@ export const commands = {
                             topicMap,
                             threadMap,
                             topicNames,
+                            topicBackends: { ...(cc.topicBackends ?? {}), [threadKey]: backend },
                         },
                     },
                 },
