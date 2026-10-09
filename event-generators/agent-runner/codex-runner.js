@@ -35,6 +35,7 @@ import { dbg } from "../../lib/logging.js"
 import { getConfigKey } from "../../lib/config-manager.js"
 import { DaemonLink } from "./daemon-link.js"
 import { CodexAppServer } from "./codex-client.js"
+import { CodexInputQueue } from "./codex-input.js"
 import {
     hookViewForItem,
     toolResponsePreview,
@@ -110,12 +111,24 @@ let finalAnswerText = ""
 let lastInbound = null
 let turnDone = null
 
-const inputQueue = []
 let wakeUp = null
+const inputQueue = new CodexInputQueue({
+    request: (...args) => codex.request(...args),
+    onQueued: () => {
+        if (wakeUp) {
+            wakeUp()
+            wakeUp = null
+        }
+    },
+    onError: (error) => {
+        dbg("CODEX-RUNNER", "turn/steer failed; preserving input for next turn:", error)
+        transcript(`[steer-fallback] ${error instanceof Error ? error.message : String(error)}`)
+    },
+})
 
-function enqueueInput(text, meta) {
+function enqueueInput(text, meta, steer = true) {
     if (!text) { return }
-    inputQueue.push(text)
+    inputQueue.enqueue(text, steer)
     if (meta?.chat_id) {
         lastInbound = { chatId: String(meta.chat_id), messageId: meta.message_id ? String(meta.message_id) : null }
     }
@@ -180,6 +193,7 @@ function onNotification(method, params) {
     switch (method) {
         case "turn/started":
             currentTurnId = params.turn?.id ?? currentTurnId
+            if (currentTurnId && threadId) { inputQueue.setActive(threadId, currentTurnId) }
             return
         case "item/started": {
             const view = hookViewForItem(params.item)
@@ -284,6 +298,9 @@ async function finishTurn(turn) {
         if (finishedTurns.has(turn.id)) { return }
         finishedTurns.add(turn.id)
     }
+    // Replies can take time or queue a rewrite; neither belongs to a closed turn.
+    inputQueue.clearActive()
+    currentTurnId = null
 
     for (const itemId of spinning) {
         link.hook("PostToolUse", {
@@ -331,7 +348,7 @@ async function deliverReply(text, isRewrite = false) {
         dbg("CODEX-RUNNER", "rewritten reply was rejected too, giving up")
         return
     }
-    enqueueInput(`[message system] Your last answer was NOT delivered to the user: ${detail}. Send a shorter one.`, null)
+    enqueueInput(`[message system] Your last answer was NOT delivered to the user: ${detail}. Send a shorter one.`, null, false)
 }
 
 // ── The turn loop ─────────────────────────────────────────────────────
@@ -383,6 +400,8 @@ async function runTurn(text) {
         dbg("CODEX-RUNNER", "turn/start failed:", e)
         transcript(`[error] ${detail}`)
         turnDone = null
+        inputQueue.clearActive()
+        currentTurnId = null
         if (lastInbound?.chatId) {
             await link.callTool("reply", { chat_id: lastInbound.chatId, text: `Codex error: ${detail}` })
         }
@@ -395,7 +414,11 @@ async function runTurn(text) {
     if (result?.turn?.status && result.turn.status !== "inProgress") {
         await finishTurn(result.turn)
     } else {
-        currentTurnId = result?.turn?.id ?? currentTurnId
+        // A completed notification can precede the turn/start response.
+        if (!finishedTurns.has(result?.turn?.id)) {
+            currentTurnId = result?.turn?.id ?? currentTurnId
+            if (currentTurnId) { inputQueue.setActive(threadId, currentTurnId) }
+        }
         await completed
     }
 }
@@ -408,10 +431,13 @@ async function mainLoop() {
         }
         // Drain everything queued into one turn — three messages that
         // arrived while Codex was busy should be seen together.
-        const batch = inputQueue.splice(0, inputQueue.length).join("\n\n")
+        const batch = await inputQueue.takeBatch()
+        if (!batch) { continue }
         try {
             await runTurn(batch)
         } catch (e) {
+            inputQueue.clearActive()
+            currentTurnId = null
             dbg("CODEX-RUNNER", "turn threw:", e)
             transcript(`[error] turn threw: ${e instanceof Error ? e.message : String(e)}`)
             link.hook("Stop")
