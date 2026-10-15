@@ -55,6 +55,8 @@ function makeEntry(text, event) {
         text,
         chatId: event.chatId,
         messageId: event.messageId,
+        userId: event.userId ?? null,
+        username: event.username ?? null,
         threadId: event.threadId ?? null,
         queuedAt: Date.now(),
     }

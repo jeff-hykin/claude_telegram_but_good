@@ -101,6 +101,9 @@ Deno.test("chat-user: plain text to focused session emits deliver + cold_append"
     assertEquals(delivers[0].content, "hello world")
     assertEquals(delivers[0].meta.chat_id, "42")
     assertEquals(delivers[0].meta.message_id, "101")
+    // The real sender, not channel-event.js's "cbg" fallback.
+    assertEquals(delivers[0].meta.user, "alice")
+    assertEquals(delivers[0].meta.user_id, "42")
 
     const cold = effectsOfType(action, "cold_append")
     assertEquals(cold.length, 1)
