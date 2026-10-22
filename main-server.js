@@ -48,6 +48,7 @@ const { loadCommands, getCommandDescriptions } = await versionedImport("./lib/ho
 import { startShimWatcher } from "./lib/effects/shim-watcher.js"
 import { TelegramBot } from "./lib/bot/telegram-bot.js"
 import { DiscordBot } from "./lib/bot/discord-bot.js"
+import { acceptIpcConnections } from "./lib/ipc-listener.js"
 
 // Ensure the state directory exists — it's the parent of ipc.sock / pid file
 try {
@@ -88,6 +89,10 @@ const _defaultChatState = {
     pendingFocusId: null,
     pendingOtps: {},
     pendingPermissions: {},
+    // Button questions awaiting a tap. Unlike pendingPermissions these carry
+    // NO _conn — the answer is routed by address at answer time — so they are
+    // kept across a restart rather than discarded on load.
+    pendingQuestions: {},
     commandCenter: null,
     stats: { eventsProcessed: 0, queueDepth: 0 },
 }
@@ -312,37 +317,22 @@ async function eventLoop() {
 // Unix socket. Shim connections (long-lived) + hook scripts (one-shot) +
 // CLI clients (one-shot) all arrive here. We read newline-delimited JSON
 // and dynamically import the translator to produce events.
-try { Deno.removeSync(paths.IPC_SOCK) } catch (e) { dbg("IPC", "remove stale socket:", e) }
-const ipcListener = Deno.listen({ transport: "unix", path: paths.IPC_SOCK })
-core.ipcListener = ipcListener
-dbg("MAIN", "IPC listening on", paths.IPC_SOCK)
-
-;(async () => {
-    let consecutiveErrors = 0
-    while (true) {
-        let conn
-        try {
-            conn = await ipcListener.accept()
-            consecutiveErrors = 0
-        } catch (e) {
-            if (e instanceof Deno.errors.BadResource) {
-                dbg("IPC", "listener closed, exiting accept loop")
-                break
-            }
-            consecutiveErrors++
-            if (consecutiveErrors <= 3) {
-                dbg("IPC", "accept failed, continuing:", e)
-            }
-            if (consecutiveErrors >= 50) {
-                dbg("IPC", `accept loop stuck (${consecutiveErrors} consecutive errors), breaking`)
-                break
-            }
-            await new Promise(r => setTimeout(r, 100))
-            continue
-        }
-        spawnIpcReadLoop(conn)
+let ipcStopping = false
+function openIpcListener() {
+    try { Deno.removeSync(paths.IPC_SOCK) } catch (e) {
+        if (!(e instanceof Deno.errors.NotFound)) { dbg("IPC", "remove stale socket:", e) }
     }
-})()
+    core.ipcListener = Deno.listen({ transport: "unix", path: paths.IPC_SOCK })
+    dbg("MAIN", "IPC listening on", paths.IPC_SOCK)
+    return core.ipcListener
+}
+
+acceptIpcConnections({
+    listener: openIpcListener(),
+    reopen: openIpcListener,
+    onConnection: spawnIpcReadLoop,
+    isStopping: () => ipcStopping,
+}).catch(e => dbg("IPC", "accept loop failed:", e))
 
 function spawnIpcReadLoop(conn) {
     ;(async () => {
@@ -484,6 +474,7 @@ async function startChatBot(platform) {
 
 // ── Shutdown ───────────────────────────────────────────────────────────
 async function shutdown() {
+    ipcStopping = true
     dbg("MAIN", "shutdown requested")
     try {
         const { flushPersistenceNow } = await versionedImport("./lib/effects/persistence.js", import.meta)
@@ -491,7 +482,7 @@ async function shutdown() {
     } catch (e) {
         dbg("MAIN", "flush on shutdown failed:", e)
     }
-    try { ipcListener.close() } catch (e) { dbg("MAIN", "listener close:", e) }
+    try { core.ipcListener?.close() } catch (e) { dbg("MAIN", "listener close:", e) }
     try { Deno.removeSync(paths.IPC_SOCK) } catch (e) { dbg("MAIN", "socket rm:", e) }
     try { Deno.removeSync(paths.PID_FILE) } catch (e) { dbg("MAIN", "pid rm:", e) }
     Deno.exit(0)
@@ -640,6 +631,43 @@ try {
     dbg("MAIN", `long-task rehydrate: ${taskRehydrated} check-in timers queued`)
 } catch (e) {
     dbg("MAIN", "long-task rehydrate failed:", e)
+}
+
+// ── Agent reminder / repeat rehydration ───────────────────────────────
+// set_reminder and set_repeat arm bare in-memory setTimeouts, so a restart
+// used to eat every pending one silently — no error, no notification. Each
+// live timer now also has a record in specialData.agentTimers; re-arm one
+// timer per record. agent-timer-rehydrate.js honors a fire time still in the
+// future, replays one we slept through shortly, and drops stale records.
+try {
+    const timers = specialData?.agentTimers ?? {}
+    let timerRehydrated = 0
+    for (const [timerId, record] of Object.entries(timers)) {
+        if (!record || typeof record !== "object") { continue }
+        enqueueEvent({ type: "agent_timer_rehydrate", timerId })
+        timerRehydrated++
+    }
+    dbg("MAIN", `agent-timer rehydrate: ${timerRehydrated} reminders/repeats queued`)
+} catch (e) {
+    dbg("MAIN", "agent-timer rehydrate failed:", e)
+}
+
+// ── Button-question expiry rehydration ────────────────────────────────
+// A pending question survives a restart by itself: the registry lives in
+// chatState and the callback handler reads state, so its buttons still work.
+// Only its expiry timer was in memory — without this, an unanswered question
+// would linger forever and whoever asked would never learn no answer came.
+try {
+    const questions = chatState?.pendingQuestions ?? {}
+    let questionsRehydrated = 0
+    for (const [questionId, record] of Object.entries(questions)) {
+        if (!record || typeof record !== "object") { continue }
+        enqueueEvent({ type: "user_question_rehydrate", questionId })
+        questionsRehydrated++
+    }
+    dbg("MAIN", `user-question rehydrate: ${questionsRehydrated} expiry timers queued`)
+} catch (e) {
+    dbg("MAIN", "user-question rehydrate failed:", e)
 }
 
 // ── Go ─────────────────────────────────────────────────────────────────

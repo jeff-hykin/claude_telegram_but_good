@@ -54,6 +54,16 @@ Deno.test("cli-command: reload_cbg emits bump_cbg_version + reply with projected
     assertEquals(ipc[0].message.version, prev + 1)
 })
 
+Deno.test("cli-command: reload_cbg leaves a correctly mapped session alone", () => {
+    // pid 0 has no ancestry to walk, so the repair sweep finds nothing to
+    // change and the reload emits no session patch at all.
+    const core = makeCore({
+        chatSessions: { Fine: { id: "Fine", pid: 0, dtachSocket: "/state/dtach-Fine.sock" } },
+    })
+    const action = handle({ kind: "reload_cbg", _conn: fakeConn() }, core)
+    assertEquals(get(action, "stateChanges.chatSessions"), undefined)
+})
+
 Deno.test("cli-command: get_cbg_version returns the current version", () => {
     const core = makeCore()
     const action = handle({ kind: "get_cbg_version", _conn: fakeConn() }, core)

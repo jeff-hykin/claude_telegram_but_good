@@ -57,6 +57,7 @@ const [
     { randomHex, generateName },
     { findClaudePid },
     { ensureOfficialPluginPatched },
+    { resolveSessionIdentity },
 ] = await Promise.all([
     versionedImport("../../lib/paths.js", import.meta),
     versionedImport("../../lib/logging.js", import.meta),
@@ -64,6 +65,7 @@ const [
     versionedImport("../../lib/pure/ids.js", import.meta),
     versionedImport("../../lib/pid.js", import.meta),
     versionedImport("./setup.js", import.meta),
+    versionedImport("../../lib/pure/session-identity.js", import.meta),
 ])
 
 // Local shim→server write helper. The shim's context is fire-and-forget:
@@ -96,20 +98,33 @@ try {
 }
 
 // ── Session identity ──────────────────────────────────────────────────
-// Read the pre-assigned session id (set by cbg new) if available;
-// otherwise generate a fresh one.
+// Who we are is decided by lib/pure/session-identity.js: our own env
+// first, the spawner's single-slot handoff file only as a fallback. See
+// that file for why the slot cannot be trusted on its own.
 const SESSION_ID = (() => {
+    let slot = null
     try {
-        const raw = Deno.readTextFileSync(paths.NEXT_SESSION_FILE)
-        const data = JSON.parse(raw)
-        Deno.removeSync(paths.NEXT_SESSION_FILE)
-        if (data.id) {
-            if (data.title) { Deno.env.set("TELEGRAM_SESSION_TITLE", data.title) }
-            if (data.dtachSocket) { Deno.env.set("TELEGRAM_DTACH_SOCKET", data.dtachSocket) }
-            return data.id
-        }
+        slot = JSON.parse(Deno.readTextFileSync(paths.NEXT_SESSION_FILE))
     } catch (err) {
         dbg("SHIM", "next_session.json not found or error:", String(err))
+    }
+    const identity = resolveSessionIdentity({
+        envId: Deno.env.get("CBG_SESSION_ID"),
+        envTitle: Deno.env.get("CBG_SESSION_TITLE"),
+        slot,
+    })
+    if (identity.consumeSlot && slot) {
+        try {
+            Deno.removeSync(paths.NEXT_SESSION_FILE)
+        } catch (err) {
+            dbg("SHIM", "next_session.json remove failed:", String(err))
+        }
+    }
+    if (identity.title) { Deno.env.set("TELEGRAM_SESSION_TITLE", identity.title) }
+    if (identity.dtachSocket) { Deno.env.set("TELEGRAM_DTACH_SOCKET", identity.dtachSocket) }
+    if (identity.id) {
+        dbg("SHIM", `session id ${identity.id} (from ${identity.source})`)
+        return identity.id
     }
     return generateName()
 })()

@@ -67,7 +67,9 @@ Members who are not on `allowFrom` are dropped entirely in a GroupChat — not a
 
 ### Listen mode
 
-The GroupChat session's silence is enforced by the daemon, not by instructing the agent: the `reply` tool itself is refused (see `lib/listen-mode.js`). A session carries `listenMode`, an optional `listenChatId` scoping the block to one chat, and `listenUnlockedAt`. Addressing the bot sets the unlock; the Stop hook clears it when the turn ends, so the session speaks exactly once per time it is spoken to. Because the block is scoped, a group's session can still talk to its command center topic while the group hears nothing.
+The GroupChat session's silence is enforced by the daemon, not by instructing the agent: the `reply` tool itself is refused (see `lib/listen-mode.js`). A session carries `listenMode`, an optional `listenChatId` scoping the block to one chat, and `listenUnlockedAt`. Addressing the bot sets the unlock; the Stop hook clears it when the turn ends, so the session speaks exactly once per time it is spoken to — except while a reply to that chat is still owed, since a message can address the bot while the previous turn is still finishing and the older turn's Stop must not revoke what it just granted. Because the block is scoped, a group's session can still talk to its command center topic while the group hears nothing.
+
+A refused reply is not thrown away: it is posted to the session's own command center topic instead, and the agent is told so. A listening session that researches an answer and then cannot speak is otherwise indistinguishable from a dead one from inside the chat. For the same reason the reply nudge checks the gate before firing — a session is never reminded to post somewhere it would be refused.
 
 Any session can be put in this mode by hand with `/listen on`, `/listen off`, or `/listen` for status. Slash commands from allowlisted senders still dispatch inside a GroupChat so the group's own session can be managed from the group.
 

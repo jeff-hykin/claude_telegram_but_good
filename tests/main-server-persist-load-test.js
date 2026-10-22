@@ -19,7 +19,9 @@ import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.t
 import { setupTempPaths } from "./_helpers.js"
 
 const { paths } = setupTempPaths("cbg-persist-load-test-")
-const { loadPersistedState } = await import("../lib/effects/persistence.js")
+const persistence = await import("../lib/effects/persistence.js")
+const { loadPersistedState } = persistence
+const { makeTimerRecord } = await import("../lib/pure/agent-timers.js")
 const { stripFieldsResetOnRestartFromAllSessions, SESSION_FIELDS_RESET_ON_RESTART } =
     await import("../lib/pure/field-stripper.js")
 
@@ -195,4 +197,24 @@ Deno.test("persistence load: SESSION_FIELDS_RESET_ON_RESTART is the complete sin
             `SESSION_FIELDS_RESET_ON_RESTART missing '${k}' — either add it to lib/pure/field-stripper.js or remove it from this test`,
         )
     }
+})
+
+Deno.test("persistence round-trip: a pending reminder survives a daemon restart", () => {
+    // The set_timer behind a reminder is a bare setTimeout, so the record in
+    // specialData.agentTimers is the only thing that can outlive the process.
+    // Push it through the real write path (nothing in it may be underscore-
+    // prefixed, or stripNonSerializable would eat it) and read it back.
+    const { setCoreRef, flushPersistenceNow } = persistence
+    const record = makeTimerRecord({
+        id: "rem_abc",
+        sessionId: "s1",
+        message: "check the deploy",
+        kind: "reminder",
+        fireAt: 1_800_000_000_000,
+    })
+    setCoreRef({ chatState: {}, chatSessions: {}, specialData: { agentTimers: { rem_abc: record } } })
+    flushPersistenceNow()
+
+    const reloaded = loadPersistedState().specialData?.agentTimers?.rem_abc
+    assertEquals(reloaded, record)
 })

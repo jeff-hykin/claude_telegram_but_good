@@ -9,7 +9,9 @@
 // can still talk to its command center topic while the group hears
 // nothing. Run anywhere else, it silences the session everywhere.
 //
-// Sessions CBG spawns for groups it gets added to start in this mode.
+// Sessions CBG spawns for groups it gets added to do NOT start in this
+// mode — a group's members are allowlisted, so the bot answers them
+// like any other member until `/listen on` is run inside the group.
 
 import { versionedImport } from "../lib/version.js"
 const { loadAccess } = await versionedImport("../lib/access.js", import.meta)
@@ -52,22 +54,48 @@ export const commands = {
 
         const arg = (event.text ?? "").replace(/^\/listen(?:@\w+)?\s*/i, "").trim().toLowerCase()
 
+        // In a group the setting belongs to the GROUP, not to whichever
+        // session happens to be serving it: it lives on the binding, so a
+        // replacement session doesn't come back muzzled (or come back
+        // talking, if it was told to be quiet). The binding is then the
+        // ONLY copy — see the note in chat-user's group handler about why
+        // a second one on the session would just lie.
+        const binding = core.chatState?.groupChatSessions?.[String(event.chatId)]
+        const groupKey = binding ? String(event.chatId) : null
+        const listening = groupKey ? binding.listenMode === true : session.listenMode === true
+
         if (arg.length === 0) {
-            const scope = session.listenChatId ? `chat ${session.listenChatId}` : "every chat"
-            const state = session.listenMode
-                ? `*${sessionId}* is listening — it reads ${scope} but cannot post there. Run /listen off to let it speak.`
-                : `*${sessionId}* is not in listen mode. Run /listen on to silence it here.`
+            const scope = groupKey ? `this group` : (session.listenChatId ? `chat ${session.listenChatId}` : "every chat")
+            const state = listening
+                ? `*${sessionId}* is listening — it reads ${scope} but cannot post there until someone @mentions the bot. ` +
+                    `Run /listen off to let it answer every message.`
+                : `*${sessionId}* is not in listen mode — it answers every message it is given. Run /listen on to silence it here.`
             return { effects: [sendEffect(replyTo, state, { parse_mode: "Markdown" })] }
         }
+
+        const bindingPatch = (listenMode) => groupKey
+            ? { chatState: { groupChatSessions: { [groupKey]: { listenMode } } } }
+            : {}
+        // In a group the session-level flag is deleted rather than set:
+        // the binding decides, and a stale second copy is worse than none.
+        const sessionFlag = (listenMode, listenChatId) => groupKey
+            ? { listenMode: undefined, listenChatId: groupKey, listenUnlockedAt: undefined }
+            : { listenMode, listenChatId, listenUnlockedAt: undefined }
 
         if (arg === "off") {
             return {
                 stateChanges: {
-                    chatSessions: {
-                        [sessionId]: { listenMode: false, listenChatId: undefined, listenUnlockedAt: undefined },
-                    },
+                    ...bindingPatch(false),
+                    chatSessions: { [sessionId]: sessionFlag(false, undefined) },
                 },
-                effects: [sendEffect(replyTo, `Listen mode off — *${sessionId}* can reply here again.`, { parse_mode: "Markdown" })],
+                effects: [sendEffect(
+                    replyTo,
+                    groupKey
+                        ? `Listen mode off — *${sessionId}* now answers every message here, @mention or not. ` +
+                            `The setting sticks if the session is replaced. Run /listen on to go quiet again.`
+                        : `Listen mode off — *${sessionId}* can reply here again.`,
+                    { parse_mode: "Markdown" },
+                )],
             }
         }
 
@@ -83,9 +111,8 @@ export const commands = {
         const scope = listenChatId ? "this group" : "every chat"
         return {
             stateChanges: {
-                chatSessions: {
-                    [sessionId]: { listenMode: true, listenChatId, listenUnlockedAt: undefined },
-                },
+                ...bindingPatch(true),
+                chatSessions: { [sessionId]: sessionFlag(true, listenChatId) },
             },
             effects: [sendEffect(
                 replyTo,

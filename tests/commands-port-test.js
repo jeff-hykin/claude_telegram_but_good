@@ -6,17 +6,16 @@
 // Action-returning contract works for a representative subset.
 
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts"
-import { setupTempPaths, writeAccess, makeCore, effectsOfType, get } from "./_helpers.js"
+import { setupTempPaths, writeAccess, makeCore, effectsOfType, get, loadCommands, getHotCommands } from "./_helpers.js"
 
 setupTempPaths("cbg-cmds-port-test-")
 writeAccess(["42"])
 
 // Load the real commands registry — we want the actual on-disk files,
 // not fakes.
-const hotCommandsMod = await import("../lib/hot-commands.js")
 const commandsDir = new URL("../commands", import.meta.url).pathname
-await hotCommandsMod.loadCommands(commandsDir)
-const commands = hotCommandsMod.getHotCommands()
+await loadCommands(commandsDir)
+const commands = getHotCommands()
 
 function baseEvent(overrides = {}) {
     return {

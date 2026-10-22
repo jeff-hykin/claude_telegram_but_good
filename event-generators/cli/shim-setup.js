@@ -64,6 +64,15 @@ export function inspectShimPath(claudePath) {
     return { dir, claudePath, realPath: claudePath, alreadyShimmed: false }
 }
 
+function isShimFile(path) {
+    try {
+        return Deno.readTextFileSync(path).includes(SHIM_MARKER)
+    } catch {
+        // Missing or binary — not our shim
+        return false
+    }
+}
+
 /**
  * Find the directory and full path of the real claude binary via
  * `which claude`. Skips any existing cbg shim (by reading the file and
@@ -146,6 +155,11 @@ export function installShim(targetPath) {
 
     // If _claude_before_cbg already exists but claude isn't our shim, something is weird.
     // Overwrite it — the user is re-installing.
+    // Re-check first: a concurrent installer may have shimmed claude since we inspected it,
+    // and renaming that over the backup leaves no real claude at all.
+    if (isShimFile(claudePath)) {
+        return { ok: false, message: `${claudePath} became the cbg shim mid-install — refusing to rename it over ${backupPath}` }
+    }
     try {
         Deno.renameSync(claudePath, backupPath)
     } catch (err) {

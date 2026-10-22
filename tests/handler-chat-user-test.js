@@ -439,6 +439,19 @@ Deno.test("chat-user: session with no _conn is reported as disconnected", async 
     assert(msgs[0].text.includes("disconnected"))
 })
 
+Deno.test("chat-user: a disconnected session whose process is gone says so and points at /refresh (no false 'will deliver when it reconnects')", async () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "sess-1" },
+        chatSessions: { "sess-1": { id: "sess-1", pid: 2_000_000_000, disconnectedAt: 1 } },
+    })
+    const action = await handle(baseEvent(), core)
+    const msgs = effectsOfType(action, "send_text_to_user")
+    assertEquals(msgs.length, 1)
+    assert(msgs[0].text.includes("/refresh"), msgs[0].text)
+    assert(!msgs[0].text.includes("reconnects"), msgs[0].text)
+    assertEquals(get(action, "stateChanges.chatState.messageQueue").length, 1)
+})
+
 Deno.test("chat-user: /task prompt points the worker at paths.longTaskDir, not $HOME/.cbg", async () => {
     const core = makeCore({
         chatState: { focusedSessionId: "worker" },

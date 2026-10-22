@@ -292,6 +292,31 @@ export const TOOLS = [
         },
     },
     {
+        name: "ask_user_question",
+        description:
+            "Ask the user a multiple-choice question they answer by TAPPING A BUTTON in Telegram, " +
+            "instead of typing. Use for short either/or decisions (keep/drop, ship/hold, which branch). " +
+            "Returns immediately with a question_id — it does NOT block. The answer is delivered to " +
+            "this session later as a channel event (`[answer to question <id>: <label>]`), the same way " +
+            "a reminder arrives, so it survives you being mid-turn, and a restart. Unanswered questions " +
+            "expire (default 24h) and you are told they did. 2-5 options, labels under 40 chars.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                question: { type: "string", description: "The question. One short sentence." },
+                options: {
+                    type: "array",
+                    description: "2-5 answers as strings (e.g. [\"Keep\", \"Drop\"]), or objects {key, label} when you want a stable key to branch on.",
+                    items: { type: ["string", "object"] },
+                },
+                context: { type: "string", description: "Optional single line of extra detail shown under the question" },
+                answer_to: { type: "string", description: "Where the answer goes: session:<id>, topic:<name>, or inbox:<addr>. Defaults to this session's topic, which keeps working across a /refresh." },
+                timeout_seconds: { type: "number", description: "How long the buttons stay live (default 86400, max 604800)" },
+            },
+            required: ["question", "options"],
+        },
+    },
+    {
         name: "watch_file",
         description:
             "Watch a file or directory for changes. Delivers a message to this session when " +
@@ -471,7 +496,7 @@ export async function handleToolCall(req, ctx) {
             requestId,
             hookId: args.hookId,
         }
-    } else if (name === "set_reminder" || name === "set_repeat" || name === "cancel_reminder" || name === "snooze_reminder" || name === "watch_file") {
+    } else if (name === "set_reminder" || name === "set_repeat" || name === "cancel_reminder" || name === "snooze_reminder" || name === "watch_file" || name === "ask_user_question") {
         ipcMessage = {
             type: "tool_request",
             requestId,

@@ -32,6 +32,7 @@ function printUsage() {
         ["tell <target> msg","Send a message to a session (by ID, topic, or title)"],
         ["inbox latest <id>","Read latest message from an inbox (JSON output)"],
         ["ask --sync ...",   "Send question and block for reply (" + c.dim("--from --to --question") + ")"],
+        ["question ...",     "Ask the USER a button question (" + c.dim("--text --options [--sync]") + ")"],
         ["authorize",        "Generate a one-time pairing code for a new user"],
         ["update [ref]",     "Check out latest tag (or given tag/branch) + hot-reload daemon"],
         ["reinstall",        "Refresh plugin/hooks/CLI shim on disk + hot-reload daemon in place"],
@@ -108,6 +109,11 @@ switch (cmd) {
     case "ask": {
         const { runAsk } = await versionedImport("./commands/ask.js", import.meta)
         await runAsk(args)
+        break
+    }
+    case "question": {
+        const { runQuestion } = await versionedImport("./commands/question.js", import.meta)
+        await runQuestion(args)
         break
     }
     case "authorize": {

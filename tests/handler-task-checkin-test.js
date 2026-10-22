@@ -158,3 +158,13 @@ Deno.test("checkin: a worker that comes back clears the orphan markers", () => {
     assertEquals(patch.orphanAlertedAt, undefined)
     assert("orphanedSince" in patch)
 })
+
+Deno.test("checkin: unfinished work gets progress.md as an explicit option, not just report.md", () => {
+    removeReport()
+    const text = nudgeTexts(checkin(ev(1_000_000), coreFor()))[0]
+    assert(text.includes("progress.md"), "nudge must name progress.md")
+    assert(text.includes("report.md"), "nudge must still name report.md")
+    // The whole point: a worker that knows it is not done must not be pushed
+    // into submitting a report that argues for cut corners.
+    assert(/Do NOT write report\.md for work you know is unfinished/.test(text))
+})

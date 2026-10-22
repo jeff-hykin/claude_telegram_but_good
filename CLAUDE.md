@@ -225,6 +225,7 @@ Pure functions returning Actions. One per event type. All follow the versionedIm
 - `session-register.js`, `session-unregister.js`, `ipc-connection-closed.js`
 - `permission-request.js`
 - `cli-command.js`, `server-dump.js`
+- `ask-user-question.js`, `user-question-expire.js`, `user-question-rehydrate.js` — button questions (`docs/user-questions.md`)
 - `long-task-definition-submitted.js`, `critic-verdict.js`
 - `download-complete-for-tool.js`
 
@@ -340,6 +341,7 @@ Claude Code queries the shim's tool list ONCE at MCP server startup. Tool NAMES 
 - **`create_scheduled_task`** — create a recurring scheduled task directly (skips drafting flow)
 - **`get_topic_memory`** — returns the path and content of this session's topic memory file
 - **`create_memory_hook`** — pair a keyword/regex with a hint that gets re-stated whenever the pattern shows up (see `lib/memory-hooks.js`)
+- **`ask_user_question`** — ask the user a 2-5 option question they answer by TAPPING A BUTTON in Telegram. Non-blocking: returns a `question_id`, and the answer arrives later as a channel event. Any harness can ask the same question a different way (`followUpEvents: [{type: "ask_user_question"}]` from a slash command, `cbg question` from a shell) — see `docs/user-questions.md`
 - **`cbg_debug`** — returns `{ logPath, dumpPath }` for debugging (writes a fresh server_dump). Accepts optional `filter` param.
 
 ## Topic memory

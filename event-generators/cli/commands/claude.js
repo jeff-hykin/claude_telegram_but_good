@@ -172,6 +172,12 @@ function hasDtachOnPath() {
 function resolveRealClaude() {
     const backup = whichCmd("_claude_before_cbg")
     if (backup && fileExists(backup)) {
+        // A shim here (a `claude update` racing the shim watcher) would exec itself forever.
+        if (isOurShim(backup)) {
+            dbg("CBG-CLAUDE", `_claude_before_cbg at ${backup} is the cbg shim itself — refusing to recurse`)
+            console.error(`cbg claude: ${backup} is the cbg shim, not the real claude. Relink it to the real binary (e.g. ~/.local/share/claude/versions/<latest>).`)
+            return null
+        }
         dbg("CBG-CLAUDE", `using _claude_before_cbg at ${backup}`)
         return backup
     }

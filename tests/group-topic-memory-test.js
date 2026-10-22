@@ -65,13 +65,15 @@ Deno.test("a group session is spawned against its own topic memory", () => {
     assert(existsSync(paths.topicDir("Book Club")))
 })
 
-Deno.test("a group session is handed its memory file, and told not to answer", () => {
+Deno.test("a group session is handed its memory file, and told not to answer the handoff", () => {
     const ensured = ensureGroupSession(makeCore({}), GROUP, "Book Club", 1000)
     const queued = ensured.stateChanges.chatState.messageQueue
     assertEquals(queued.length, 1)
     assertEquals(queued[0].targetSessionId, ensured.sessionId)
     assert(queued[0].content.includes(paths.topicMemoryFile("Book Club")))
-    assert(queued[0].content.includes("do not answer this message"))
+    // The handoff is not a message from the room, so it gets no reply —
+    // true in both listen modes, which word it differently.
+    assert(/not answer this message/i.test(queued[0].content))
 })
 
 Deno.test("a group session's memory reaches its replacement", () => {

@@ -5,7 +5,7 @@
 // session's screen, and type the code the user pastes back.
 
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts"
-import { setupTempPaths, paths, makeCore, effectsOfType, writeAccess } from "./_helpers.js"
+import { setupTempPaths, paths, makeCore, effectsOfType, writeAccess, loadCommands, getHotCommands } from "./_helpers.js"
 
 setupTempPaths("cbg-raw-login-test-")
 writeAccess(["42"])
@@ -13,9 +13,8 @@ writeAccess(["42"])
 const { extractLoginUrl, looksLikeLoginCode, loginTopicKey, awaitsLoginMethod, isOpeningBrowser, awaitsLoginConfirm } = await import("../lib/pure/login.js")
 const handle = (await import("../lib/event-handlers/chat-user.js")).default
 
-const hotCommandsMod = await import("../lib/hot-commands.js")
-await hotCommandsMod.loadCommands(new URL("../commands", import.meta.url).pathname)
-const registry = hotCommandsMod.getHotCommands()
+await loadCommands(new URL("../commands", import.meta.url).pathname)
+const registry = getHotCommands()
 
 const CHAT = "42"
 const SESSION = "TestOtter"

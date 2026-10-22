@@ -56,7 +56,7 @@ const INITIAL_PROMPT = Deno.env.get("CBG_INITIAL_PROMPT") || null
 
 const CODEX_BINARY = String(getConfigKey("codex_binary", "codex"))
 const CODEX_MODEL = String(getConfigKey("codex_model", "") || "")
-const CODEX_SANDBOX = String(getConfigKey("codex_sandbox", "workspace-write"))
+const CODEX_SANDBOX = String(getConfigKey("codex_sandbox", "danger-full-access"))
 const CODEX_APPROVAL_POLICY = String(getConfigKey("codex_approval_policy", "never"))
 const TURN_TIMEOUT_MS = Number(getConfigKey("codex_turn_timeout_ms", 1_800_000))
 
@@ -254,7 +254,7 @@ function onNotification(method, params) {
  * Codex blocks on approval requests, so the only unacceptable answer is
  * no answer. `codex_approval_policy: never` normally means these never
  * arrive; if one does anyway, it is because Codex wants to step outside
- * the sandbox, and the sandbox is the boundary we actually chose.
+ * an explicitly configured sandbox when one is enabled.
  *
  * Each request family speaks a different decline vocabulary, and a value
  * from the wrong one is accepted silently and treated as a rejection —

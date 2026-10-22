@@ -21,6 +21,17 @@ const pathsMod = await versionedImport("../lib/paths.js", import.meta)
 export const paths = pathsMod.paths
 const buildPaths = pathsMod.buildPaths
 
+// Same singleton trap as `paths`: the hot-command registry lives in
+// module state, and chat-user.js reaches it through versionedImport. A
+// bare `import("../lib/hot-commands.js")` in a test builds a SECOND
+// registry, so commands load into one and dispatch looks in the other —
+// every slash command then answers "Unknown command", which is easy to
+// mistake for a passing test when the assertion only counts effects.
+const hotCommandsMod = await versionedImport("../lib/hot-commands.js", import.meta)
+export const loadCommands = hotCommandsMod.loadCommands
+export const getHotCommands = hotCommandsMod.getHotCommands
+export const COMMANDS_DIR = new URL("../commands", import.meta.url).pathname
+
 /**
  * Redirect the `paths` singleton at a fresh temp directory and create
  * the runtime subdirs handlers may touch.
@@ -38,6 +49,21 @@ export function setupTempPaths(prefix = "cbg-handler-test-") {
     Deno.mkdirSync(paths.SCHEDULED_TASKS_DIR, { recursive: true })
     Deno.mkdirSync(paths.COLD_STORAGE_DIR, { recursive: true })
     return { tempDir, paths }
+}
+
+/**
+ * Point `codex_binary` at a stub whose `login status` succeeds, so tests
+ * that spawn a codex session don't depend on the machine's real codex
+ * login — or on HOME, which other test files repoint process-wide.
+ */
+export function stubCodexBinary() {
+    const stub = `${paths.STATE_DIR}/codex-stub.sh`
+    Deno.writeTextFileSync(stub, "#!/bin/sh\necho 'Logged in (stub)' >&2\n")
+    Deno.chmodSync(stub, 0o755)
+    let config = {}
+    try { config = JSON.parse(Deno.readTextFileSync(paths.CONFIG_FILE)) } catch { /* none yet */ }
+    Deno.writeTextFileSync(paths.CONFIG_FILE, JSON.stringify({ ...config, codex_binary: stub }))
+    return stub
 }
 
 /**

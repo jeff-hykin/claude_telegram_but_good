@@ -1,6 +1,7 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts"
-import { setupTempPaths, makeCore, effectsOfType, paths, loadCommands, getHotCommands } from "./_helpers.js"
+import { setupTempPaths, makeCore, effectsOfType, paths, loadCommands, getHotCommands, stubCodexBinary } from "./_helpers.js"
 setupTempPaths("cbg-refresh-retention-")
+stubCodexBinary()
 Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({ allowFrom: ["42"], commandCenterChatId: "-100777", groups: {} }))
 await loadCommands(new URL("../commands", import.meta.url).pathname)
 const event = { chatId: "-100777", threadId: 55, userId: "42", chatType: "supergroup", text: "/refresh" }

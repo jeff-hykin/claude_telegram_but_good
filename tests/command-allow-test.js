@@ -5,7 +5,7 @@
 // rest: only someone already on it may add to it, command center or not.
 
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts"
-import { setupTempPaths, paths, makeCore, effectsOfType } from "./_helpers.js"
+import { setupTempPaths, paths, makeCore, effectsOfType, loadCommands, getHotCommands } from "./_helpers.js"
 
 const { tempDir: _tempDir } = setupTempPaths("cbg-command-allow-test-")
 
@@ -30,9 +30,8 @@ function writeAccess(extra = {}) {
 }
 writeAccess()
 
-const hotCommandsMod = await import("../lib/hot-commands.js")
-await hotCommandsMod.loadCommands(new URL("../commands", import.meta.url).pathname)
-const allowCommand = hotCommandsMod.getHotCommands().get("allow")
+await loadCommands(new URL("../commands", import.meta.url).pathname)
+const allowCommand = getHotCommands().get("allow")
 const { updateAllowlist } = await import("../lib/effects/access-effect.js")
 const { readAccessFile } = await import("../lib/access.js")
 

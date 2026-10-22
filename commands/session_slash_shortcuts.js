@@ -8,7 +8,7 @@
 
 import { versionedImport } from "../lib/version.js"
 const { dbg } = await versionedImport("../lib/logging.js", import.meta)
-const { resolveCommandSession, peekTimerEffect } = await versionedImport("../lib/command-session.js", import.meta)
+const { resolveCommandSession, peekTimerEffect, selfMessageTimerEffect } = await versionedImport("../lib/command-session.js", import.meta)
 
 export const tips = [
     "/compact tells the focused session's Claude to compact its context.",
@@ -30,10 +30,16 @@ const makeShortcut = (cmdName) => (event, core) => {
 
     const text = event.text ?? ""
     dbg("SLASH-SHORTCUT", `injecting "${text}" to session ${session.id}`)
+    // Claude's /model also saves the pick as the default for new sessions; undo that
+    // (at 0.5s, and again at 3s since Claude's settings write can take that long).
+    const resetDefaultEffects = cmdName === "model"
+        ? [500, 3000].map((delayMs) => selfMessageTimerEffect(event, "/claude_default_model --sync", delayMs, "model_reset_default"))
+        : []
     return {
         effects: [
             { type: "send_raw_input_to_claude", sessionId: session.id, text },
             peekTimerEffect(event, cmdName),
+            ...resetDefaultEffects,
         ],
     }
 }

@@ -109,6 +109,7 @@ export const commands = {
         cleanEnv.CBG_DTACH = "1"
         cleanEnv.CBG_DTACH_SOCKET = dtachSock
         cleanEnv.CBG_SESSION_ID = sessionId
+        if (title) { cleanEnv.CBG_SESSION_TITLE = title }
 
         // Pre-accept the workspace trust dialog for the target directory.
         // ~/.claude.json holds the user's entire Claude Code config — never

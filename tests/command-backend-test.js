@@ -10,9 +10,10 @@ import { assertEquals, assert, assertStringIncludes } from "https://deno.land/st
 // `paths` MUST come from _helpers — a bare import of lib/paths.js builds
 // a second singleton that setupTempPaths never redirected, so writes
 // through it land on the real ~/.local/share/cbg.
-import { setupTempPaths, makeCore, effectsOfType, paths } from "./_helpers.js"
+import { setupTempPaths, makeCore, effectsOfType, paths, loadCommands, getHotCommands, stubCodexBinary } from "./_helpers.js"
 
 const tempPaths = setupTempPaths("cbg-backend-cmd-test-")
+stubCodexBinary()
 
 Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
     dmPolicy: "pairing",
@@ -22,9 +23,8 @@ Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
     commandCenterChatId: "-100777",
 }, null, 2))
 
-const hotCommandsMod = await import("../lib/hot-commands.js")
-await hotCommandsMod.loadCommands(new URL("../commands", import.meta.url).pathname)
-const backendCmd = hotCommandsMod.getHotCommands().get("backend")
+await loadCommands(new URL("../commands", import.meta.url).pathname)
+const backendCmd = getHotCommands().get("backend")
 
 function event(text) {
     return {
@@ -167,7 +167,7 @@ Deno.test("prepareTopicHandoff still points a fresh topic at its memory file", (
     assert(tempPaths)
 })
 
-const refreshCmd = hotCommandsMod.getHotCommands().get("refresh")
+const refreshCmd = getHotCommands().get("refresh")
 
 for (const backend of ["claude", "codex"]) {
     Deno.test(`/refresh preserves ${backend} and targets its handoff to the replacement`, async () => {

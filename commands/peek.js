@@ -14,6 +14,7 @@ const { paths } = await versionedImport("../lib/paths.js", import.meta)
 const { escapeMarkdown: escMd } = await versionedImport("../lib/pure/markdown.js", import.meta)
 const { backendForSession } = await versionedImport("../lib/agent-backends/index.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { listensToChat, heldReplyTarget } = await versionedImport("../lib/listen-mode.js", import.meta)
 
 export const tips = [
     "/peek shows what a session is doing right now — no need to attach.",
@@ -171,6 +172,19 @@ export const commands = {
         if (!screen.trim()) {
             return { effects: [sendEffect(replyTo, `Session "${session.id}" rendered an empty screen.`)] }
         }
+        // A screen snapshot is raw scrollback: filenames, the names of
+        // people in other chats, whatever the agent was reasoning about.
+        // It must never land in a chat the session is only listening to,
+        // even during an unlocked turn — it goes to the session's own
+        // command-center topic instead, where /peek output belongs.
+        let screenReplyTo = replyTo
+        if (listensToChat(session, event.chatId, core)) {
+            const ccTarget = heldReplyTarget(core, session.id)
+            if (ccTarget) {
+                dbg("PEEK", `${session.id} listens to ${event.chatId} — screen routed to its topic`)
+                screenReplyTo = ccTarget
+            }
+        }
         const header = `${session.id}${session.title ? ` (${session.title})` : ""} [${width}x${height}, ${historyUsed}L]:`
         let body = screen
         const bodyBudget = TELEGRAM_MAX_MESSAGE_CHARS - header.length - MD_WRAPPER_OVERHEAD_CHARS
@@ -179,7 +193,7 @@ export const commands = {
         }
 
         return {
-            effects: [sendEffect(replyTo, `${escMd(header)}\n\`\`\`\n${body}\n\`\`\``, { parse_mode: "Markdown" })],
+            effects: [sendEffect(screenReplyTo, `${escMd(header)}\n\`\`\`\n${body}\n\`\`\``, { parse_mode: "Markdown" })],
         }
     },
 }

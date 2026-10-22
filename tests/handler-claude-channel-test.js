@@ -225,6 +225,28 @@ Deno.test("claude-channel: reply landing in CC group with topic-thread bound kee
     assertEquals(sends[0].text, "hi")
 })
 
+Deno.test("claude-channel: reply to refresh/hook pseudo-chat stays in the session topic", () => {
+    Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
+        dmPolicy: "pairing",
+        allowFrom: ["999"],
+        groups: {},
+        pending: {},
+        commandCenterChatId: "-100CC",
+    }))
+    const core = makeCore({
+        chatState: { commandCenter: { topicMap: { "sess-1": "42" }, topicNames: { "42": "dimSLAM" } } },
+        chatSessions: {
+            "sess-1": { id: "sess-1", title: "x", cwd: "/x", gitBranch: "b", pid: 1 },
+        },
+    })
+    const action = handle(makeEvent("reply", { chat_id: "cbg-internal", text: "hook warning was a false alarm" }), core)
+    const sends = effectsOfType(action, "send_text_to_user")
+    assertEquals(sends.length, 1)
+    assertEquals(sends[0].chatId, "-100CC")
+    assertEquals(sends[0].options.message_thread_id, 42)
+    assertEquals(sends[0].text, "hook warning was a false alarm")
+})
+
 Deno.test("claude-channel: reply without sessionId emits no header", () => {
     const core = makeCore()
     const event = makeEvent("reply", { chat_id: "42", text: "hi" }, { sessionId: null })
@@ -418,26 +440,4 @@ Deno.test("claude-channel: unknown tool name returns an error response", () => {
     assertEquals(ipc.length, 1)
     assertEquals(ipc[0].message.result.isError, true)
     assert(ipc[0].message.result.content[0].text.includes("unknown tool"))
-})
-
-Deno.test("claude-channel: reply to refresh/hook pseudo-chat stays in the session topic", () => {
-    Deno.writeTextFileSync(paths.ACCESS_FILE, JSON.stringify({
-        dmPolicy: "pairing",
-        allowFrom: ["999"],
-        groups: {},
-        pending: {},
-        commandCenterChatId: "-100CC",
-    }))
-    const core = makeCore({
-        chatState: { commandCenter: { topicMap: { "sess-1": "42" }, topicNames: { "42": "dimSLAM" } } },
-        chatSessions: {
-            "sess-1": { id: "sess-1", title: "x", cwd: "/x", gitBranch: "b", pid: 1 },
-        },
-    })
-    const action = handle(makeEvent("reply", { chat_id: "cbg-internal", text: "hook warning was a false alarm" }), core)
-    const sends = effectsOfType(action, "send_text_to_user")
-    assertEquals(sends.length, 1)
-    assertEquals(sends[0].chatId, "-100CC")
-    assertEquals(sends[0].options.message_thread_id, 42)
-    assertEquals(sends[0].text, "hook warning was a false alarm")
 })
