@@ -12,6 +12,7 @@ const { dbg } = await versionedImport("../lib/logging.js", import.meta)
 const { generateName } = await versionedImport("../lib/pure/ids.js", import.meta)
 const { prepareTopicHandoff } = await versionedImport("../lib/topic-context.js", import.meta)
 const { replyToFromEvent, sendEffect } = await versionedImport("../lib/pure/reply-to.js", import.meta)
+const { buildTopicRefresh } = await versionedImport("../lib/stale-chats.js", import.meta)
 const { DEFAULT_BACKEND_NAME, defaultBackend, getBackend } = await versionedImport("../lib/agent-backends/index.js", import.meta)
 
 export const descriptions = {
@@ -47,9 +48,21 @@ export const commands = {
         if (!health.ok) {
             return { effects: [sendEffect(replyTo, `The ${backend} backend isn't usable right now: ${health.detail}`)] }
         }
-        const sessionId = generateName()
-
         try {
+            if (!isGroupChat) {
+                const refresh = buildTopicRefresh(core, { threadKey, title, sessionTitle, existingSessionId, backend })
+                const [spawn, ...retire] = refresh.effects
+                return {
+                    stateChanges: refresh.stateChanges,
+                    effects: [
+                        spawn,
+                        sendEffect(replyTo, `Spawned new session \`${refresh.sessionId}\` (${sessionTitle})${refresh.note}`, { parse_mode: "Markdown" }),
+                        ...retire,
+                    ],
+                }
+            }
+
+            const sessionId = generateName()
             const handoff = prepareTopicHandoff({ sessionId, title, oldSessionId: existingSessionId })
 
             const effects = [
@@ -119,45 +132,6 @@ export const commands = {
                     },
                     effects,
                 }
-            }
-
-            // Update topic maps
-            const topicMap = { ...(cc.topicMap ?? {}) }
-            const threadMap = { ...(cc.threadMap ?? {}) }
-            const topicNames = { ...(cc.topicNames ?? {}) }
-
-            // Unbind old session if any
-            if (existingSessionId) {
-                delete topicMap[existingSessionId]
-            }
-
-            topicMap[sessionId] = threadKey
-            threadMap[threadKey] = sessionId
-            topicNames[threadKey] = title
-
-            messageQueue.push({
-                content: handoff.prompt,
-                targetSessionId: sessionId,
-                meta: { source: "refresh-context" },
-                queuedAt: Date.now(),
-            })
-            dbg("REFRESH", `queued handoff for ${sessionId}${handoff.note}`)
-
-            return {
-                stateChanges: {
-                    chatState: {
-                        pendingFocusId: sessionId,
-                        messageQueue,
-                        commandCenter: {
-                            ...cc,
-                            topicMap,
-                            threadMap,
-                            topicNames,
-                            topicBackends: { ...(cc.topicBackends ?? {}), [threadKey]: backend },
-                        },
-                    },
-                },
-                effects,
             }
         } catch (err) {
             let detail = ""
