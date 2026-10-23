@@ -34,7 +34,7 @@ Deno.test("a stale topic gets 'consume Nk tokens?' exactly once per idle stretch
     const core = coreWith(Date.now() - 2 * HOUR)
     const action = await staleCheck({ type: "stale_chat_check" }, core)
     const sends = effectsOfType(action, "send_text_to_user")
-    assertEquals(sends.map((e) => e.text), ["consume 137k tokens?"])
+    assertEquals(sends.map((e) => e.text), ["consume 137k tokens? /refresh"])
     assertEquals(sends[0].replyTo.threadId, 77)
 
     Object.assign(core.chatSessions.Old, action.stateChanges.chatSessions.Old)
@@ -67,4 +67,14 @@ Deno.test("a repeating reminder follows the session it refreshed into", () => {
     const newId = action.stateChanges.chatState.messageQueue.at(-1).targetSessionId
     assertEquals(effectsOfType(action, "set_timer").find((e) => e.event.type === "agent_timer_fire").event.sessionId, newId)
     assertEquals(action.stateChanges.specialData.agentTimers.t1.sessionId, newId)
+})
+
+Deno.test("a daemon restart keeps lastStopAt, so a session idle across it still goes stale", async () => {
+    const register = (await import("../lib/event-handlers/session-register.js")).default
+    const lastStopAt = Date.now() - 2 * HOUR
+    const core = coreWith(lastStopAt)
+    const action = register({ type: "session_register", session: { id: "Old", cwd: "/repo", pid: 0 }, _conn: fakeConn(), ts: Date.now() }, core)
+    const entry = action.stateChanges.chatSessions.Old
+    assertEquals(entry.lastStopAt, lastStopAt)
+    assert(isStaleSession({ ...entry, _conn: fakeConn() }, Date.now(), HOUR))
 })
