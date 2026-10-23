@@ -4,7 +4,7 @@ import { versionedImport } from "../lib/version.js"
 const { default: snapshot } = await versionedImport("../lib/event-handlers/tui-snapshot.js", import.meta)
 const { default: promptDetected } = await versionedImport("../lib/event-handlers/tui-prompt-detected.js", import.meta)
 
-const PROCEED = "\r\x1b[1B Do you want to proceed?\x1b[K\r\x1b[1B ❯ 1. Yes\r\x1b[1B   2. No"
+const PROCEED = "\r\n Do you want to proceed?\r\n ❯ 1. Yes\r\n   2. No\r\n\r\n Esc to cancel · Tab to amend"
 
 // One snapshot tick, feeding each detected prompt to its handler; returns the keystrokes sent
 function tick(core) {
@@ -31,5 +31,16 @@ Deno.test("every 'Do you want to proceed?' gets answered once, not just the firs
     assertEquals(tick(core), [], "a countdown redraw is not a new prompt")
     Deno.writeTextFileSync(log, "rm -f $P/*.png" + PROCEED, { append: true })
     assertEquals(tick(core), ["1"], "the next proceed prompt in the same session is answered")
+    Deno.removeSync(dir, { recursive: true })
+})
+
+Deno.test("the same words scrolled off screen (pasted text, tool output) are not answered", () => {
+    const dir = Deno.makeTempDirSync()
+    const log = `${dir}/dtach-S.log`
+    const pastedThenMoreOutput = PROCEED + "\r\nI lost an entire overnight run" + "\r\n⏺ working on it".repeat(60)
+    Deno.writeTextFileSync(log, pastedThenMoreOutput)
+    const core = { chatSessions: { S: { status: "working", dtachSocket: `${dir}/dtach-S.sock` } } }
+
+    assertEquals(tick(core), [])
     Deno.removeSync(dir, { recursive: true })
 })
