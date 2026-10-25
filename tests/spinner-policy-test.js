@@ -469,3 +469,47 @@ spinnerTest("spinner:policy is a no-op on unrelated event types", async () => {
     // Nothing to assert — the invariant is that none of these throw.
     assert(true)
 })
+
+// ── collapse ─────────────────────────────────────────────────────────
+
+spinnerTest("spinner:collapse — a new spinner shrinks the previous one to a button that expands in place", async () => {
+    const { toggleSpinnerDetails } = await import("../lib/spinner.js")
+    const bot = fakeBot()
+    let nextId = 100
+    bot.sendText = async (chatId, text, options) => {
+        bot.calls.push({ method: "sendText", chatId, text, options })
+        return { messageId: String(nextId++) }
+    }
+    bot.deleteMessage = async (chatId, messageId) => {
+        bot.calls.push({ method: "deleteMessage", chatId, messageId })
+        return true
+    }
+    const core = makeCore({ chatSessions: { "sess-c": { id: "sess-c", _conn: {} } }, bot })
+    const userMessage = { type: "chat_user_message", chatId: "77", threadId: 5, ts: 1 }
+    const routed = { effects: [{ type: "deliver_channel_event", sessionId: "sess-c", content: "hi" }] }
+
+    await applySpinnerPolicy(userMessage, routed, core)
+    await applySpinnerPolicy({ type: "claude_hook_pre_tool_use", sessionId: "sess-c", toolName: "Bash", inputPreview: JSON.stringify({ command: "ls" }), toolUseId: "t1" }, null, core)
+    await applySpinnerPolicy({ type: "claude_hook_stop", sessionId: "sess-c" }, { effects: [] }, core)
+    bot.calls.length = 0
+    await applySpinnerPolicy(userMessage, routed, core)
+
+    const collapse = bot.calls.find(c => c.method === "editText" && c.messageId === "100")
+    assert(collapse, "previous spinner was not edited")
+    assertEquals(collapse.text, "🔧 1 tool call")
+    assertEquals(collapse.options.buttons[0][0].callbackData, "spin:show:100")
+
+    // A spinner with no tool calls is just deleted when the next one starts.
+    await applySpinnerPolicy({ type: "claude_hook_stop", sessionId: "sess-c" }, { effects: [] }, core)
+    await applySpinnerPolicy(userMessage, routed, core)
+    assert(bot.calls.some(c => c.method === "deleteMessage" && String(c.messageId) === "101"))
+
+    bot.calls.length = 0
+    await toggleSpinnerDetails({ chatId: "77", messageId: "100", expand: true, queryId: "q" }, core)
+    const expanded = bot.calls.filter(c => c.method === "editText")
+    assertEquals(expanded.length, 1)
+    assert(expanded[0].text.includes("ls"), "expanded text lost the tool call")
+    assertEquals(expanded[0].options.buttons[0][0].callbackData, "spin:hide:100")
+    assert(!bot.calls.some(c => c.method === "sendText"), "expanding must not send a message")
+    cleanup()
+})
