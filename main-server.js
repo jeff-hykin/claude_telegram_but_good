@@ -515,6 +515,11 @@ enqueueEvent({ type: "bot_health_check" })
 // See lib/event-handlers/scheduled-task-stuck-watchdog.js.
 enqueueEvent({ type: "scheduled_task_stuck_watchdog" })
 
+// ── Stale session / task reaper ────────────────────────────────────
+// Hourly: drops long-dead sessions and old cancelled/escalated tasks, and
+// deletes their leftover files. See lib/event-handlers/stale-state-reaper.js.
+enqueueEvent({ type: "stale_state_reaper", startup: true })
+
 // ── Scheduled-task rehydration ─────────────────────────────────────────
 // For each non-terminal scheduled task in specialData, enqueue a
 // scheduled_task_rehydrate event so the schedule_timer_set effect
