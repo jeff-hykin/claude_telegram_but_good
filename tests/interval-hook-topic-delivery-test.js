@@ -9,7 +9,7 @@
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts"
 import { setupTempPaths, makeCore, effectsOfType } from "./_helpers.js"
 
-setupTempPaths("cbg-ihook-delivery-test-")
+const { paths } = setupTempPaths("cbg-ihook-delivery-test-")
 const { buildTopicDeliveryAction } = await import("../lib/interval-hook-actions.js")
 
 const DEAD_PID = 2_000_000_000
@@ -48,4 +48,31 @@ Deno.test("topic delivery: a connected bound session is delivered to directly", 
     const action = buildTopicDeliveryAction(core, "Life", "hello", {})
     assertEquals(effectsOfType(action, "deliver_channel_event")[0].sessionId, "Veteran")
     assert(!action.stateChanges)
+})
+
+Deno.test("topic delivery: a second hook in the same tick queues for the session the first one is spawning, instead of spawning another", () => {
+    const core = makeCore({
+        chatState: { commandCenter: cc, messageQueue: [] },
+        chatSessions: { Veteran: { title: "Life", pid: DEAD_PID, disconnectedAt: 1 } },
+    })
+    const first = buildTopicDeliveryAction(core, "Life", "nutrition", {})
+    const spawnedId = effectsOfType(first, "spawn_dtach_session")[0].sessionId
+    Deno.writeTextFileSync(paths.dtachSockFile(spawnedId), "")
+    const afterFirst = makeCore({
+        chatState: { commandCenter: { ...cc, threadMap: { "11384": spawnedId }, topicMap: { [spawnedId]: "11384" } }, messageQueue: first.stateChanges.chatState.messageQueue },
+        chatSessions: { Veteran: { title: "Life", pid: DEAD_PID, disconnectedAt: 1 } },
+    })
+    const second = buildTopicDeliveryAction(afterFirst, "Life", "todo nudge", {})
+    assertEquals(effectsOfType(second, "spawn_dtach_session").length, 0)
+    const queue = second.stateChanges.chatState.messageQueue
+    assertEquals(queue.map((entry) => entry.targetSessionId), [spawnedId, spawnedId])
+})
+
+Deno.test("topic delivery: a bound session that never registered and has no socket (spawn failed) is resurrected", () => {
+    const core = makeCore({
+        chatState: { commandCenter: { ...cc, threadMap: { "11384": "NeverStarted" }, topicMap: { NeverStarted: "11384" } }, messageQueue: [] },
+        chatSessions: {},
+    })
+    const action = buildTopicDeliveryAction(core, "Life", "hello", {})
+    assertEquals(effectsOfType(action, "spawn_dtach_session").length, 1)
 })
