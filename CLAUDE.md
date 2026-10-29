@@ -386,6 +386,10 @@ A session blocked inside one tool call (a Bash scanning a 17 GB file) cannot rea
 
 Per topic: `/auto_background off | on | <seconds>` (`commands/auto_background.js`), stored as overrides only in `chatState.autoBackground[<chat>:<thread>]` (`lib/pure/auto-background.js`). Absent entry = on at the config threshold.
 
+## Long-run warning
+
+Slow iteration is what stretches days into weeks, so a session whose Bash command has been running past `long_run_warn_after_ms` (default 5 min) gets one `[automated reminder]` (via `send_text_to_claude`) naming the command and its elapsed time, and nudging it toward a faster faithful harness and parallel work. Every `screen_snapshot_tick` emits `long_run_check`; `lib/event-handlers/long-run-check.js` asks the `scan_long_runs` effect (`lib/effects/long-run-scan.js`, one `ps`, skipped while one is in flight) for the process table, and `lib/pure/long-runs.js` decides. Only direct children of the session's claude process (`session.pid`) that are Claude's Bash-tool wrapper shells (`… shell-snapshots/snapshot-… && eval '<cmd>'`) count, so MCP servers, LSP plugins, hooks and claude's own `caffeinate` never do; a local `ssh` command counts, remote machines are not inspected, and commands that detach from their shell are not seen. Claude backend only. At most one warning per command (`session.longRunWarnedPids`, pruned when they exit) and one per session per `long_run_warn_cooldown_ms` (default 15 min, `session.lastLongRunWarnAt`); parallel runs fold into one message. `long_run_warn_after_ms: 0` turns it off.
+
 ## Long task subsystem
 
 `/task <description>` creates a task under `specialData.longTaskByChatId[chatId][taskId]` in `defining` state and injects a definition-drafting prompt to the focused worker. The worker asks clarifying questions via `reply`, then calls the `submit_long_task_definition` MCP tool to lock the definition. The worker writes `context.md`, `progress.md`, and eventually `report.md` under `$CBG_DIR/long-tasks/<id>/`. When `report.md` appears, the `critic-subprocess` spawns `claude -p` to judge it. The critic's verdict enqueues a `critic_verdict` event which either notifies the worker "certified" (terminal) or archives revisions and tells the worker to try again.
@@ -408,7 +412,7 @@ Points at `event-generators/mcp-server/mcp-shim.js`. The launch command uses `sh
 
 ## Testing
 
-Unit tests live in `tests/` and run with `deno test tests/ --allow-all`. Pure modules (`state-merge`, `cold-storage`, `telegram-outbound`, `long-task-util`) have direct unit tests. Handlers are testable in isolation by constructing a synthetic `core` object and asserting on the returned Action.
+Unit tests live in `tests/` and run with `deno test tests/*-test.js --allow-all` (a bare `tests/` matches nothing, the files end in `-test.js`). Pure modules (`state-merge`, `cold-storage`, `telegram-outbound`, `long-task-util`) have direct unit tests. Handlers are testable in isolation by constructing a synthetic `core` object and asserting on the returned Action.
 
 A test may isolate its filesystem two ways, and mixing them destroys the live install:
 
