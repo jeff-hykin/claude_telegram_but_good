@@ -88,6 +88,15 @@ const SYNC_DECISION_TOOLS = new Set(["AskUserQuestion", "SendUserFile"])
 const needsDecision = data?.hook_event_name === "PreToolUse" &&
     SYNC_DECISION_TOOLS.has(data?.tool_name)
 
+// UserPromptSubmit matters only for Claude Code's "background command
+// finished" notice: the daemon may block it, refresh a stale session and
+// hand the notice to the fresh one. Any other prompt is not sent at all.
+const isPromptSubmit = data?.hook_event_name === "UserPromptSubmit"
+const isTaskNotice = isPromptSubmit && /^\s*<task-notification>/.test(data?.prompt ?? "")
+if (isPromptSubmit && !isTaskNotice) {
+    Deno.exit(0)
+}
+
 /**
  * Read one newline-delimited JSON frame from `conn`, bounded by an overall
  * deadline. Returns the parsed object, or null on timeout / parse failure.
@@ -122,7 +131,7 @@ try {
     const conn = await Deno.connect({ transport: "unix", path: paths.IPC_SOCK })
     await writeIpcFrame(conn, { type: "hook_event", claudePid, data })
 
-    if (needsDecision) {
+    if (needsDecision || isTaskNotice) {
         // Do NOT closeWrite() here: closing our write half makes the daemon's
         // read loop hit EOF and close the whole conn (its FD-leak guard)
         // before it can send the decision back, so the response write fails
@@ -133,7 +142,11 @@ try {
         // startup + the ancestry ps walk. Normal daemon response is sub-100ms.
         const decision = await readDecision(conn, 3000)
         try { conn.close() } catch (e) { dbg("HOOK", "close failed:", e) }
-        if (decision?.deny) {
+        if (isTaskNotice) {
+            if (decision?.block) {
+                console.log(JSON.stringify({ decision: "block", reason: decision.reason ?? "handed to a refreshed session" }))
+            }
+        } else if (decision?.deny) {
             console.log(JSON.stringify({
                 hookSpecificOutput: {
                     hookEventName: "PreToolUse",

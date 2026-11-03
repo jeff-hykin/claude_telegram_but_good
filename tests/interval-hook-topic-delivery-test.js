@@ -76,3 +76,14 @@ Deno.test("topic delivery: a bound session that never registered and has no sock
     const action = buildTopicDeliveryAction(core, "Life", "hello", {})
     assertEquals(effectsOfType(action, "spawn_dtach_session").length, 1)
 })
+
+Deno.test("topic delivery: resurrecting hands the new session what was queued for the dead one", () => {
+    const core = makeCore({
+        chatState: { commandCenter: cc, messageQueue: [{ targetSessionId: "Veteran", content: "Fixed yet?", meta: {}, queuedAt: 1 }] },
+        chatSessions: { Veteran: { title: "Life", pid: DEAD_PID, disconnectedAt: 1 } },
+    })
+    const action = buildTopicDeliveryAction(core, "Life", "hello", {})
+    const spawnedId = effectsOfType(action, "spawn_dtach_session")[0].sessionId
+    const queue = action.stateChanges.chatState.messageQueue
+    assertEquals(queue.map((entry) => [entry.targetSessionId, entry.content]), [[spawnedId, "Fixed yet?"], [spawnedId, "hello"]])
+})

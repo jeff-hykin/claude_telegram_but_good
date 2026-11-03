@@ -20,7 +20,7 @@ const { paths } = await versionedImport("../../lib/paths.js", import.meta)
 // event here (and teaching hook.js to handle it) is all it takes to
 // extend coverage — ensureSettingsJson / removeFromSettingsJson on the
 // caller side automatically pick it up.
-export const HOOK_EVENTS = ["PreToolUse", "PostToolUse", "Stop"]
+export const HOOK_EVENTS = ["PreToolUse", "PostToolUse", "Stop", "UserPromptSubmit"]
 
 function hookEntry() {
     return {
