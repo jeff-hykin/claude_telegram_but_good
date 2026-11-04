@@ -7,11 +7,17 @@ const { default: diskGuard, handleTick } = await import("../lib/event-handlers/d
 function lowCore(diskGuardLowSince) {
     return makeCore({
         chatState: { commandCenter: { chatId: "-100222" }, diskGuardLowSince },
-        chatSessions: { A: { id: "A", _conn: fakeConn() }, B: { id: "B", _conn: fakeConn() }, Gone: { id: "Gone" } },
+        chatSessions: {
+            A: { id: "A", _conn: fakeConn(), status: "working" },
+            B: { id: "B", _conn: fakeConn(), status: "idle", lastStopAt: 1000, lastToolAt: 2000 },
+            Idle: { id: "Idle", _conn: fakeConn(), status: "idle", lastStopAt: 2000, lastToolAt: 1000 },
+            Fresh: { id: "Fresh", _conn: fakeConn() },
+            Gone: { id: "Gone", status: "working" },
+        },
     })
 }
 
-Deno.test("under the limit, every connected session is warned on every tick and Jeff once", async () => {
+Deno.test("under the limit, every mid-turn session is warned on every tick (idle ones are never woken) and Jeff once", async () => {
     const first = await diskGuard({ type: "disk_guard_check", freeGb: 10, path: "/data" }, lowCore(undefined))
     assertEquals(effectsOfType(first, "deliver_channel_event").map((e) => e.sessionId), ["A", "B"])
     assert(effectsOfType(first, "deliver_channel_event")[0].content.includes("10.0 GB free"))
