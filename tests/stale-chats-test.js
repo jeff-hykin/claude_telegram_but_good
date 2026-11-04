@@ -34,6 +34,7 @@ Deno.test("stale = idle, connected, and the last turn ended a cache-lifetime ago
     assert(!isStaleSession({ _conn: fakeConn(), status: "idle", lastStopAt: now - 10 * 60_000 }, now, HOUR))
     assert(!isStaleSession({ _conn: fakeConn(), status: "working", lastStopAt: now - 2 * HOUR }, now, HOUR))
     assert(!isStaleSession({ status: "idle", lastStopAt: now - 2 * HOUR }, now, HOUR), "a dead session is not stale, it is gone")
+    assert(!isStaleSession({ _conn: fakeConn(), status: "idle", lastStopAt: now - 2 * HOUR, lastToolAt: now - 5000 }, now, HOUR), "a tool hook since the last Stop = mid-turn, not stale")
 })
 
 Deno.test("a stale topic gets 'consume Nk tokens?' exactly once per idle stretch", async () => {
@@ -83,6 +84,14 @@ Deno.test("a daemon restart keeps lastStopAt, so a session idle across it still 
     const entry = action.stateChanges.chatSessions.Old
     assertEquals(entry.lastStopAt, lastStopAt)
     assert(isStaleSession({ ...entry, _conn: fakeConn() }, Date.now(), HOUR))
+})
+
+Deno.test("a background-task notice mid-turn (tool ran since the last Stop) is passed, not refreshed", async () => {
+    const ups = (await import("../lib/event-handlers/claude-hook-user-prompt-submit.js")).default
+    const core = coreWith(Date.now() - 11 * HOUR)
+    core.chatSessions.Old.lastToolAt = Date.now() - 1000
+    const action = ups({ type: "claude_hook_user_prompt_submit", sessionId: "Old", prompt: "<task-notification>done</task-notification>", _conn: fakeConn() }, core)
+    assertEquals(action.effects.map((e) => e.message?.block), [false])
 })
 
 Deno.test("automatic wakes (long-run warning, file watch) refresh a stale topic instead of poking it", () => {
