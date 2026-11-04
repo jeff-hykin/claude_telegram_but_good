@@ -520,6 +520,10 @@ enqueueEvent({ type: "scheduled_task_stuck_watchdog" })
 // deletes their leftover files. See lib/event-handlers/stale-state-reaper.js.
 enqueueEvent({ type: "stale_state_reaper", startup: true })
 
+// ── Disk guard ──────────────────────────────────────────────────────
+// Self-reschedules every disk_guard_interval_ms. See lib/event-handlers/disk-guard-check.js.
+enqueueEvent({ type: "disk_guard_tick" })
+
 // ── Scheduled-task rehydration ─────────────────────────────────────────
 // For each non-terminal scheduled task in specialData, enqueue a
 // scheduled_task_rehydrate event so the schedule_timer_set effect
