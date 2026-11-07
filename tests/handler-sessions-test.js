@@ -153,6 +153,40 @@ Deno.test("session-unregister: clears focus when removing the focused session", 
     assertEquals(get(action, "stateChanges.chatState.focusedSessionId"), null)
 })
 
+Deno.test("session-unregister: a duplicate shim's exit does not evict the live session", () => {
+    // A nested claude inherits CBG_SESSION_ID, so its shim registers under the
+    // same id and then exits. The original shim is still connected — the entry
+    // must survive.
+    const live = fakeConn("conn-live")
+    const core = makeCore({
+        chatState: { focusedSessionId: "s1" },
+        chatSessions: { "s1": { id: "s1", _conn: live } },
+    })
+    const action = unregister({ sessionId: "s1", ts: 1, _conn: fakeConn("conn-dupe") }, core)
+    assertEquals(action, null)
+})
+
+Deno.test("session-unregister: the owning connection still removes the session", () => {
+    const live = fakeConn("conn-live")
+    const core = makeCore({
+        chatState: { focusedSessionId: "s1" },
+        chatSessions: { "s1": { id: "s1", _conn: live } },
+    })
+    const action = unregister({ sessionId: "s1", ts: 1, _conn: live }, core)
+    assertEquals(get(action, "stateChanges.chatSessions.s1"), undefined)
+    assertEquals(get(action, "stateChanges.chatState.focusedSessionId"), null)
+})
+
+Deno.test("session-unregister: soft-disconnected session still unregisters", () => {
+    // After a soft disconnect _conn is null; a late unregister should still clean up.
+    const core = makeCore({
+        chatState: { focusedSessionId: "other" },
+        chatSessions: { "s1": { id: "s1", _conn: null } },
+    })
+    const action = unregister({ sessionId: "s1", ts: 1, _conn: fakeConn("conn-x") }, core)
+    assertEquals(get(action, "stateChanges.chatSessions.s1"), undefined)
+})
+
 Deno.test("session-unregister: unknown session returns null", () => {
     const core = makeCore({ chatSessions: {} })
     const action = unregister({ sessionId: "ghost" }, core)
