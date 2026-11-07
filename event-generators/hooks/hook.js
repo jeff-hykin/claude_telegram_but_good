@@ -30,10 +30,21 @@
 // optional ack; failures are logged via dbg() and swallowed so a stalled
 // daemon never blocks Claude Code's tool pipeline.
 
-import { paths } from "../../lib/paths.js"
-import { dbg } from "../../lib/logging.js"
-import { findClaudePidStrict } from "../../lib/pid.js"
-import { writeIpcFrame, UNKNOWN_CLAUDE_PID } from "../../lib/ipc.js"
+// Everything but version.js comes through versionedImport, as the rest of
+// the codebase does. Plain imports here used to panic Deno outright --
+// `RefCell already borrowed` in libs/core/modules/map.rs, 100% of runs on
+// every version from 2.4 to 2.9.7 -- because logging.js pulls paths.js in
+// as `paths.js?v=<cbgVersion>` while this file pulled the same file in
+// unsalted. Two URLs for one module, instantiated concurrently by three
+// top-level-await dynamic imports, is enough to re-enter the module map.
+// Claude Code then showed the panic banner as a hook failure on every
+// single tool call. Keep these salted.
+import { versionedImport } from "../../lib/version.js"
+
+const { paths } = await versionedImport("../../lib/paths.js", import.meta)
+const { dbg } = await versionedImport("../../lib/logging.js", import.meta)
+const { findClaudePidStrict } = await versionedImport("../../lib/pid.js", import.meta)
+const { writeIpcFrame, UNKNOWN_CLAUDE_PID } = await versionedImport("../../lib/ipc.js", import.meta)
 
 // Strict lookup so we never send a guessed/fallback PID. If the ancestor
 // walk can't find a real claude process, tag with the UNKNOWN sentinel
