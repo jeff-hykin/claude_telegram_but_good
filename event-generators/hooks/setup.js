@@ -12,6 +12,8 @@
 // script in this directory.
 // ---------------------------------------------------------------------------
 
+import { join } from "../../imports.js"
+
 import { versionedImport } from "../../lib/version.js"
 
 const { paths } = await versionedImport("../../lib/paths.js", import.meta)
@@ -40,6 +42,12 @@ function hookEntry() {
  *   - the exact current paths.HOOK_PATH (trivially cbg's)
  *   - any command ending in "/event-generators/hooks/run-hook"
  *     (cbg's wrapper, possibly at a stale repo location after CBG_DIR moved)
+ *   - "<CBG_DIR>/run/hook", where the wrapper lived before it was renamed.
+ *     Anchored at CBG_DIR, so a user's own /opt/thing/run/hook is untouched.
+ *     Without this, an install predating the rename leaves an entry pointing
+ *     at a path that no longer exists, and every tool call reports a hook
+ *     failure forever: installHooks adds the new entry beside it instead of
+ *     rewriting it, because nothing recognised the old shape.
  *
  * We do NOT match on "hook" as a substring — a user-hook at
  * /usr/local/bin/pre-hook or similar should NOT be rewritten.
@@ -53,6 +61,13 @@ function isCbgHookCommand(cmd) {
     }
     if (cmd.endsWith("/event-generators/hooks/run-hook")) {
         return true
+    }
+    // Pre-rename wrapper. `plugin` is the symlink the installer makes to the
+    // checkout, so both spellings of the old location are covered.
+    for (const root of [paths.CBG_DIR, join(paths.CBG_DIR, "plugin"), paths.LOCAL_REPO]) {
+        if (cmd === join(root, "run", "hook")) {
+            return true
+        }
     }
     return false
 }
@@ -70,16 +85,22 @@ export function installHooks(settings) {
         if (!settings.hooks[event]) {
             settings.hooks[event] = []
         }
-        // Rewrite any stale cbg hook paths from previous installs —
-        // but NEVER touch a user's own hook that happens to have "hook"
-        // in its path. `isCbgHookCommand` is deliberately narrow.
+        // Drop stale cbg hook paths from previous installs (the fresh
+        // entry is pushed below if none remains). Rewriting them in place
+        // instead would leave a duplicate beside an existing current
+        // entry, and every hook would fire twice. NEVER touch a user's
+        // own hook that happens to have "hook" in its path —
+        // `isCbgHookCommand` is deliberately narrow.
         for (const matcher of settings.hooks[event]) {
-            for (const h of (matcher.hooks ?? [])) {
-                if (isCbgHookCommand(h.command) && h.command !== paths.HOOK_PATH) {
-                    h.command = paths.HOOK_PATH
-                }
+            if (Array.isArray(matcher.hooks)) {
+                matcher.hooks = matcher.hooks.filter(
+                    h => !(isCbgHookCommand(h.command) && h.command !== paths.HOOK_PATH),
+                )
             }
         }
+        settings.hooks[event] = settings.hooks[event].filter(
+            m => !Array.isArray(m.hooks) || m.hooks.length > 0,
+        )
         const found = settings.hooks[event].find(m =>
             m.matcher === "*" && m.hooks?.some(h => h.command === paths.HOOK_PATH)
         )
