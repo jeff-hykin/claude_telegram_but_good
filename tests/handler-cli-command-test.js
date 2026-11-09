@@ -553,3 +553,60 @@ Deno.test("cli-command: ask_sync --que (idle) delivers immediately (preserves re
     assertEquals(effectsOfType(action, "deliver_channel_event").length, 1)
     assertEquals(get(action, "stateChanges.chatSessions.Target.pendingQueue"), undefined)
 })
+
+// ── long-task kinds ─────────────────────────────────────────────────
+//
+// The /task_* helpers are Telegram commands, so a session that had just
+// debugged a task-system failure could read the wreckage but not clear
+// it. These two kinds give the CLI the same abilities, through the same
+// builder the chat command uses.
+
+function coreWithTasks() {
+    return makeCore({
+        chatSessions: { worker: { id: "worker", longTaskId: "t1", status: "working" } },
+        specialData: {
+            longTaskByChatId: {
+                "42": {
+                    t1: { id: "t1", title: "a task", state: "in_progress", workerSessionId: "worker", threadId: 7 },
+                    t2: { id: "t2", title: "done one", state: "certified", workerSessionId: "worker" },
+                },
+            },
+        },
+    })
+}
+
+Deno.test("cli-command: list_long_tasks reports every task with its chat and worker", () => {
+    const action = handle({ kind: "list_long_tasks", payload: {}, _conn: fakeConn(), ts: 1 }, coreWithTasks())
+    const { ok, tasks } = effectsOfType(action, "ipc_respond")[0].message
+    assertEquals(ok, true)
+    assertEquals(tasks.map(t => t.id).sort(), ["t1", "t2"])
+    const t1 = tasks.find(t => t.id === "t1")
+    assertEquals(t1.chatId, "42")
+    assertEquals(t1.state, "in_progress")
+    assertEquals(t1.workerSessionId, "worker")
+    assertEquals(t1.threadId, 7)
+})
+
+Deno.test("cli-command: cancel_long_task cancels through the same builder as /task_cancel_", () => {
+    const action = handle({ kind: "cancel_long_task", payload: { taskId: "t1" }, _conn: fakeConn(), ts: 1 }, coreWithTasks())
+    assertEquals(get(action, "stateChanges.specialData.longTaskByChatId.42.t1.state"), "cancelled")
+    assertEquals(get(action, "stateChanges.chatSessions.worker.longTaskId"), undefined)
+    // The ipc reply is appended AFTER the cancel's own effects, so the
+    // CLI can't be told "done" before the worker was told to stop.
+    const effects = action.effects
+    assertEquals(effects[effects.length - 1].type, "ipc_respond")
+    assertEquals(effects[effects.length - 1].message.ok, true)
+})
+
+Deno.test("cli-command: cancel_long_task reports a missing task and an uncancellable one", () => {
+    const ghost = handle({ kind: "cancel_long_task", payload: { taskId: "nope" }, _conn: fakeConn(), ts: 1 }, coreWithTasks())
+    assertEquals(effectsOfType(ghost, "ipc_respond")[0].message.ok, false)
+
+    const terminal = handle({ kind: "cancel_long_task", payload: { taskId: "t2" }, _conn: fakeConn(), ts: 1 }, coreWithTasks())
+    const msg = effectsOfType(terminal, "ipc_respond")[0].message
+    assertEquals(msg.ok, false)
+    assert(msg.error.includes("terminal"))
+
+    const noId = handle({ kind: "cancel_long_task", payload: {}, _conn: fakeConn(), ts: 1 }, coreWithTasks())
+    assertEquals(effectsOfType(noId, "ipc_respond")[0].message.ok, false)
+})

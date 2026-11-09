@@ -31,6 +31,8 @@ function printUsage() {
         ["sessions",         "List active sessions (IDs, topics, titles)"],
         ["tell <target> msg","Send a message to a session (by ID, topic, or title)"],
         ["inbox latest <id>","Read latest message from an inbox (JSON output)"],
+        ["task list",        "List long tasks (state, worker, orphan status)"],
+        ["task cancel <id>", "Cancel a long task (same as /task_cancel_<id>)"],
         ["ask --sync ...",   "Send question and block for reply (" + c.dim("--from --to --question") + ")"],
         ["question ...",     "Ask the USER a button question (" + c.dim("--text --options [--sync]") + ")"],
         ["authorize",        "Generate a one-time pairing code for a new user"],
@@ -104,6 +106,11 @@ switch (cmd) {
     case "inbox": {
         const { runInbox } = await versionedImport("./commands/inbox.js", import.meta)
         await runInbox(args)
+        break
+    }
+    case "task": {
+        const { runTask } = await versionedImport("./commands/task.js", import.meta)
+        await runTask(args)
         break
     }
     case "ask": {
