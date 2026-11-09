@@ -130,7 +130,7 @@ Deno.test("checkin: a worker that moved on also counts as orphaned", () => {
     assert(reschedules(checkin(ev(1_000_000), core)))
 })
 
-Deno.test("checkin: an orphaned task stays quiet at first, then tells the user once", () => {
+Deno.test("checkin: an orphaned task stays quiet at first, then keeps telling the user", () => {
     removeReport()
     const orphanedSince = 1_000_000
     const core = coreFor({ orphanedSince })
@@ -142,12 +142,25 @@ Deno.test("checkin: an orphaned task stays quiet at first, then tells the user o
     const late = checkin(ev(orphanedSince + 45 * 60 * 1000), core)
     const alerts = effectsOfType(late, "send_text_to_user")
     assertEquals(alerts.length, 1)
-    assertEquals(alerts[0].chatId, CHAT)
+    assertEquals(alerts[0].replyTo.chatId, CHAT)
     assert(alerts[0].text.includes(TASK))
 
-    const alerted = coreFor({ orphanedSince, orphanAlertedAt: orphanedSince + 45 * 60 * 1000 })
+    // Having spoken once is NOT a reason to go quiet — a task sat
+    // orphaned for 6h on 2026-11-09 having said so exactly once, which
+    // reads identically to a task that is working fine. The gap widens
+    // (30m → 1h → 2h, capped) but never becomes silence.
+    const alerted = coreFor({
+        orphanedSince,
+        orphanAlertedAt: orphanedSince + 45 * 60 * 1000,
+        orphanAlertCount: 1,
+    })
     delete alerted.chatSessions[SESSION]
-    assertEquals(effectsOfType(checkin(ev(orphanedSince + 90 * 60 * 1000), alerted), "send_text_to_user").length, 0)
+    // 15 min after the first alert: too soon for the 1h second gap.
+    assertEquals(effectsOfType(checkin(ev(orphanedSince + 60 * 60 * 1000), alerted), "send_text_to_user").length, 0)
+    // 75 min after it: due again.
+    const second = checkin(ev(orphanedSince + 120 * 60 * 1000), alerted)
+    assertEquals(effectsOfType(second, "send_text_to_user").length, 1)
+    assertEquals(second.stateChanges.specialData.longTaskByChatId[CHAT][TASK].orphanAlertCount, 2)
 })
 
 Deno.test("checkin: a worker that comes back clears the orphan markers", () => {

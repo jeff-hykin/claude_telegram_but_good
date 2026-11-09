@@ -608,20 +608,22 @@ try {
 
 // ── Long-task nudge rehydration ───────────────────────────────────────
 // The 30-minute task_checkin is the restart-independent backup nudge for
-// in-progress long tasks, but it rides on an in-memory set_timer that a
+// live long tasks, but it rides on an in-memory set_timer that a
 // daemon restart wipes. Without this, the check-in chain dies on restart
 // and the worker silently stops being nudged (a task once stalled ~5h
-// unseen this way). Re-arm the check-in timer for every in_progress task;
-// task_checkin re-validates the session at fire time and self-reschedules.
+// unseen this way). Re-arm the check-in timer for every live task —
+// `defining` as well as `in_progress`, since a task frozen mid-draft is
+// just as lost and used to have no watchdog at all. task_checkin
+// re-validates the session at fire time and self-reschedules.
 try {
     const byChat = specialData?.longTaskByChatId ?? {}
     let taskRehydrated = 0
     for (const [chatId, tasks] of Object.entries(byChat)) {
         for (const [taskId, task] of Object.entries(tasks ?? {})) {
             if (!task || typeof task !== "object") { continue }
-            if (task.state !== "in_progress") { continue }
+            if (task.state !== "in_progress" && task.state !== "defining") { continue }
             if (!task.workerSessionId) {
-                dbg("MAIN", `long-task rehydrate: ${taskId} in_progress but no workerSessionId — skipping`)
+                dbg("MAIN", `long-task rehydrate: ${taskId} ${task.state} but no workerSessionId — skipping`)
                 continue
             }
             enqueueEvent({

@@ -480,7 +480,11 @@ Deno.test("chat-user: /task prompt points the worker at paths.longTaskDir, not $
 Deno.test("chat-user: /task_cancel_<id> marks the task state=cancelled (recoverable via /task_resume)", async () => {
     const core = makeCore({
         chatState: { focusedSessionId: "worker" },
-        chatSessions: { "worker": { id: "worker", _conn: {} } },
+        // longTaskId is the other half of task ownership — a session
+        // hosting an in_progress task always has it, and the cancel path
+        // now checks it before clearing anything (see
+        // lib/pure/long-task-ownership.js).
+        chatSessions: { "worker": { id: "worker", _conn: {}, longTaskId: "t1" } },
         specialData: {
             longTaskByChatId: {
                 "42": {
