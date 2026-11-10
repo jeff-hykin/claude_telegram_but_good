@@ -252,6 +252,25 @@ Deno.test("rehome: a task with no recorded threadId falls back to its worker's t
     assertEquals(findRehomeCandidate(core, task({ threadId: undefined }), "TaskA"), "Heir")
 })
 
+Deno.test("checkin: a duplicate orphan chain drops instead of becoming a second immortal timer", () => {
+    const now = Date.now()
+    const core = coreWith({ sessions: {}, cc: { threadMap: {} } })
+
+    // First fire of an orphaned task: alerts, reschedules, stamps the check.
+    const first = checkin({ sessionId: "Worker", taskId: "TaskA", ts: now }, core)
+    assertEquals(effectsOfType(first, "set_timer").length, 1)
+    assertEquals(get(first, "stateChanges.specialData.longTaskByChatId.42.TaskA.orphanCheckedAt"), now)
+
+    // A second timer firing inside the window is a duplicate chain — it
+    // must die rather than reschedule itself forever.
+    const dup = coreWith({ tasks: [task({ orphanCheckedAt: now })], sessions: {}, cc: { threadMap: {} } })
+    assertEquals(checkin({ sessionId: "Worker", taskId: "TaskA", ts: now + 10 * 60 * 1000 }, dup), null)
+
+    // The surviving chain's own next fire is past the window and lives on.
+    const later = checkin({ sessionId: "Worker", taskId: "TaskA", ts: now + 30 * 60 * 1000 }, dup)
+    assertEquals(effectsOfType(later, "set_timer").length, 1)
+})
+
 Deno.test("checkin: an orphaned task is handed to its topic's successor", () => {
     const core = coreWith({
         sessions: { Heir: { id: "Heir" } },
