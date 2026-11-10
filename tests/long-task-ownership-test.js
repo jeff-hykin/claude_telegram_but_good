@@ -9,7 +9,7 @@
 //   2. a task that loses its worker is handed to its topic's successor
 //   3. a task that cannot be handed over keeps saying so
 
-import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts"
+import { assertEquals, assert, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts"
 import { setupTempPaths, makeCore, effectsOfType, get, paths } from "./_helpers.js"
 
 setupTempPaths("cbg-task-ownership-test-")
@@ -22,6 +22,8 @@ const {
     sessionOwnsTask,
     buildWorkerReleasePatch,
     findRehomeCandidate,
+    resolveRehome,
+    describeRehomeBlock,
     findTasksAwaitingThread,
     taskReplyTo,
     isLiveTaskState,
@@ -198,6 +200,48 @@ Deno.test("rehome: no candidate when the topic's session is busy, absent, or unc
 
     const noThread = coreWith({ sessions: { Heir: { id: "Heir" } } })
     assertEquals(findRehomeCandidate(noThread, task({ threadId: null }), "TaskA"), null)
+})
+
+Deno.test("rehome: the blocked reason distinguishes an empty topic from a busy one", () => {
+    const busy = coreWith({
+        sessions: { Heir: { id: "Heir", longTaskId: "Other" } },
+        cc: { threadMap: { "77": "Heir" } },
+    })
+    assertEquals(resolveRehome(busy, task(), "TaskA"), {
+        heirId: null,
+        reason: "session-busy",
+        candidateId: "Heir",
+        blockingTaskId: "Other",
+    })
+
+    const notConnected = coreWith({ cc: { threadMap: { "77": "Heir" } } })
+    assertEquals(resolveRehome(notConnected, task(), "TaskA"), {
+        heirId: null,
+        reason: "session-gone",
+        candidateId: "Heir",
+    })
+
+    const empty = coreWith({ sessions: { Worker: { id: "Worker" } }, cc: { threadMap: { "77": "Worker" } } })
+    assertEquals(resolveRehome(empty, task(), "TaskA").reason, "no-session")
+
+    const noThread = coreWith({ sessions: { Heir: { id: "Heir" } } })
+    assertEquals(resolveRehome(noThread, task({ threadId: null }), "TaskA").reason, "no-thread")
+})
+
+Deno.test("rehome: a busy topic is never told to /refresh — that would kill the live worker", () => {
+    const busy = coreWith({
+        sessions: { Heir: { id: "Heir", longTaskId: "Other" } },
+        cc: { threadMap: { "77": "Heir" } },
+    })
+    const { blocker, advice } = describeRehomeBlock(resolveRehome(busy, task(), "TaskA"), "TaskA")
+    assertStringIncludes(blocker, "Heir")
+    assertStringIncludes(blocker, "Other")
+    assert(!blocker.includes("No session is bound"))
+    assert(!advice.includes("/refresh"))
+    assertStringIncludes(advice, "/task_cancel_TaskA")
+
+    const empty = coreWith({ sessions: { Worker: { id: "Worker" } }, cc: { threadMap: { "77": "Worker" } } })
+    assertStringIncludes(describeRehomeBlock(resolveRehome(empty, task(), "TaskA"), "TaskA").advice, "/refresh")
 })
 
 Deno.test("rehome: a task with no recorded threadId falls back to its worker's topic", () => {
