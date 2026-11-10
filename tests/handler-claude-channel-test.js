@@ -441,3 +441,66 @@ Deno.test("claude-channel: unknown tool name returns an error response", () => {
     assertEquals(ipc[0].message.result.isError, true)
     assert(ipc[0].message.result.content[0].text.includes("unknown tool"))
 })
+
+// ── start_long_well_defined_task ───────────────────────────────────────
+//
+// This path had NO coverage, and that is how it broke: the handler
+// referenced TASK_CHECKIN_MS without importing it, so every call threw a
+// ReferenceError after the dbg line. The agent saw only a tool call that
+// never came back, and no task was ever created. `deno check` does not
+// catch an undefined identifier in plain JS, so only a test that actually
+// runs the handler can.
+
+Deno.test("claude-channel: an agent can start its own long task", () => {
+    const core = makeCore({
+        chatSessions: { "sess-1": { id: "sess-1" } },
+        chatState: { commandCenter: { chatId: "42", topicMap: { "sess-1": 77 }, threadMap: { "77": "sess-1" } } },
+    })
+    const action = handle(makeEvent("start_long_well_defined_task", {
+        chat_id: "42",
+        description: "port the FAR planner to the new nav stack",
+        definition_of_done: "## Done when\nthe planner builds and the tests pass",
+    }), core)
+
+    const tasks = get(action, "stateChanges.specialData.longTaskByChatId.42") ?? {}
+    const taskId = Object.keys(tasks)[0]
+    assert(taskId, "a task should have been created")
+    assertEquals(tasks[taskId].state, "in_progress")
+    assertEquals(tasks[taskId].workerSessionId, "sess-1")
+    // Recorded at creation so orphan alerts and re-homing survive the worker.
+    assertEquals(tasks[taskId].threadId, 77)
+    assertEquals(get(action, "stateChanges.chatSessions.sess-1.longTaskId"), taskId)
+    assertEquals(get(action, "stateChanges.chatSessions.sess-1.pendingNudgeAction"), "taskCheck")
+
+    // The backup watchdog is armed at creation -- an agent-started task
+    // used to run with no check-in chain until some other nudge path
+    // happened to arm one.
+    const timers = effectsOfType(action, "set_timer")
+    const checkin = timers.filter((t) => t.event?.type === "task_checkin")
+    assertEquals(checkin.length, 1)
+    assertEquals(checkin[0].delayMs, 30 * 60 * 1000)
+    assertEquals(checkin[0].event.taskId, taskId)
+
+    // And the agent gets a real answer, not a hang.
+    const responses = effectsOfType(action, "ipc_respond")
+    assertEquals(responses.length, 1)
+    assertEquals(responses[0].message.result.isError, undefined)
+})
+
+Deno.test("claude-channel: a second long task is refused while one is live", () => {
+    const core = makeCore({
+        chatSessions: { "sess-1": { id: "sess-1", longTaskId: "TaskA" } },
+        chatState: { commandCenter: { chatId: "42", topicMap: { "sess-1": 77 } } },
+        specialData: { longTaskByChatId: { "42": { TaskA: { id: "TaskA", state: "in_progress" } } } },
+    })
+    const action = handle(makeEvent("start_long_well_defined_task", {
+        chat_id: "42",
+        description: "something else",
+        definition_of_done: "## Done when\nnever",
+    }), core)
+
+    assertEquals(get(action, "stateChanges.specialData"), undefined)
+    const responses = effectsOfType(action, "ipc_respond")
+    assertEquals(responses.length, 1)
+    assertEquals(responses[0].message.result.isError, true)
+})
