@@ -110,3 +110,31 @@ Deno.test("stuck-watchdog: multiple stuck tasks across chats are all reaped", ()
     const ids = action.followUpEvents.map(e => e.scheduleTaskId).sort()
     assertEquals(ids, ["a", "b", "c"])
 })
+
+function scheduledTask(id, nextFireAt) {
+    return {
+        id,
+        title: `task ${id}`,
+        state: "scheduled",
+        rule: { freq: "DAILY", byhour: [12], byminute: [0], tzid: "UTC" },
+        tracking: { nextFireAt },
+    }
+}
+
+Deno.test("stuck-watchdog: scheduled task whose fire is long overdue gets its timer rearmed", () => {
+    const overdue = new Date(Date.now() - 3 * 24 * 60 * 60_000).toISOString()
+    const core = coreWithTasks({ "42": { s1: scheduledTask("s1", overdue) } })
+    const action = handle({ type: "scheduled_task_stuck_watchdog" }, core)
+    const rearms = effectsOfType(action, "schedule_timer_set")
+    assertEquals(rearms.length, 1)
+    assertEquals(rearms[0].scheduleTaskId, "s1")
+    assertEquals(rearms[0].resumeAt, overdue)
+})
+
+Deno.test("stuck-watchdog: scheduled task with an upcoming or just-due fire is left alone", () => {
+    const upcoming = new Date(Date.now() + 60 * 60_000).toISOString()
+    const justDue = new Date(Date.now() - 60_000).toISOString()
+    const core = coreWithTasks({ "42": { a: scheduledTask("a", upcoming), b: scheduledTask("b", justDue) } })
+    const action = handle({ type: "scheduled_task_stuck_watchdog" }, core)
+    assertEquals(effectsOfType(action, "schedule_timer_set"), [])
+})

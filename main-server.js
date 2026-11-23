@@ -183,6 +183,8 @@ function wake() {
     }
 }
 
+const TIMER_FIRE_EVENT_TYPES = new Set(["interval_hook_fire", "scheduled_task_fire"])
+
 function enqueueEvent(event) {
     if (!event || typeof event.type !== "string") {
         dbg("QUEUE", "refusing to enqueue malformed event:", event)
@@ -199,9 +201,13 @@ function enqueueEvent(event) {
         }
         const purged = before - eventQueue.length
         dbg("QUEUE", `ALERT: queue at cap (${before}/${maxQueue}), purged ${purged} tool-call events, depth=${eventQueue.length}`)
-        if (eventQueue.length >= maxQueue) {
+        // a dropped timer fire is never rearmed, so the hook or task would silently stop for good
+        if (eventQueue.length >= maxQueue && !TIMER_FIRE_EVENT_TYPES.has(event.type)) {
             dbg("QUEUE", `ALERT: queue still full after purge, dropping event type=${event.type}`)
             return
+        }
+        if (eventQueue.length >= maxQueue) {
+            dbg("QUEUE", `ALERT: queue still full after purge, keeping timer event type=${event.type} past the cap`)
         }
     }
     event.ts = event.ts ?? Date.now()
