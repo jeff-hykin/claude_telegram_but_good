@@ -77,6 +77,34 @@ Deno.test("session-register: pendingFocusId gets promoted", () => {
     assertEquals(get(action, "stateChanges.chatState.pendingFocusId"), undefined)
 })
 
+Deno.test("session-register: a nested claude's shim does not take over the live session", async () => {
+    // The nested claude is a child of the session's claude (here: this test
+    // process), so its shim must not steal _conn — its exit would evict us.
+    const child = new Deno.Command("sleep", { args: ["5"] }).spawn()
+    try {
+        const live = fakeConn("conn-live")
+        const core = makeCore({
+            chatState: { focusedSessionId: "s1" },
+            chatSessions: { "s1": { id: "s1", pid: Deno.pid, _conn: live } },
+        })
+        const action = register(regEvent("s1", { session: { id: "s1", pid: child.pid, cwd: "/tmp" } }), core)
+        assertEquals(get(action, "stateChanges"), undefined)
+        assertEquals(effectsOfType(action, "ipc_respond").length, 1)
+    } finally {
+        child.kill()
+        await child.status
+    }
+})
+
+Deno.test("session-register: a restarted shim in the same claude still takes over", () => {
+    const core = makeCore({
+        chatState: { focusedSessionId: "s1" },
+        chatSessions: { "s1": { id: "s1", pid: Deno.pid, _conn: fakeConn("conn-old") } },
+    })
+    const action = register(regEvent("s1", { session: { id: "s1", pid: Deno.pid, cwd: "/tmp" } }), core)
+    assertEquals(get(action, "stateChanges.chatSessions.s1").id, "s1")
+})
+
 Deno.test("session-register: replies to shim with sessions summary", () => {
     const core = makeCore({ chatState: { focusedSessionId: null } })
     const action = register(regEvent("s1"), core)
